@@ -140,7 +140,7 @@ describe("buildBlogJsonLd", () => {
 
 describe("getBlogSlugs", () => {
   it("lists all post slugs in the content corpus", () => {
-    expect(getBlogSlugs()).toHaveLength(239);
+    expect(getBlogSlugs()).toHaveLength(264);
     expect(getBlogSlugs()).toContain("excel-vs-application-mariage");
   });
 });
