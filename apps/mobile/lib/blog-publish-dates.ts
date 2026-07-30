@@ -273,6 +273,34 @@ export const BLOG_PUBLISH_PRIORITY: string[] = [
   "sortie-ceremonie-petales-confettis-bulles",
   "accueil-invites-etrangers-mariage",
   "discours-parents-mariage",
+  // Tier 29 — SEO: vendor price pages (combien coûte)
+  "combien-coute-photographe-mariage",
+  "combien-coute-traiteur-mariage-personne",
+  "combien-coute-dj-mariage",
+  "combien-coute-location-salle-mariage",
+  "combien-coute-wedding-planner-mariage",
+  "combien-coute-fleuriste-mariage",
+  "combien-coute-robe-de-mariee",
+  "combien-coute-videaste-mariage",
+  // Tier 30 — SEO: price pages (items & totals)
+  "combien-coute-piece-montee-mariage",
+  "combien-coute-faire-part-mariage",
+  "combien-coute-coiffure-maquillage-mariee",
+  "combien-coute-bague-de-fiancailles",
+  "combien-coute-groupe-musique-mariage",
+  "combien-coute-un-mariage-civil-mairie",
+  "combien-coute-mariage-100-personnes",
+  "combien-coute-mariage-50-personnes",
+  // Tier 31 — SEO: fact & decision pages
+  "combien-de-temoins-mariage",
+  "quel-age-legal-pour-se-marier-france",
+  "mariage-civil-obligatoire-avant-religieux",
+  "meilleure-saison-pour-se-marier",
+  "quelle-taille-de-salle-pour-mariage",
+  "quel-vin-servir-a-un-mariage",
+  "quel-cadeau-offrir-pour-un-mariage",
+  "combien-de-temps-dure-un-mariage",
+  "difference-mariage-civil-religieux-laique",
 ];
 
 function addDays(iso: string, days: number): string {
