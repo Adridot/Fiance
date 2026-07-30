@@ -20,6 +20,8 @@ import { POSTS_193_200_EN, POSTS_193_200_FR } from "./blog-posts-193-200";
 import { POSTS_201_208_EN, POSTS_201_208_FR } from "./blog-posts-201-208";
 import { POSTS_209_216_EN, POSTS_209_216_FR } from "./blog-posts-209-216";
 import { POSTS_217_224_EN, POSTS_217_224_FR } from "./blog-posts-217-224";
+import { POSTS_225_232_EN, POSTS_225_232_FR } from "./blog-posts-225-232";
+import { POSTS_233_239_EN, POSTS_233_239_FR } from "./blog-posts-233-239";
 import {
   getBlogPublishDate,
   getBuildDate,
@@ -272,6 +274,8 @@ const POSTS: Record<"fr" | "en", BlogPost[]> = {
     ...POSTS_201_208_FR,
     ...POSTS_209_216_FR,
     ...POSTS_217_224_FR,
+    ...POSTS_225_232_FR,
+    ...POSTS_233_239_FR,
   ],
   en: [
     {
@@ -495,6 +499,8 @@ const POSTS: Record<"fr" | "en", BlogPost[]> = {
     ...POSTS_201_208_EN,
     ...POSTS_209_216_EN,
     ...POSTS_217_224_EN,
+    ...POSTS_225_232_EN,
+    ...POSTS_233_239_EN,
   ],
 };
 

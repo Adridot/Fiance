@@ -256,6 +256,23 @@ export const BLOG_PUBLISH_PRIORITY: string[] = [
   "blues-post-mariage",
   "boissons-sans-alcool-mariage",
   "repas-prestataires-mariage",
+  // Tier 27 — outdoor & venue logistics, food & grooming
+  "agencement-salle-plan-espace",
+  "parking-invites-mariage",
+  "signaletique-mariage",
+  "toilettes-sanitaires-mariage-exterieur",
+  "electricite-mariage-exterieur",
+  "buffet-fromages-mariage",
+  "bar-a-bonbons-candy-bar-mariage",
+  "soins-homme-marie-avant-mariage",
+  // Tier 28 — timing, distance & people
+  "mariage-week-end-deux-jours",
+  "organiser-mariage-a-distance",
+  "baby-sitter-garde-enfants-mariage",
+  "se-marier-jour-ferie-pont",
+  "sortie-ceremonie-petales-confettis-bulles",
+  "accueil-invites-etrangers-mariage",
+  "discours-parents-mariage",
 ];
 
 function addDays(iso: string, days: number): string {
