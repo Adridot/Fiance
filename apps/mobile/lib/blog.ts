@@ -16,6 +16,7 @@ import { POSTS_125_144_EN, POSTS_125_144_FR } from "./blog-posts-125-144";
 import { POSTS_145_164_EN, POSTS_145_164_FR } from "./blog-posts-145-164";
 import { POSTS_165_184_EN, POSTS_165_184_FR } from "./blog-posts-165-184";
 import { POSTS_185_192_EN, POSTS_185_192_FR } from "./blog-posts-185-192";
+import { POSTS_193_200_EN, POSTS_193_200_FR } from "./blog-posts-193-200";
 import {
   getBlogPublishDate,
   getBuildDate,
@@ -264,6 +265,7 @@ const POSTS: Record<"fr" | "en", BlogPost[]> = {
     ...POSTS_145_164_FR,
     ...POSTS_165_184_FR,
     ...POSTS_185_192_FR,
+    ...POSTS_193_200_FR,
   ],
   en: [
     {
@@ -483,6 +485,7 @@ const POSTS: Record<"fr" | "en", BlogPost[]> = {
     ...POSTS_145_164_EN,
     ...POSTS_165_184_EN,
     ...POSTS_185_192_EN,
+    ...POSTS_193_200_EN,
   ],
 };
 

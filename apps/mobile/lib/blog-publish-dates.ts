@@ -220,6 +220,15 @@ export const BLOG_PUBLISH_PRIORITY: string[] = [
   "beaute-mains-ongles-avant-mariage",
   "coiffeur-maquilleur-domicile-jour-j",
   "checklist-derniere-semaine-avant-mariage",
+  // Tier 23 — legal/admin, ceremony traditions & logistics gaps
+  "se-marier-avec-un-etranger-france",
+  "mariage-impots-declaration-commune",
+  "donation-entre-epoux-proteger-conjoint",
+  "ceremonies-religieuses-juive-musulmane-protestante-orthodoxe",
+  "diner-de-repetition-mariage",
+  "voiture-des-maries-cortege-transport",
+  "se-marier-enceinte-mariage-grossesse",
+  "droit-de-bouchon-vin-mariage",
 ];
 
 function addDays(iso: string, days: number): string {
