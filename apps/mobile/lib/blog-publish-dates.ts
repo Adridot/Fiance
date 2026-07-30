@@ -229,6 +229,33 @@ export const BLOG_PUBLISH_PRIORITY: string[] = [
   "voiture-des-maries-cortege-transport",
   "se-marier-enceinte-mariage-grossesse",
   "droit-de-bouchon-vin-mariage",
+  // Tier 24 — legal/admin edge cases
+  "se-marier-a-l-etranger-transcription",
+  "changement-regime-matrimonial-apres-mariage",
+  "livret-de-famille-mariage",
+  "demarches-administratives-apres-mariage",
+  "assurance-responsabilite-mariage-jour-j",
+  "annuler-mariage-contrats-acomptes",
+  "reporter-mariage-changer-date",
+  "mariage-nom-des-enfants",
+  // Tier 25 — ceremony detail, culture & vendors
+  "lectures-textes-ceremonie-mariage",
+  "musique-ceremonie-mariage",
+  "mariage-oriental-traditions-henne",
+  "mariage-interculturel-deux-cultures",
+  "sonorisation-eclairage-soiree-mariage",
+  "feu-artifice-etincelles-mariage",
+  "maitre-ceremonie-animateur-mariage",
+  "questions-visite-lieu-reception-mariage",
+  // Tier 26 — modern, wellbeing & food
+  "mariage-visio-streaming-invites-absents",
+  "hashtag-mariage-reseaux-sociaux",
+  "ceremonie-sans-telephone-unplugged",
+  "doute-prenuptial-cold-feet",
+  "desaccords-couple-preparatifs",
+  "blues-post-mariage",
+  "boissons-sans-alcool-mariage",
+  "repas-prestataires-mariage",
 ];
 
 function addDays(iso: string, days: number): string {
