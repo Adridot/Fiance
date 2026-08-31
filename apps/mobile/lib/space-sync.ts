@@ -62,6 +62,7 @@ import {
   type Session,
   type ObjectNode,
   type NodeDescriptor,
+  getSpaceAccessEntry,
 } from '@fiance/sdk';
 import { StarfishHttpError } from '@drakkar.software/starfish-client';
 import { useWeddingStore } from '@/store/useWeddingStore';
@@ -89,6 +90,12 @@ import { usePermissionsStore } from '@/store/usePermissionsStore';
 import { getActiveSession, getActiveSpaceId, getActiveWeddingNodeId } from '@/lib/starfish';
 import { applyRsvpSubmissionsByGuestId, type RsvpSubmission } from '@/lib/rsvp-sync';
 import { withIndexLock } from '@/lib/index-lock';
+// MODIFICATION LOCALE — le KV local, seul état de ce fichier qui survive au
+// départ de la page (voir « la demande de poussée survit au départ » plus bas).
+import { readCollection, writeCollection } from '@/lib/kv-storage';
+// MODIFICATION LOCALE — un échec de déchiffrement cesse d'être un console.warn.
+import { epoquesDetenuesDeLEspace, signalerLecture } from '@/lib/acces-chiffre';
+import { collectionIllisible } from '@/store/useAccesChiffreStore';
 
 // ---------------------------------------------------------------------------
 // Debounced push scheduler
@@ -393,6 +400,13 @@ async function pushCollectionDoc(
   merge: (cur: unknown, doc: CollectionDoc, now: number) => CollectionDoc = (cur, doc, now) =>
     mergeCollectionDoc(cur, doc, { now }),
 ): Promise<boolean> {
+  // MODIFICATION LOCALE — un appareil qui ne peut pas LIRE cette collection ne
+  // doit pas l'écrire : sa copie locale est vide, et la poussée écraserait le
+  // contenu scellé qu'il n'a pas su déchiffrer.
+  if (collectionIllisible(node.type)) {
+    console.warn(`[space-sync] poussée refusée : ${node.type} est illisible sur cet appareil`);
+    return false;
+  }
   try {
     const handle = await getNodeAccess(spaceId, node.id, node, session, null);
     await handle.push(
@@ -510,14 +524,22 @@ async function pullNodeContent(
   spaceId: string,
   node: ObjectNode,
 ): Promise<Record<string, unknown> | null> {
+  // MODIFICATION LOCALE — un nœud en clair n'a pas d'époque : rien à classer.
+  const classer = (lecture: Parameters<typeof signalerLecture>[1]) => {
+    if (node.enc === false) return;
+    try { void signalerLectureDuNoeud(session, spaceId, node, lecture); } catch { /* idem */ }
+  };
+  let result: { hash?: string; data: Record<string, unknown> | null } | null = null;
   try {
     const handle = await getNodeAccess(spaceId, node.id, node, session, null);
-    const result = await handle.client.pull(objDocPull(spaceId, node.id)) as { data: Record<string, unknown> | null };
-    if (!result?.data) return null;
-    return handle.encryptor ? await handle.encryptor.decrypt(result.data) : result.data;
+    result = await handle.client.pull(objDocPull(spaceId, node.id)) as { hash?: string; data: Record<string, unknown> | null };
+    if (!result?.data) { classer({ hash: result?.hash, data: result?.data }); return null; }
+    const clair = handle.encryptor ? await handle.encryptor.decrypt(result.data) : result.data;
+    classer(null);
+    return clair;
   } catch (err) {
-    // Log once per node so a missing space-access credential is visible in the console
-    // rather than presenting as a mysteriously empty wedding (silent return null path).
+    // L'échec est REMONTÉ, pas avalé : il porte le bandeau et bloque les écritures.
+    classer({ hash: result?.hash, data: result?.data, erreur: err });
     console.warn(`[space-sync] pullNodeContent ${node.type}:${node.id} failed:`, err instanceof Error ? err.message : String(err));
     return null;
   }
@@ -532,25 +554,71 @@ async function pullCollectionDocs(
 ): Promise<Map<string, CollectionDoc>> {
   const out = new Map<string, CollectionDoc>();
   if (!sentinels.length) return out;
+  // MODIFICATION LOCALE — signaler est un commentaire sur la lecture, jamais
+  // une condition de celle-ci : son échec ne doit pas remonter.
+  const classer = (type: string, lecture: Parameters<typeof signalerLecture>[1]) => {
+    try { signalerLecture(type, lecture); } catch { /* le diagnostic n'est pas la donnée */ }
+  };
   try {
     const handle = await getNodeAccess(spaceId, sentinels[0].id, sentinels[0], session, null);
     const entries = await handle.client.batchPullMany(
       'objdoc',
       sentinels.map((n) => ({ spaceId, objectId: n.id })),
     );
-    await Promise.all(entries.map(async (entry: { error?: unknown; data?: unknown }, i: number) => {
+    // MODIFICATION LOCALE — les époques détenues, lues une fois pour tout le lot.
+    //
+    // APRÈS la lecture, et dans son propre garde-fou : ce relevé ne sert qu'à
+    // EXPLIQUER un échec, il ne doit jamais pouvoir en causer un. Placé avant,
+    // la moindre exception emportait `batchPullMany` avec elle — et l'espace
+    // entier devenait illisible faute d'avoir été lu. Constaté en production le
+    // 24 août 2026 : plus aucun `batch/pull`, et la liste des collaborateurs,
+    // qui ne vit que dans les documents de collection, disparue de l'écran.
+    let detenues: Set<number> | null = null;
+    try {
+      detenues = await epoquesDetenuesDeLEspace(session, spaceId, handle.client, getSpaceAccessEntry(spaceId));
+    } catch (err) {
+      console.warn('[space-sync] époques détenues illisibles — rien ne sera avéré :', err);
+    }
+    await Promise.all(entries.map(async (entry: { error?: unknown; data?: unknown; hash?: string }, i: number) => {
+      const type = sentinels[i].type;
       if (entry.error || !entry.data) {
-        if (entry.error) console.warn(`[space-sync] pullCollectionDocs ${sentinels[i].type} failed:`, entry.error);
+        classer(type, { hash: entry.hash, data: entry.data, erreur: entry.error, epoquesDetenues: detenues });
+        if (entry.error) console.warn(`[space-sync] pullCollectionDocs ${type} failed:`, entry.error);
         return;
       }
       const data = entry.data as Record<string, unknown>;
-      const decrypted = handle.encryptor ? await handle.encryptor.decrypt(data) : data;
-      out.set(sentinels[i].type, asCollectionDoc(decrypted));
+      try {
+        const decrypted = handle.encryptor ? await handle.encryptor.decrypt(data) : data;
+        out.set(type, asCollectionDoc(decrypted));
+        classer(type, null);
+      } catch (err) {
+        classer(type, { hash: entry.hash, data, erreur: err, epoquesDetenues: detenues });
+        console.warn(`[space-sync] pullCollectionDocs ${type} illisible:`, err instanceof Error ? err.message : String(err));
+      }
     }));
   } catch (err) {
+    // Un échec du lot entier ne prouve rien sur les clés : réseau, jamais avéré.
+    for (const n of sentinels) classer(n.type, { erreur: err });
     console.warn('[space-sync] pullCollectionDocs failed:', err);
   }
   return out;
+}
+
+/** Classe la lecture d'un nœud isolé, en lisant les époques détenues au passage. */
+async function signalerLectureDuNoeud(
+  session: Session,
+  spaceId: string,
+  node: ObjectNode,
+  lecture: Parameters<typeof signalerLecture>[1],
+): Promise<void> {
+  if (lecture === null) { signalerLecture(node.type, null); return; }
+  try {
+    const handle = await getNodeAccess(spaceId, node.id, node, session, null);
+    const detenues = await epoquesDetenuesDeLEspace(session, spaceId, handle.client, getSpaceAccessEntry(spaceId));
+    signalerLecture(node.type, { ...lecture, epoquesDetenues: detenues });
+  } catch {
+    signalerLecture(node.type, { ...lecture, epoquesDetenues: null });
+  }
 }
 
 /**
