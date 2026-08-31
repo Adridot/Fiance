@@ -294,6 +294,9 @@
   "sidePartner2": "Second side",
   "sideBoth": "Both sides",
   "sideNone": "No side",
+  "namesToComplete_one": "{{count}} first name to complete",
+  "namesToComplete_other": "{{count}} first names to complete",
+  "rsvpProgress": "{{answered}}/{{total}} answered",
   "household": {
     "section": "Household",
     "explain": "A household is what an invitation is addressed to, and what a reply is expected from. An address is entered once for all its members.",

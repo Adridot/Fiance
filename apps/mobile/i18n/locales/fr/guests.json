@@ -294,6 +294,9 @@
   "sidePartner2": "Second côté",
   "sideBoth": "Les deux côtés",
   "sideNone": "Sans côté",
+  "namesToComplete_one": "{{count}} prénom à compléter",
+  "namesToComplete_other": "{{count}} prénoms à compléter",
+  "rsvpProgress": "{{answered}}/{{total}} réponses",
   "household": {
     "section": "Foyer",
     "explain": "Le foyer est ce à quoi le faire-part est adressé, et ce dont une réponse est attendue. Une adresse s'y saisit une fois pour tous ses membres.",
