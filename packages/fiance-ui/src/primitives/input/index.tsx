@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react'
 import { Platform, TextInput as RNTextInput, useColorScheme } from 'react-native'
 import type { TextInputProps as RNTextInputProps, TextStyle } from 'react-native'
 import { useForgeTheme } from '../../theme/context'
+import { theme as GP } from '../../garden-theme'
 
 /**
  * Resolves the app's *effective* dark-mode state, not the raw OS preference.
@@ -97,7 +98,7 @@ function TextInput({
         // form rows that already provide their own spacing and separators. Text
         // color adapts to the scheme (Garden Press ink / paper) the way the
         // SwiftUI label color used to; callers can override via style/textStyle.
-        { fontSize: 16, color: isDark ? '#f2ece0' : '#2a2418', padding: 0 },
+        { fontSize: 16, color: isDark ? GP.inkDark : GP.ink, padding: 0 },
         style,
         textStyle,
       ]}

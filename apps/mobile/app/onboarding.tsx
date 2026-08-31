@@ -16,6 +16,7 @@ import { Script } from "@/components/Script";
 import { PageHeader } from "@/components/PageHeader";
 import { DateRow } from "@/components/FormSection";
 import { setPendingWeddingSeed, consumePendingWeddingSeed } from "@/lib/pending-wedding-seed";
+import { theme as GP } from "@/lib/theme";
 
 type Mode = "choose" | "create" | "join";
 
@@ -124,7 +125,7 @@ function ChooseMode({ onSelect }: { onSelect: (m: Mode) => void }) {
           className="bg-accent-card rounded-2xl py-4 items-center border border-hair active:opacity-80"
         >
           <View className="flex-row items-center">
-            <Link size={20} color="#b96a4a" />
+            <Link size={20} color={GP.clay} />
             <Text className="text-ink font-semibold text-base ml-2">
               {t("onboarding.joinWedding")}
             </Text>

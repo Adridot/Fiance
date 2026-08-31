@@ -19,7 +19,6 @@
   "syncStatusPending": "Modifications en attente",
   "syncStatusOffline": "Hors ligne — sauvegarde à la reconnexion",
   "syncStatusReadOnly": "Accès en lecture seule — vos modifications ne seront pas sauvegardées",
-  "syncStatusUnsaved": "Modifications non enregistrées — elles n'ont pas pu être envoyées au serveur",
   "syncStatusError": "Erreur de sauvegarde",
   "tapToEnable": "Appuyez pour activer la sauvegarde",
   "shareInviteLink": "Partager un lien d'invitation",
@@ -320,5 +319,16 @@
   "inviteNamePlaceholder": "ex. Maman, Julie, wedding planner",
   "inviteNameRequired": "Indiquez un nom pour générer le lien",
   "roleFullAccess": "Accès complet",
-  "roleNoAccessSummary": "Aucun accès"
+  "roleNoAccessSummary": "Aucun accès",
+  "chiffrementHorsDePortee": "Votre invitation ne donne pas accès au contenu de ce mariage",
+  "chiffrementHorsDePorteeGeste": "Demandez une invitation à jour aux mariés — le contenu existant est scellé sous une clé que la vôtre n'ouvre pas.",
+  "chiffrementListeIllisible": "Liste illisible sur cet appareil",
+  "chiffrementListeIllisibleDetail": "Ce mariage n'est pas vide : votre invitation n'ouvre pas le contenu déjà écrit. Demandez-en une nouvelle.",
+  "rescellementEnCours": "Rescellement du contenu… {{fait}}/{{total}}",
+  "revocationAccomplie": "Collaborateur évincé — le contenu est rescellé",
+  "revocationIncomplete": "Révocation INCOMPLÈTE : {{restant}} n'a pas pu être rescellé. Le lien retiré peut encore lire ce contenu. Relancez le retrait, ou reprenez avec « fiance-db reseal ».",
+  "retirerLeDepot": "Retirer ce lien",
+  "depotRetire": "Lien retiré — il présente désormais un message d'expiration",
+  "depotRetraitEchoue": "Le retrait a échoué. Le lien reste valable jusqu'à son terme.",
+  "depotDureeDeVie": "Ce lien cesse d'être servi au bout de sept jours. Vous pouvez le retirer avant."
 }

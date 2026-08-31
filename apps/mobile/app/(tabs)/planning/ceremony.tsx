@@ -19,6 +19,7 @@ import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { printCeremonyBooklet } from "@/lib/print-ceremony";
 import { analytics } from "@/lib/analytics";
 import type { CeremonyItem } from "@/db/schema";
+import { theme as GP } from "@/lib/theme";
 
 export default function CeremonyScreen() {
   const { t } = useTranslation("planning");
@@ -97,7 +98,7 @@ export default function CeremonyScreen() {
         options={{
           headerRight: () => (
             <Pressable onPress={handleExport} className="mr-2 px-3 py-1.5 rounded-lg active:opacity-60 flex-row items-center gap-1">
-              {!hasExports && <Lock size={12} color="#b96a4a" />}
+              {!hasExports && <Lock size={12} color={GP.clay} />}
               <Text className="text-primary-500 text-sm font-semibold">{t("ceremony.exportBooklet")}</Text>
             </Pressable>
           ),

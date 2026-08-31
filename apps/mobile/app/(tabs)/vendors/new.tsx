@@ -11,6 +11,7 @@ import {
 } from "@/db/types";
 import type { VendorType } from "@/db/types";
 import { VENDOR_TYPE_ICONS } from "@/lib/vendor-icons";
+import { theme as GP } from "@/lib/theme";
 
 export default function NewVendorPickerScreen() {
   const { t } = useTranslation("vendors");
@@ -50,7 +51,7 @@ export default function NewVendorPickerScreen() {
                     style={{ width: "47%" }}
                   >
                     <View className="w-11 h-11 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center mb-2">
-                      <Icon size={22} color="#b96a4a" />
+                      <Icon size={22} color={GP.clay} />
                     </View>
                     <Text
                       className="text-sm font-medium text-ink text-center"

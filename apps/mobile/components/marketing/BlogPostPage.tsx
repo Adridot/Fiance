@@ -22,6 +22,7 @@ import {
   FreeToolsStrip,
   getBlogToolIds,
 } from "@/components/marketing/FreeToolsStrip";
+import { theme as GP } from "@/lib/theme";
 
 // ─── Section renderer ───────────────────────────────────────────────────────
 
@@ -34,7 +35,7 @@ function ArticleSection({ section }: { section: BlogSection }) {
         className="border-l-2 border-primary-500 pl-5"
         style={{ marginBottom: 32, marginTop: 4 }}
       >
-        <Script size={20} color="#b96a4a" style={{ lineHeight: 30 }}>
+        <Script size={20} color={GP.clay} style={{ lineHeight: 30 }}>
           {section.quote ?? ""}
         </Script>
       </View>

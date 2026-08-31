@@ -13,6 +13,7 @@ import { formatMoney } from "@/components/MoneyDisplay";
 import { ProgressBar } from "@/components/ProgressBar";
 import { Display } from "@/components/Display";
 import { Label } from "@/components/Label";
+import { theme as GP } from "@/lib/theme";
 
 export default function CompareScreen() {
   const { t } = useTranslation("vendors");
@@ -88,7 +89,7 @@ export default function CompareScreen() {
                   {c.vendor.name}
                 </Text>
               </View>
-              <Display size={26} weight="500" color="#b96a4a">
+              <Display size={26} weight="500" color={GP.clay}>
                 {c.score}
                 <Text style={{ fontSize: 13, color: "#9CA3AF", fontFamily: "Inter_400Regular" }}>/100</Text>
               </Display>

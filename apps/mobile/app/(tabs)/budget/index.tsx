@@ -27,6 +27,7 @@ import { useCan } from "@/lib/permissions/usePermissions";
 import { PremiumGate } from "@/components/PremiumGate";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import { useHasFeature } from "@/lib/limits";
+import { theme as GP } from "@/lib/theme";
 
 export default function BudgetScreen() {
   const { t } = useTranslation("budget");
@@ -153,7 +154,7 @@ export default function BudgetScreen() {
       {/* Global summary */}
       <View className="bg-accent-card mx-4 mt-4 rounded-2xl p-5 border border-hair" style={{ overflow: "visible" }}>
         <View style={{ position: "absolute", top: -10, right: 14 }}>
-          <Sprig size={20} color="#c9922f" angle={12} />
+          <Sprig size={20} color={GP.mustard} angle={12} />
         </View>
         <View className="flex-row justify-between items-center mb-4">
           <Text className="text-base font-semibold text-ink">
@@ -276,7 +277,7 @@ export default function BudgetScreen() {
         className="mx-4 mt-3 bg-accent-card rounded-2xl p-4 border border-hair flex-row items-center justify-between"
       >
         <View className="flex-row items-center gap-2">
-          <Target size={17} color="#b96a4a" />
+          <Target size={17} color={GP.clay} />
           <Text className="text-base font-semibold text-ink">
             {t("categoryTarget")}
           </Text>

@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Label } from "@/components/Label";
 import { useHasFeature } from "@/lib/limits";
 import { useShowPaywall } from "@/components/PaywallProvider";
+import { theme as GP } from "@/lib/theme";
 
 export default function FaqScreen() {
   const { t } = useTranslation("settings");
@@ -73,7 +74,7 @@ export default function FaqScreen() {
             onPress={() => openPaywall(t("configureFaqLockedDesc"))}
             className="flex-row items-start gap-2 mb-3 px-3.5 py-3 rounded-xl bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-800 active:opacity-70"
           >
-            <Lock size={14} color="#b96a4a" style={{ marginTop: 1 }} />
+            <Lock size={14} color={GP.clay} style={{ marginTop: 1 }} />
             <Text className="flex-1 text-xs text-primary-600 dark:text-primary-300 leading-4">
               {t("configureFaqLockedDesc")}
             </Text>

@@ -37,6 +37,7 @@ import { rescheduleAllNotifications } from "@/lib/notifications";
 import { analytics } from "@/lib/analytics";
 import { SectionTitle, FormCard } from "@/components/FormSection";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
+import { theme as GP } from "@/lib/theme";
 
 export default function ExportImportScreen() {
   const { t } = useTranslation("settings");
@@ -278,7 +279,7 @@ export default function ExportImportScreen() {
               onPress={() => openPaywall(t("exportsLockedDesc"))}
               className="flex-row items-center gap-2 px-3.5 py-3 rounded-xl bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-800 active:opacity-70"
             >
-              <Lock size={14} color="#b96a4a" />
+              <Lock size={14} color={GP.clay} />
               <Text className="flex-1 text-xs text-primary-600 dark:text-primary-300 leading-4">
                 {t("exportsLockedDesc")}
               </Text>
@@ -291,27 +292,27 @@ export default function ExportImportScreen() {
           <SectionTitle>{t("pdfSection")}</SectionTitle>
           <FormCard>
             <ExportRow
-              icon={<FileText size={18} color="#b96a4a" />}
+              icon={<FileText size={18} color={GP.clay} />}
               label={t("exportGuestList")}
               onPress={() => handleExportPdf("guests")}
             />
             <ExportRow
-              icon={<FileText size={18} color="#b96a4a" />}
+              icon={<FileText size={18} color={GP.clay} />}
               label={t("exportBudget")}
               onPress={() => handleExportPdf("budget")}
             />
             <ExportRow
-              icon={<FileText size={18} color="#b96a4a" />}
+              icon={<FileText size={18} color={GP.clay} />}
               label={t("exportTimeline")}
               onPress={() => handleExportPdf("timeline")}
             />
             <ExportRow
-              icon={<FileText size={18} color="#b96a4a" />}
+              icon={<FileText size={18} color={GP.clay} />}
               label={t("exportVendors")}
               onPress={() => handleExportPdf("vendors")}
             />
             <ExportRow
-              icon={<FileText size={18} color="#b96a4a" />}
+              icon={<FileText size={18} color={GP.clay} />}
               label={t("exportMenuSummary")}
               onPress={() => handleExportPdf("menu")}
               last
@@ -351,7 +352,7 @@ export default function ExportImportScreen() {
             </Text>
             <FormCard>
               <ExportRow
-                icon={<Download size={18} color="#b96a4a" />}
+                icon={<Download size={18} color={GP.clay} />}
                 label={exporting ? t("exporting") : t("migrationBackup")}
                 sublabel={t("migrationBackupDesc")}
                 onPress={handleExportJson}
@@ -387,7 +388,7 @@ export default function ExportImportScreen() {
             {WEDDING_SAMPLES.map((sample, index) => (
               <ExportRow
                 key={sample.id}
-                icon={<Sparkles size={18} color="#6e7a4a" />}
+                icon={<Sparkles size={18} color={GP.olive} />}
                 label={importingSample && selectedSampleId === sample.id ? t("importing") : t(sample.labelKey)}
                 sublabel={t(sample.descriptionKey)}
                 onPress={() => handlePickSample(sample.id)}
@@ -402,7 +403,7 @@ export default function ExportImportScreen() {
           <SectionTitle>{t("importExternalSection")}</SectionTitle>
           <FormCard>
             <ExportRow
-              icon={<FileSpreadsheet size={18} color="#6e7a4a" />}
+              icon={<FileSpreadsheet size={18} color={GP.olive} />}
               label={t("importExternalRow")}
               sublabel={t("importExternalRowDesc")}
               onPress={() => router.push("/settings/import-external")}

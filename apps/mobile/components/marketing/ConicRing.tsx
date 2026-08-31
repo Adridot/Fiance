@@ -1,5 +1,6 @@
 import React from "react";
 import Svg, { Circle } from "react-native-svg";
+import { theme as GP } from "@/lib/theme";
 
 export type ConicRingSegment = { percent: number; color: string };
 
@@ -15,7 +16,7 @@ interface ConicRingProps {
 /** SVG stroke-based ring/donut — the RN-safe stand-in for the design's CSS
  *  `conic-gradient()`. Reused by the hero phone-mock progress ring and the
  *  budget-tool category donut. */
-export function ConicRing({ size = 64, strokeWidth = 10, segments, trackColor = "rgba(42,36,24,0.08)" }: ConicRingProps) {
+export function ConicRing({ size = 64, strokeWidth = 10, segments, trackColor = "rgba(17,36,31,0.08)" }: ConicRingProps) {
   const r = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * r;
 

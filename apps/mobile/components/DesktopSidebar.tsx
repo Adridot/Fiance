@@ -108,7 +108,7 @@ export function DesktopSidebar({ isDark, overdueCount, activeWedding }: Props) {
 
   const bg = isDark ? GP.cardDark : GP.card;
   const borderColor = isDark ? GP.hairStrong : GP.hair;
-  const mutedText = isDark ? GP.mute : "#8a8373";
+  const mutedText = isDark ? GP.muteDark : GP.mute;
   const titleColor = isDark ? GP.inkDark : GP.ink;
 
   return (
@@ -141,7 +141,7 @@ export function DesktopSidebar({ isDark, overdueCount, activeWedding }: Props) {
           const labelColor = isActive ? GP.clay : isDark ? GP.inkDark : GP.inkSoft;
           const rowBg =
             isActive ? GP.claySoft :
-            isHovered ? (isDark ? "rgba(42,36,24,0.10)" : GP.paper) :
+            isHovered ? (isDark ? "rgba(17,36,31,0.10)" : GP.paper) :
             "transparent";
 
           return (
@@ -176,7 +176,7 @@ export function DesktopSidebar({ isDark, overdueCount, activeWedding }: Props) {
                     const subColor = isSubActive ? GP.clay : isDark ? GP.inkDark : mutedText;
                     const subBg =
                       isSubActive ? GP.claySoft :
-                      isSubHovered ? (isDark ? "rgba(42,36,24,0.10)" : GP.paper) :
+                      isSubHovered ? (isDark ? "rgba(17,36,31,0.10)" : GP.paper) :
                       "transparent";
                     const label = item.key === "guests" ? tg(sub.labelKey) : t(sub.labelKey);
 
@@ -215,7 +215,7 @@ export function DesktopSidebar({ isDark, overdueCount, activeWedding }: Props) {
           const labelColor = isActive ? GP.clay : isDark ? GP.inkDark : GP.inkSoft;
           const rowBg =
             isActive ? GP.claySoft :
-            isHovered ? (isDark ? "rgba(42,36,24,0.10)" : GP.paper) :
+            isHovered ? (isDark ? "rgba(17,36,31,0.10)" : GP.paper) :
             "transparent";
           return (
             <Pressable

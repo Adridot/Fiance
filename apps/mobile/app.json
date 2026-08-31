@@ -9,7 +9,7 @@
     "icon": "./assets/icon.png",
     "scheme": "fiance",
     "userInterfaceStyle": "automatic",
-    "primaryColor": "#EC4899",
+    "primaryColor": "#00916E",
     "ios": {
       "buildNumber": "18",
       "supportsTablet": true,
@@ -29,7 +29,7 @@
       "versionCode": 18,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#FDF4EF"
       },
       "package": "software.drakkar.fiance.app",
       "playStoreUrl": "https://play.google.com/store/apps/details?id=software.drakkar.fiance.app",
@@ -64,8 +64,8 @@
       "shortName": "Fiancé",
       "description": "Application gratuite et privée pour organiser votre mariage : budget, invités, prestataires, planning et mood board.",
       "lang": "fr",
-      "themeColor": "#EC4899",
-      "backgroundColor": "#ffffff",
+      "themeColor": "#00916E",
+      "backgroundColor": "#FDF4EF",
       "display": "standalone",
       "orientation": "portrait"
     },
@@ -115,7 +115,7 @@
         {
           "image": "./assets/splash-icon.png",
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#FDF4EF"
         }
       ],
       "expo-status-bar",

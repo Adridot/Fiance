@@ -17,6 +17,7 @@ import { Script } from "@/components/Script";
 import { HeaderAddButton } from "@/components/HeaderAddButton";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
 import { analytics } from "@/lib/analytics";
+import { theme as GP } from "@/lib/theme";
 
 export default function TablesScreen() {
   const { t } = useTranslation("guests");
@@ -110,7 +111,7 @@ export default function TablesScreen() {
             eyebrow={t("seatingTitle")}
             title={`${tables.length} / ${tables.reduce((s, tbl) => s + (tbl.capacity ?? 0), 0)}`}
             titleSize={22}
-            right={<Script size={14} color="#c9922f">auto-fit</Script>}
+            right={<Script size={14} color={GP.mustard}>auto-fit</Script>}
           />
           <PlanView
             tables={tables}

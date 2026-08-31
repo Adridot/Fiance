@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Globe, Menu, X } from "lucide-react-native";
 import { MarketingLink } from "@/components/marketing/MarketingLink";
 import { localizedPath, swapLocaleInPath, type MarketingLang } from "@/lib/seo-urls";
+import { theme as GP } from "@/lib/theme";
 
 const LANGUAGES = [
   { code: "fr", label: "Français" },
@@ -60,11 +61,11 @@ export function MarketingNav({ scrolled = false }: MarketingNavProps) {
           width: "100%",
           backgroundColor: scrolled ? "rgba(247,242,232,0.92)" : "rgba(242,236,224,0.4)",
           borderBottomWidth: 1,
-          borderBottomColor: scrolled ? "rgba(42,36,24,0.1)" : "rgba(42,36,24,0)",
+          borderBottomColor: scrolled ? "rgba(17,36,31,0.1)" : "rgba(17,36,31,0)",
           transitionProperty: "background-color, border-color, box-shadow",
           transitionDuration: "0.3s",
           ...(scrolled
-            ? { shadowColor: "#2a2418", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.06, shadowRadius: 24, elevation: 3 }
+            ? { shadowColor: GP.ink, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.06, shadowRadius: 24, elevation: 3 }
             : null),
         } as any
       }

@@ -17,41 +17,50 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Garden Press primary — clay (warm rust-brown)
+        // MODIFICATION LOCALE — palette du mariage. Ce bloc RECOPIE `global.css`,
+        // qui fait seule autorité (ce fichier n'est pas lu par la chaîne
+        // Tailwind v4, cf. la note d'en-tête). Les deux ne doivent pas diverger :
+        // une divergence ne casserait que l'aperçu Storybook et la complétion de
+        // l'éditeur, silencieusement.
+        // ⚠️ `clay`, `olive`, `mustard`, `blue` sont des RÔLES, pas des couleurs.
+        // Rampe primaire — Sea Green, ancrée sur 500 = #00916e
         primary: {
-          50: "#f8e9e0",
-          100: "#f0d5c5",
-          200: "#e6b89e",
-          300: "#d89879",
-          400: "#c77c5c",
-          500: "#b96a4a",
-          600: "#a1573c",
-          700: "#84442f",
-          800: "#683525",
-          900: "#4f271b",
+          50: "#e5f5f1",
+          100: "#ceeee6",
+          200: "#aae4d6",
+          300: "#71d6c0",
+          400: "#15c199",
+          500: "#00916e",
+          600: "#007a60",
+          700: "#006650",
+          800: "#005241",
+          900: "#003d31",
         },
         // Accents de rôle
         accent: {
-          clay:          "#b96a4a",
-          "clay-soft":   "#efd9cd",
-          olive:         "#6e7a4a",
-          "olive-soft":  "#dde3cc",
-          mustard:       "#c9922f",
-          "mustard-soft":"#f2e2bd",
-          paper:         "#f2ece0",
-          card:          "#fdfaf1",
-          postit:        "#f5e6a8",
-          blue:          "#6b8aa3",
-          "blue-soft":   "#d6e0e8",
+          clay:          "#00916e",  // Sea Green — primaire
+          "clay-soft":   "#cfeae2",
+          olive:         "#0a6b53",  // Sea Green assombri — confirmation
+          "olive-soft":  "#d7ece4",
+          mustard:       "#85610b",  // Jasmine assombri — attention
+          "mustard-soft":"#fbd87f",  // Jasmine
+          paper:         "#fdf4ef",  // Powder Petal éclairci
+          card:          "#fffbf8",
+          postit:        "#fbd87f",  // Jasmine
+          blue:          "#0e6a7a",  // Icy Aqua assombri — information
+          "blue-soft":   "#b5f8fe",  // Icy Aqua
+          strawberry:      "#f75590",  // Wild Strawberry — festif
+          "strawberry-ink":  "#b81f5f",
+          "strawberry-soft": "#fce4d8",  // Powder Petal
           // deprecated aliases
-          gold:          "#c9922f",
-          "gold-light":  "#f2e2bd",
-          sage:          "#6e7a4a",
-          "sage-light":  "#dde3cc",
-          blush:         "#efd9cd",
-          cream:         "#f2ece0",
-          rose:          "#b96a4a",
-          "rose-light":  "#efd9cd",
+          gold:          "#85610b",
+          "gold-light":  "#fbd87f",
+          sage:          "#0a6b53",
+          "sage-light":  "#d7ece4",
+          blush:         "#cfeae2",
+          cream:         "#fdf4ef",
+          rose:          "#00916e",
+          "rose-light":  "#cfeae2",
         },
       },
       fontFamily: {

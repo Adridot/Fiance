@@ -18,6 +18,14 @@ import type { WidgetData, WidgetTone } from "@/lib/widget-data";
 // `lib/widget.ios.ts` bridge — never import it from cross-platform code, because
 // `@expo/ui/swift-ui` eagerly requires the native ExpoUI module and crashes web.
 //
+// MODIFICATION LOCALE — les couleurs sont celles de la palette du mariage,
+// RECOPIÉES à la main. Ce fichier ne peut pas lire `@/lib/theme` : la directive
+// `'widget'` ci-dessous remplace la fonction par une chaîne de son propre code
+// source, évaluée nativement dans l'extension — aucun identifiant extérieur ne
+// survit. Chaque littéral porte donc en commentaire le jeton qu'il recopie, et
+// c'est le seul endroit de l'app où une divergence avec `garden-theme.ts` ne
+// peut pas être détectée autrement qu'en relisant les deux fichiers.
+//
 // IMPORTANT: the `'widget'` directive (babel-preset-expo widgets-plugin) replaces
 // the function below with a STRING of its own source, evaluated natively inside
 // the widget extension. So the function must be fully self-contained — every
@@ -34,7 +42,7 @@ import type { WidgetData, WidgetTone } from "@/lib/widget-data";
 function PlanningWidgetView(props: WidgetData, environment: WidgetEnvironment) {
   "widget";
   const toneColor = (tone: WidgetTone) =>
-    tone === "critical" ? "#b96a4a" : tone === "warning" ? "#c9922f" : tone === "info" ? "#6b8aa3" : "#8a8373";
+    tone === "critical" ? "#00916e" /* GP.clay */ : tone === "warning" ? "#85610b" /* GP.mustard */ : tone === "info" ? "#0e6a7a" /* GP.blue */ : "#616f6a" /* GP.mute */;
 
   // ── Small: compact hero + the single most urgent line ──
   if (environment.widgetFamily === "systemSmall") {
@@ -43,30 +51,30 @@ function PlanningWidgetView(props: WidgetData, environment: WidgetEnvironment) {
       <VStack
         alignment="leading"
         spacing={4}
-        modifiers={[padding({ all: 14 }), containerBackground("#fdfaf1", "widget"), widgetURL("fiance://")]}
+        modifiers={[padding({ all: 14 }), containerBackground("#fffbf8" /* GP.card */, "widget"), widgetURL("fiance://")]}
       >
         {props.daysUntil != null ? (
           <HStack spacing={3} alignment="lastTextBaseline">
             <Text
               modifiers={[
                 font({ size: 32, weight: "heavy", design: "rounded" }),
-                foregroundStyle("#b96a4a"),
+                foregroundStyle("#00916e" /* GP.clay */),
                 monospacedDigit(),
               ]}
             >
               {String(props.daysUntil)}
             </Text>
-            <Text modifiers={[font({ size: 11, weight: "semibold" }), foregroundStyle("#8a8373")]}>
+            <Text modifiers={[font({ size: 11, weight: "semibold" }), foregroundStyle("#616f6a" /* GP.mute */)]}>
               {props.dayUnitLabel}
             </Text>
           </HStack>
         ) : (
-          <Text modifiers={[font({ size: 18, weight: "bold" }), foregroundStyle("#b96a4a"), lineLimit(2)]}>
+          <Text modifiers={[font({ size: 18, weight: "bold" }), foregroundStyle("#00916e" /* GP.clay */), lineLimit(2)]}>
             {props.headline}
           </Text>
         )}
         {props.subtitle ? (
-          <Text modifiers={[font({ size: 11, weight: "medium" }), foregroundStyle("#2a2418"), lineLimit(1)]}>
+          <Text modifiers={[font({ size: 11, weight: "medium" }), foregroundStyle("#11241f" /* GP.ink */), lineLimit(1)]}>
             {props.subtitle}
           </Text>
         ) : null}
@@ -77,7 +85,7 @@ function PlanningWidgetView(props: WidgetData, environment: WidgetEnvironment) {
             <Text
               modifiers={[
                 font({ size: 11 }),
-                foregroundStyle("#2a2418"),
+                foregroundStyle("#11241f" /* GP.ink */),
                 lineLimit(1),
                 frame({ maxWidth: Infinity, alignment: "leading" }),
               ]}
@@ -86,7 +94,7 @@ function PlanningWidgetView(props: WidgetData, environment: WidgetEnvironment) {
             </Text>
           </HStack>
         ) : (
-          <Text modifiers={[font({ size: 11 }), foregroundStyle("#8a8373")]}>{props.empty}</Text>
+          <Text modifiers={[font({ size: 11 }), foregroundStyle("#616f6a" /* GP.mute */)]}>{props.empty}</Text>
         )}
       </VStack>
     );
@@ -99,7 +107,7 @@ function PlanningWidgetView(props: WidgetData, environment: WidgetEnvironment) {
       <VStack
         alignment="leading"
         spacing={8}
-        modifiers={[padding({ all: 18 }), containerBackground("#fdfaf1", "widget"), widgetURL("fiance://")]}
+        modifiers={[padding({ all: 18 }), containerBackground("#fffbf8" /* GP.card */, "widget"), widgetURL("fiance://")]}
       >
         <HStack modifiers={[frame({ maxWidth: Infinity, alignment: "leading" })]}>
           {props.daysUntil != null ? (
@@ -107,35 +115,35 @@ function PlanningWidgetView(props: WidgetData, environment: WidgetEnvironment) {
               <Text
                 modifiers={[
                   font({ size: 46, weight: "heavy", design: "rounded" }),
-                  foregroundStyle("#b96a4a"),
+                  foregroundStyle("#00916e" /* GP.clay */),
                   monospacedDigit(),
                 ]}
               >
                 {String(props.daysUntil)}
               </Text>
-              <Text modifiers={[font({ size: 14, weight: "semibold" }), foregroundStyle("#8a8373")]}>
+              <Text modifiers={[font({ size: 14, weight: "semibold" }), foregroundStyle("#616f6a" /* GP.mute */)]}>
                 {props.dayUnitLabel}
               </Text>
             </HStack>
           ) : (
-            <Text modifiers={[font({ size: 26, weight: "bold" }), foregroundStyle("#b96a4a"), lineLimit(2)]}>
+            <Text modifiers={[font({ size: 26, weight: "bold" }), foregroundStyle("#00916e" /* GP.clay */), lineLimit(2)]}>
               {props.headline}
             </Text>
           )}
           <Spacer />
-          <Image systemName="heart.fill" size={16} color="#b96a4a" modifiers={[opacity(0.18)]} />
+          <Image systemName="heart.fill" size={16} color="#00916e" /* GP.clay */ modifiers={[opacity(0.18)]} />
         </HStack>
         {props.subtitle ? (
-          <Text modifiers={[font({ size: 14, weight: "medium" }), foregroundStyle("#2a2418"), lineLimit(1)]}>
+          <Text modifiers={[font({ size: 14, weight: "medium" }), foregroundStyle("#11241f" /* GP.ink */), lineLimit(1)]}>
             {props.subtitle}
           </Text>
         ) : null}
         {props.dateLabel ? (
-          <Text modifiers={[font({ size: 12 }), foregroundStyle("#8a8373"), lineLimit(1)]}>{props.dateLabel}</Text>
+          <Text modifiers={[font({ size: 12 }), foregroundStyle("#616f6a" /* GP.mute */), lineLimit(1)]}>{props.dateLabel}</Text>
         ) : null}
         <Divider />
         {lines.length === 0 ? (
-          <Text modifiers={[font({ size: 13 }), foregroundStyle("#8a8373")]}>{props.empty}</Text>
+          <Text modifiers={[font({ size: 13 }), foregroundStyle("#616f6a" /* GP.mute */)]}>{props.empty}</Text>
         ) : (
           <VStack alignment="leading" spacing={9}>
             {lines.map((line, i) => (
@@ -144,7 +152,7 @@ function PlanningWidgetView(props: WidgetData, environment: WidgetEnvironment) {
                 <Text
                   modifiers={[
                     font({ size: 13 }),
-                    foregroundStyle("#2a2418"),
+                    foregroundStyle("#11241f" /* GP.ink */),
                     lineLimit(1),
                     frame({ maxWidth: Infinity, alignment: "leading" }),
                   ]}
@@ -168,7 +176,7 @@ function PlanningWidgetView(props: WidgetData, environment: WidgetEnvironment) {
     <HStack
       spacing={14}
       alignment="center"
-      modifiers={[padding({ all: 16 }), containerBackground("#fdfaf1", "widget"), widgetURL("fiance://")]}
+      modifiers={[padding({ all: 16 }), containerBackground("#fffbf8" /* GP.card */, "widget"), widgetURL("fiance://")]}
     >
       <VStack alignment="leading" spacing={4} modifiers={[frame({ width: 108, alignment: "leading" })]}>
         {props.daysUntil != null ? (
@@ -176,34 +184,34 @@ function PlanningWidgetView(props: WidgetData, environment: WidgetEnvironment) {
             <Text
               modifiers={[
                 font({ size: 32, weight: "heavy", design: "rounded" }),
-                foregroundStyle("#b96a4a"),
+                foregroundStyle("#00916e" /* GP.clay */),
                 monospacedDigit(),
               ]}
             >
               {String(props.daysUntil)}
             </Text>
-            <Text modifiers={[font({ size: 11, weight: "semibold" }), foregroundStyle("#8a8373")]}>
+            <Text modifiers={[font({ size: 11, weight: "semibold" }), foregroundStyle("#616f6a" /* GP.mute */)]}>
               {props.dayUnitLabel}
             </Text>
           </HStack>
         ) : (
-          <Text modifiers={[font({ size: 18, weight: "bold" }), foregroundStyle("#b96a4a"), lineLimit(2)]}>
+          <Text modifiers={[font({ size: 18, weight: "bold" }), foregroundStyle("#00916e" /* GP.clay */), lineLimit(2)]}>
             {props.headline}
           </Text>
         )}
         {props.subtitle ? (
-          <Text modifiers={[font({ size: 12, weight: "medium" }), foregroundStyle("#2a2418"), lineLimit(1)]}>
+          <Text modifiers={[font({ size: 12, weight: "medium" }), foregroundStyle("#11241f" /* GP.ink */), lineLimit(1)]}>
             {props.subtitle}
           </Text>
         ) : null}
         {props.dateLabel ? (
-          <Text modifiers={[font({ size: 10 }), foregroundStyle("#8a8373"), lineLimit(1)]}>{props.dateLabel}</Text>
+          <Text modifiers={[font({ size: 10 }), foregroundStyle("#616f6a" /* GP.mute */), lineLimit(1)]}>{props.dateLabel}</Text>
         ) : null}
       </VStack>
       <Divider />
       <VStack alignment="leading" spacing={7} modifiers={[frame({ maxWidth: Infinity, alignment: "leading" })]}>
         {lines.length === 0 ? (
-          <Text modifiers={[font({ size: 12 }), foregroundStyle("#8a8373")]}>{props.empty}</Text>
+          <Text modifiers={[font({ size: 12 }), foregroundStyle("#616f6a" /* GP.mute */)]}>{props.empty}</Text>
         ) : (
           lines.map((line, i) => (
             <HStack key={i} spacing={6} modifiers={[frame({ maxWidth: Infinity, alignment: "leading" })]}>
@@ -211,7 +219,7 @@ function PlanningWidgetView(props: WidgetData, environment: WidgetEnvironment) {
               <Text
                 modifiers={[
                   font({ size: 12 }),
-                  foregroundStyle("#2a2418"),
+                  foregroundStyle("#11241f" /* GP.ink */),
                   lineLimit(1),
                   frame({ maxWidth: Infinity, alignment: "leading" }),
                 ]}

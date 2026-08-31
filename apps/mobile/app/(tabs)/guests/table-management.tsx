@@ -14,6 +14,7 @@ import { useCan } from "@/lib/permissions/usePermissions";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { HeaderAddButton } from "@/components/HeaderAddButton";
+import { theme as GP } from "@/lib/theme";
 
 export default function TableManagementScreen() {
   const { t } = useTranslation("guests");
@@ -125,7 +126,7 @@ export default function TableManagementScreen() {
               onPress={() => router.push("/(tabs)/guests/tables")}
               className="flex-row items-center justify-center gap-2 mb-4 py-2.5 rounded-xl bg-primary-50 dark:bg-primary-950 border border-primary-100 dark:border-primary-900 active:opacity-70"
             >
-              <MapIcon size={16} color="#b96a4a" />
+              <MapIcon size={16} color={GP.clay} />
               <Text className="text-sm font-semibold text-primary-500">{t("openPlanView")}</Text>
             </Pressable>
           )}
@@ -194,7 +195,7 @@ export default function TableManagementScreen() {
                     className="flex-row items-center flex-1"
                   >
                     <View className="w-8 h-8 rounded-lg bg-accent-blush dark:bg-primary-900 items-center justify-center mr-2">
-                      <LayoutGrid size={16} color="#b96a4a" />
+                      <LayoutGrid size={16} color={GP.clay} />
                     </View>
                     {editingTableId === table.id ? (
                       <TextInput

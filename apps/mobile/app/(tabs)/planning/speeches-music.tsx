@@ -23,6 +23,7 @@ import { printDjWitnessPack } from "@/lib/print-dj-pack";
 import { analytics } from "@/lib/analytics";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
 import type { PlaylistTrack } from "@/db/schema";
+import { theme as GP } from "@/lib/theme";
 
 const MOMENTS = Object.keys(PLAYLIST_MOMENT_LABELS) as PlaylistMoment[];
 
@@ -206,7 +207,7 @@ export default function SpeechesMusicScreen() {
       <View key={track.id} className="bg-accent-card rounded-2xl p-4 mb-2.5 border border-hair">
         <View className="flex-row items-center justify-between">
           <View className="flex-1 flex-row items-center gap-1.5">
-            {track.mustPlay ? <Star size={13} color="#c9922f" fill="#c9922f" /> : null}
+            {track.mustPlay ? <Star size={13} color={GP.mustard} fill={GP.mustard} /> : null}
             <Text className="text-base font-semibold text-ink flex-1" numberOfLines={1}>
               {track.title}
             </Text>
@@ -235,7 +236,7 @@ export default function SpeechesMusicScreen() {
         options={{
           headerRight: () => (
             <Pressable onPress={handleExport} className="mr-2 px-3 py-1.5 rounded-lg active:opacity-60 flex-row items-center gap-1">
-              {!hasExports && <Lock size={12} color="#b96a4a" />}
+              {!hasExports && <Lock size={12} color={GP.clay} />}
               <Text className="text-primary-500 text-sm font-semibold">{t("music.exportPack")}</Text>
             </Pressable>
           ),
@@ -290,7 +291,7 @@ export default function SpeechesMusicScreen() {
         <ScrollView className="flex-1 px-4 pt-4" showsVerticalScrollIndicator={false}>
           {djVendor && (
             <View className="bg-accent-card rounded-2xl p-4 mb-4 border border-hair flex-row items-center gap-2">
-              <Music2 size={18} color="#b96a4a" />
+              <Music2 size={18} color={GP.clay} />
               <View className="flex-1">
                 <Text className="text-sm font-semibold text-ink">{djVendor.name}</Text>
                 <Text className="text-xs text-mute" numberOfLines={1}>

@@ -11,6 +11,7 @@ import { FilterTabs } from "@/components/FilterTabs";
 import { ProgressBar } from "@/components/ProgressBar";
 import type { DayOfItem } from "@/db/schema";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
+import { theme as GP } from "@/lib/theme";
 
 function nowAsHHmm(): string {
   const d = new Date();
@@ -155,8 +156,8 @@ export default function LiveDayOfScreen() {
               >
                 {item.title}
               </Text>
-              {dayOfIdsWithSpeech.has(item.id) && <Mic2 size={13} color="#c9922f" className="ml-1.5" />}
-              {dayOfIdsWithTrack.has(item.id) && <Music2 size={13} color="#6e7a4a" className="ml-1.5" />}
+              {dayOfIdsWithSpeech.has(item.id) && <Mic2 size={13} color={GP.mustard} className="ml-1.5" />}
+              {dayOfIdsWithTrack.has(item.id) && <Music2 size={13} color={GP.olive} className="ml-1.5" />}
             </Pressable>
           );
         })}

@@ -13,25 +13,37 @@
 @source "./components/**/*.stories.{ts,tsx}";
 @source "../../packages/fiance-ui/src/**/*.{ts,tsx}";
 
-/* Garden Press design system — palette, fonts, tokens */
+/* Palette du mariage — jetons de rôle, polices
+ *
+ * MODIFICATION LOCALE — les valeurs sont celles de la palette du mariage.
+ * ⚠️ Les noms `accent-clay`, `accent-olive`, `accent-mustard`, `accent-blue`
+ * sont des RÔLES hérités de l'amont, pas des couleurs : clay est le vert
+ * primaire, olive le vert de confirmation, mustard l'ambre d'attention, blue
+ * l'aqua d'information. Voir l'en-tête de
+ * `packages/fiance-ui/src/garden-theme.ts`, qui porte les mêmes valeurs pour
+ * les consommateurs JS et ne doit jamais diverger de ce bloc.
+ */
 @theme inline {
-  /* Core Garden Press accents */
-  --color-accent-clay:          #b96a4a;
-  --color-accent-clay-soft:     #efd9cd;
-  --color-accent-olive:         #6e7a4a;
-  --color-accent-olive-soft:    #dde3cc;
-  --color-accent-mustard:       #c9922f;
-  --color-accent-mustard-soft:  #f2e2bd;
-  --color-accent-paper:         #f2ece0;
-  --color-accent-card:          #fdfaf1;
-  --color-accent-postit:        #f5e6a8;
-  --color-accent-blue:          #6b8aa3;
-  --color-accent-blue-soft:     #d6e0e8;
-  --color-ink:                  #2a2418;
-  --color-ink-soft:             #4a4234;
-  --color-mute:                 #8a8373;
-  --color-hair:                 rgba(42,36,24,0.14);
-  --color-hair-strong:          rgba(42,36,24,0.24);
+  /* Accents de rôle */
+  --color-accent-clay:            #00916e;  /* Sea Green — primaire */
+  --color-accent-clay-soft:       #cfeae2;
+  --color-accent-olive:           #0a6b53;  /* Sea Green assombri — confirmation */
+  --color-accent-olive-soft:      #d7ece4;
+  --color-accent-mustard:         #85610b;  /* Jasmine assombri — attention */
+  --color-accent-mustard-soft:    #fbd87f;  /* Jasmine */
+  --color-accent-paper:           #fdf4ef;  /* Powder Petal éclairci */
+  --color-accent-card:            #fffbf8;
+  --color-accent-postit:          #fbd87f;  /* Jasmine */
+  --color-accent-blue:            #0e6a7a;  /* Icy Aqua assombri — information */
+  --color-accent-blue-soft:       #b5f8fe;  /* Icy Aqua */
+  --color-accent-strawberry:      #f75590;  /* Wild Strawberry — festif */
+  --color-accent-strawberry-ink:  #b81f5f;  /* Wild Strawberry assombri — texte */
+  --color-accent-strawberry-soft: #fce4d8;  /* Powder Petal */
+  --color-ink:                    #11241f;
+  --color-ink-soft:               #35443f;
+  --color-mute:                   #616f6a;
+  --color-hair:                   rgba(17,36,31,0.14);
+  --color-hair-strong:            rgba(17,36,31,0.24);
 
   /* Deprecated aliases — kept so existing screens render until swept */
   --color-accent-gold:          var(--color-accent-mustard);
@@ -51,40 +63,48 @@
 
 /* Rampe primaire — Sea Green, ancrée exactement sur `500` = #00916e */
 :root {
-  --color-primary-0:   251 244 239;
-  --color-primary-50:  248 233 224;
-  --color-primary-100: 240 213 197;
-  --color-primary-200: 230 184 158;
-  --color-primary-300: 216 152 121;
-  --color-primary-400: 199 124 92;
-  --color-primary-500: 185 106 74;
-  --color-primary-600: 161  87 60;
-  --color-primary-700: 132  68 47;
-  --color-primary-800: 104  53 37;
-  --color-primary-900:  79  39 27;
-  --color-primary-950:  48  22 16;
+  --color-primary-0:   241 249 247;
+  --color-primary-50:  229 245 241;
+  --color-primary-100: 206 238 230;
+  --color-primary-200: 170 228 214;
+  --color-primary-300: 113 214 192;
+  --color-primary-400:  21 193 153;
+  --color-primary-500:   0 145 110;
+  --color-primary-600:   0 122  96;
+  --color-primary-700:   0 102  80;
+  --color-primary-800:   0  82  65;
+  --color-primary-900:   0  61  49;
+  --color-primary-950:   0  41  33;
 }
 
 :root.dark {
-  --color-primary-0:    48  22 16;
-  --color-primary-50:   79  39 27;
-  --color-primary-100: 104  53 37;
-  --color-primary-200: 132  68 47;
-  --color-primary-300: 161  87 60;
-  --color-primary-400: 185 106 74;
-  --color-primary-500: 199 124 92;
-  --color-primary-600: 216 152 121;
-  --color-primary-700: 230 184 158;
-  --color-primary-800: 240 213 197;
-  --color-primary-900: 248 233 224;
-  --color-primary-950: 251 244 239;
+  /* La même rampe, inversée (0 ↔ 950) */
+  --color-primary-0:     0  41  33;
+  --color-primary-50:    0  61  49;
+  --color-primary-100:   0  82  65;
+  --color-primary-200:   0 102  80;
+  --color-primary-300:   0 122  96;
+  --color-primary-400:   0 145 110;
+  --color-primary-500:  21 193 153;
+  --color-primary-600: 113 214 192;
+  --color-primary-700: 170 228 214;
+  --color-primary-800: 206 238 230;
+  --color-primary-900: 229 245 241;
+  --color-primary-950: 241 249 247;
 
-  /* Garden Press warm dark surfaces */
-  --color-accent-paper:  #1a1510;
-  --color-accent-card:   #231e17;
-  --color-ink:           #f4ecd8;
-  --color-ink-soft:      #c8b89a;
-  --color-mute:          #9a9080;
-  --color-hair:          rgba(244,236,216,0.12);
-  --color-hair-strong:   rgba(244,236,216,0.22);
+  /* Surfaces sombres, teintées vers le vert primaire.
+   *
+   * Les ACCENTS, eux, ne sont pas redéfinis ici : ils portent une valeur unique
+   * pour les deux modes, et une valeur lisible sur papier clair ne peut pas
+   * l'être sur fond sombre. La dégradation est mesurée et consignée dans la
+   * spécification du changement de palette, pas découverte. Des accents
+   * conscients du schéma de couleurs sont un changement à part entière.
+   */
+  --color-accent-paper:  #0d1714;
+  --color-accent-card:   #14211d;
+  --color-ink:           #eaf5f0;
+  --color-ink-soft:      #a9c3ba;
+  --color-mute:          #82968f;
+  --color-hair:          rgba(234,245,240,0.12);
+  --color-hair-strong:   rgba(234,245,240,0.22);
 }

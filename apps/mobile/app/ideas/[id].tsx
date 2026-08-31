@@ -35,6 +35,7 @@ import type { Idea } from "@/db/schema";
 import { PageHeader } from "@/components/PageHeader";
 import { Postit } from "@/components/Postit";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
+import { theme as GP } from "@/lib/theme";
 
 const CATEGORIES = Object.keys(IDEA_CATEGORY_LABELS) as IdeaCategory[];
 
@@ -54,7 +55,7 @@ const CATEGORY_COLORS: Record<IdeaCategory, string> = {
   TABLE_DECOR: "#84CC16",
   VENUE_DECOR: "#10B981",
   CEREMONY_DECOR: "#8B5CF6",
-  BOUQUET: "#b96a4a",
+  BOUQUET: GP.clay,
   ATTIRE: "#F59E0B",
   CAKE: "#F97316",
   PHOTO_STYLE: "#6366F1",
@@ -207,7 +208,7 @@ export default function IdeaDetailScreen() {
         <FormCard>
           {links.map((link) => (
             <View key={link.id} className="flex-row items-center mb-2">
-              <LinkIcon size={14} color="#b96a4a" className="mr-2" />
+              <LinkIcon size={14} color={GP.clay} className="mr-2" />
               <TextInput
                 className="flex-1 text-base text-ink mx-2"
                 value={link.value}
@@ -230,7 +231,7 @@ export default function IdeaDetailScreen() {
                       onPress={() => Linking.openURL(link.value.trim())}
                       hitSlop={8}
                     >
-                      <ExternalLink size={18} color="#b96a4a" />
+                      <ExternalLink size={18} color={GP.clay} />
                     </Pressable>
                   )}
                   <Pressable
@@ -261,7 +262,7 @@ export default function IdeaDetailScreen() {
             onPress={() => setLinks((prev) => [...prev, { id: nextLinkId(), value: "" }])}
             className="flex-row items-center mt-1"
           >
-            <Plus size={16} color="#b96a4a" />
+            <Plus size={16} color={GP.clay} />
             <Text className="text-primary-500 text-sm font-medium ml-1">
               {t("addLink")}
             </Text>

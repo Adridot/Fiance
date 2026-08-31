@@ -9,6 +9,7 @@ import { Seo } from "@/components/Seo";
 import { exportToPdf } from "@fiance/ui/utils/file-export";
 import { localizedSeo, localizedUrl, localizedPath } from "@/lib/seo-urls";
 import { ConicRing } from "@/components/marketing/ConicRing";
+import { theme as GP } from "@/lib/theme";
 
 interface Category {
   key: string;
@@ -17,18 +18,18 @@ interface Category {
 }
 
 const DEFAULT_CATEGORIES: Category[] = [
-  { key: "venue", percentage: 38, color: "#b96a4a" },
-  { key: "catering", percentage: 15, color: "#c9922f" },
-  { key: "photography", percentage: 10, color: "#6e7a4a" },
-  { key: "music", percentage: 5, color: "#6b8aa3" },
-  { key: "decoration", percentage: 8, color: "#cf8a5a" },
-  { key: "dress", percentage: 6, color: "#a3502f" },
-  { key: "transport", percentage: 3, color: "#8ea36f" },
-  { key: "beauty", percentage: 3, color: "#d9a441" },
-  { key: "rings", percentage: 4, color: "#7d9bb3" },
-  { key: "invitations", percentage: 2, color: "#b58a5a" },
-  { key: "honeymoon", percentage: 3, color: "#5f7a52" },
-  { key: "misc", percentage: 3, color: "#a49a88" },
+  { key: "venue", percentage: 38, color: GP.clay },
+  { key: "catering", percentage: 15, color: GP.mustard },
+  { key: "photography", percentage: 10, color: GP.olive },
+  { key: "music", percentage: 5, color: GP.blue },
+  { key: "decoration", percentage: 8, color: GP.strawberry },
+  { key: "dress", percentage: 6, color: GP.strawberryInk },
+  { key: "transport", percentage: 3, color: "#15c199" /* primary-400 */ },
+  { key: "beauty", percentage: 3, color: "#c99a12" /* Jasmine médian */ },
+  { key: "rings", percentage: 4, color: "#4bb3c4" /* Icy Aqua médian */ },
+  { key: "invitations", percentage: 2, color: "#9a6b1e" /* ambre profond */ },
+  { key: "honeymoon", percentage: 3, color: "#71d6c0" /* primary-300 */ },
+  { key: "misc", percentage: 3, color: GP.mute },
 ];
 
 function formatAmount(amount: number): string {

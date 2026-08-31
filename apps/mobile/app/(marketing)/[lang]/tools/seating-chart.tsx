@@ -25,7 +25,7 @@ interface Guest {
   tableId: string | null;
 }
 
-const PALETTE = [GP.clay, GP.olive, GP.mustard, GP.blue, "#a3502f", "#8ea36f", "#7d9bb3", "#d9a441"];
+const PALETTE = [GP.clay, GP.olive, GP.mustard, GP.blue, GP.strawberry, "#15c199", "#4bb3c4", "#c99a12"];
 
 function uid() {
   return Math.random().toString(36).slice(2, 9);
@@ -112,12 +112,12 @@ function TableCard({
               style={{
                 width: 34, height: 34, borderRadius: 17,
                 borderWidth: 1.4,
-                borderColor: selectedGuestId ? GP.olive : "rgba(42,36,24,0.2)",
+                borderColor: selectedGuestId ? GP.olive : "rgba(17,36,31,0.2)",
                 backgroundColor: selectedGuestId ? GP.oliveSoft : "transparent",
                 alignItems: "center", justifyContent: "center",
               }}
             >
-              <Text style={{ fontSize: 15, fontWeight: "700", color: selectedGuestId ? GP.olive : "#c8bfad" }}>+</Text>
+              <Text style={{ fontSize: 15, fontWeight: "700", color: selectedGuestId ? GP.olive : GP.mute }}>+</Text>
             </Pressable>
           )
         )}

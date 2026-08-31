@@ -26,9 +26,16 @@ function formatMoney(amount: number, currency = "EUR"): string {
   }).format(amount);
 }
 
+// MODIFICATION LOCALE — les gabarits de document portent la palette du
+// mariage. Les valeurs sont RECOPIÉES : ce sont des chaînes CSS injectées dans
+// un document imprimé, qui ne peut pas lire les jetons.
+//   #00916E = GP.clay (accent primaire)   #FDF4EF = GP.paper
+//   #CFEAE2 = GP.claySoft (filet)
+// Les gris neutres (#1F2937, #6B7280, #9CA3AF…) et les couleurs de statut
+// (accepté / refusé / en attente) sont ceux de l'amont et restent inchangés.
 const BASE_STYLES = `
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1F2937; margin: 20px; font-size: 12px; }
-  h1 { font-size: 20px; color: #EC4899; margin-bottom: 4px; }
+  h1 { font-size: 20px; color: #00916E; margin-bottom: 4px; }
   h2 { font-size: 14px; color: #6B7280; margin-top: 16px; border-bottom: 1px solid #E5E7EB; padding-bottom: 4px; }
   table { width: 100%; border-collapse: collapse; margin-top: 8px; }
   th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #F3F4F6; }
@@ -173,7 +180,7 @@ const PUBLIC_STYLES = `
     color: #1F2937;
     margin: 0;
     padding: 24px 28px;
-    background: #FFF9F5;
+    background: #FDF4EF;
     font-size: 13px;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
@@ -181,14 +188,14 @@ const PUBLIC_STYLES = `
   .header {
     text-align: center;
     padding-bottom: 20px;
-    border-bottom: 2px solid #F3E8E0;
+    border-bottom: 2px solid #CFEAE2;
     margin-bottom: 24px;
   }
   .subtitle {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 3px;
-    color: #C9956B;
+    color: #00916E;
     margin-bottom: 8px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
@@ -206,12 +213,12 @@ const PUBLIC_STYLES = `
   .date-header {
     font-size: 11px;
     font-weight: 600;
-    color: #C9956B;
+    color: #00916E;
     text-transform: uppercase;
     letter-spacing: 2px;
     margin: 22px 0 12px 0;
     padding-bottom: 6px;
-    border-bottom: 1px solid #F3E8E0;
+    border-bottom: 1px solid #CFEAE2;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
   .item {
@@ -230,7 +237,7 @@ const PUBLIC_STYLES = `
   .time {
     font-size: 15px;
     font-weight: bold;
-    color: #C9956B;
+    color: #00916E;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
   .end-time {
@@ -244,7 +251,7 @@ const PUBLIC_STYLES = `
     background: #FFFFFF;
     border-radius: 10px;
     padding: 10px 14px;
-    border: 1px solid #F3E8E0;
+    border: 1px solid #CFEAE2;
     box-shadow: 0 1px 4px rgba(232,180,184,0.12);
   }
   .title {
@@ -254,7 +261,7 @@ const PUBLIC_STYLES = `
   }
   .location {
     font-size: 11px;
-    color: #C9956B;
+    color: #00916E;
     margin-top: 5px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
@@ -336,7 +343,7 @@ const BOOKLET_STYLES = `
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 3px;
-    color: #C9956B;
+    color: #00916E;
     text-align: center;
     margin-top: 26px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -371,7 +378,7 @@ const BOOKLET_STYLES = `
   .ceremony-performer {
     text-align: center;
     font-size: 11px;
-    color: #C9956B;
+    color: #00916E;
     margin-top: 10px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }

@@ -10,6 +10,7 @@ import {
 } from "@fiance/sdk";
 import { useIsPremium } from "@/lib/premium";
 import { useShowPaywall } from "@/components/PaywallProvider";
+import { theme as GP } from "@/lib/theme";
 
 interface QuotaBadgeProps {
   entityKey: FreeLimitKey;
@@ -44,7 +45,7 @@ export function QuotaBadge({ entityKey, count }: QuotaBadgeProps) {
         atCap ? "bg-primary-50 dark:bg-primary-900/30 border-primary-200 dark:border-primary-800" : "bg-accent-card border-hair"
       }`}
     >
-      <Icon size={12} color={atCap ? "#b96a4a" : "#9CA3AF"} />
+      <Icon size={12} color={atCap ? GP.clay : "#9CA3AF"} />
       <Text className={`text-xs font-medium ${atCap ? "text-primary-600 dark:text-primary-300" : "text-mute"}`}>
         {t("quota.badge", { count, limit })}
       </Text>

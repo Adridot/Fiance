@@ -348,8 +348,8 @@ function DashboardScreen() {
         {/* Sync-namespace resync banner — space provisioned under a retired namespace */}
         {showResyncBanner && (
           <HomeBanner
-            icon={<AlertTriangle size={20} color="#c9922f" />}
-            iconBg="#FBF0DD"
+            icon={<AlertTriangle size={20} color={GP.mustard} />}
+            iconBg={GP.mustardSoft}
             title={t("resyncBannerTitle")}
             description={t("resyncBannerDesc")}
             onPress={() => router.push("/settings")}

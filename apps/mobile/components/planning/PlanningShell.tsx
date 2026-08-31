@@ -9,6 +9,7 @@ import { StackMenu } from "@/components/StackMenu";
 import { useIsWideScreen } from "@/lib/useIsWideScreen";
 import { PLANNING_ASPECT_LABELS } from "@/db/types";
 import type { PlanningAspect } from "@/db/types";
+import { theme as GP } from "@/lib/theme";
 
 const ASPECTS: PlanningAspect[] = ["preparation", "agenda", "day-of"];
 
@@ -50,7 +51,7 @@ export function PlanningShell({ aspect, onAdd, onAddLocked = false, children }: 
                   className="w-9 h-9 items-center justify-center rounded-lg active:opacity-60 mr-1"
                   hitSlop={8}
                 >
-                  <Play size={20} color="#b96a4a" />
+                  <Play size={20} color={GP.clay} />
                 </Pressable>
               )}
               {onAdd && (

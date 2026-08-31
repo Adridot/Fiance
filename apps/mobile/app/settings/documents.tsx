@@ -11,6 +11,7 @@ import { FilterTabs } from "@/components/FilterTabs";
 import { isDocumentAvailableOnDevice, deleteDocumentFile } from "@/lib/documents";
 import { DOCUMENT_OWNER_TYPE_LABELS, formatGuestName, type DocumentOwnerType } from "@fiance/sdk";
 import type { Document } from "@/db/schema";
+import { theme as GP } from "@/lib/theme";
 
 const OWNER_TYPES: DocumentOwnerType[] = ["VENDOR", "GUEST", "LEGAL", "HONEYMOON", "WEDDING"];
 
@@ -60,7 +61,7 @@ export default function DocumentsHubScreen() {
             const owner = ownerLabel(doc);
             return (
               <View key={doc.id} className="bg-accent-card rounded-xl p-3.5 mb-2 border border-hair flex-row items-center">
-                <FileText size={18} color="#b96a4a" style={{ marginRight: 10 }} />
+                <FileText size={18} color={GP.clay} style={{ marginRight: 10 }} />
                 <View className="flex-1">
                   <Text className="text-base font-semibold text-ink" numberOfLines={1}>{doc.label}</Text>
                   <Text className="text-xs text-mute mt-0.5">
