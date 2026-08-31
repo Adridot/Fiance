@@ -271,4 +271,14 @@ describe("mapRowsToGuests — invitation types", () => {
     expect(r.guests[1].invitationType).not.toBe("FULL");
     expect(r.invitationTypes.some((t) => t.id === "IMPORT_UNDETERMINED")).toBe(true);
   });
+
+  it("reports namesakes found in the source", () => {
+    const r = mapRowsToGuests(
+      { headers: ["Prénom", "Nom", "Cadre"], rows: [["Jean", "Dupont", "Cérémonie"], ["Jean", "Dupont", "Cérémonie"], ["Marie", "Curie", "Cérémonie"]] },
+      { groups: [], tables: [] },
+      { makeId: ids() },
+    );
+    expect(r.duplicateNames).toEqual(["jean dupont"]);
+    expect(r.guests).toHaveLength(3); // imported all the same: a real namesake is plausible
+  });
 });

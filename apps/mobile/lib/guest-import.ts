@@ -26,6 +26,8 @@ export interface GuestImportResult {
   skippedRows: number;
   /** Rows whose source gave no invitation type — they get UNDETERMINED_INVITATION_TYPE. */
   withoutInvitationType: number;
+  /** Names appearing more than once in the source: reported, not merged — every row is imported. */
+  duplicateNames: string[];
 }
 
 export const UNDETERMINED_INVITATION_TYPE: InvitationTypeEntity = {
@@ -287,6 +289,7 @@ export function mapRowsToGuests(
   }
   const newInvitationTypes: InvitationTypeEntity[] = [];
   let withoutInvitationType = 0;
+  const nameSeen = new Map<string, number>();
 
   for (const row of sheet.rows) {
     let firstName = cell(row, "firstName");
@@ -356,6 +359,9 @@ export function mapRowsToGuests(
       }
     }
 
+    const nameKey = normalizeHeader(`${firstName} ${lastName}`);
+    nameSeen.set(nameKey, (nameSeen.get(nameKey) ?? 0) + 1);
+
     const address = [cell(row, "addressStreet"), cell(row, "addressZip"), cell(row, "addressCity")]
       .filter(Boolean)
       .join(", ");
@@ -398,6 +404,8 @@ export function mapRowsToGuests(
     });
   }
 
+  const duplicateNames = [...nameSeen.entries()].filter(([, n]) => n > 1).map(([k]) => k);
+
   return {
     guests,
     groups: newGroups,
@@ -405,5 +413,6 @@ export function mapRowsToGuests(
     invitationTypes: newInvitationTypes,
     skippedRows,
     withoutInvitationType,
+    duplicateNames,
   };
 }
