@@ -14,10 +14,18 @@
  * flag closes that gap: it's set from the real cap (providers.tsx) and from an actual
  * 403 (space-sync.ts), and forces edit/create/delete off here regardless of what the
  * matrix says — 'view' stays untouched so the member still sees data, just can't edit it.
+ *
+ * MODIFICATION LOCALE — `useAccesChiffreStore` ferme une seconde brèche, de sens
+ * inverse : un appareil qui ne parvient pas à DÉCHIFFRER une collection tient
+ * une copie locale vide, et la première saisie la repousserait par-dessus le
+ * contenu scellé. Le refus est par surface, jamais global.
  */
 
 import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
 import { useSyncAccessStore } from "@/store/useSyncAccessStore";
+// MODIFICATION LOCALE — un appareil qui ne peut pas lire ne peut pas écrire.
+import { useAccesChiffreStore } from "@/store/useAccesChiffreStore";
+import { surfaceIllisible } from "@/lib/acces-chiffre";
 import {
   matrixAllows,
   FEATURE_SURFACES,
@@ -38,6 +46,7 @@ export interface Permissions {
 export function usePermissions(): Permissions {
   const registry = useWeddingRegistryStore((s) => s.registry);
   const writeDenied = useSyncAccessStore((s) => s.writeDenied);
+  const illisibles = useAccesChiffreStore((s) => s.illisibles);
   const active = registry?.weddings.find((w) => w.id === registry.activeWeddingId) ?? null;
   const isOwner = !active || active.role !== "member";
   const matrix: PermissionMatrix = active?.permissions ?? {};
@@ -45,6 +54,9 @@ export function usePermissions(): Permissions {
 
   const can = (surface: FeatureSurface, action: PermissionAction = "edit"): boolean => {
     if (writeDenied && action !== "view") return false;
+    // MODIFICATION LOCALE — le refus est opposé AVANT la saisie, et par surface :
+    // une surface dont aucune collection n'est illisible reste éditable.
+    if (action !== "view" && surfaceIllisible(surface, illisibles)) return false;
     return unrestricted ? true : matrixAllows(matrix, surface, action);
   };
 
