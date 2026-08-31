@@ -625,7 +625,7 @@ function buildIdeas(
         category: item.category,
         vendorId: j % 2 === 0 ? vendors[ci % vendors.length]?.id ?? null : null,
         isFavorite: j === 0,
-        colorPalette: json(["#f2ece0", "#b96a4a", "#6e7a4a"]),
+        colorPalette: json(["#fdf4ef", "#00916e", "#0a6b53"]),
         createdAt: TS,
         updatedAt: TS,
       });

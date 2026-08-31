@@ -10,6 +10,7 @@ import { formatMoney } from "@/components/MoneyDisplay";
 import { Display } from "@/components/Display";
 import { analytics } from "@/lib/analytics";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
+import { theme as GP } from "@/lib/theme";
 
 export default function PlanningHoneymoonScreen() {
   const { t } = useTranslation("planning");
@@ -75,7 +76,7 @@ export default function PlanningHoneymoonScreen() {
         <View className="bg-primary-50 dark:bg-primary-950 rounded-2xl p-4 mb-4 border border-primary-100 dark:border-primary-900 flex-row justify-between items-center">
           <View>
             <Text className="text-sm text-mute">{t("honeymoon.remaining")}</Text>
-            <Display size={22} weight="500" color="#b96a4a">{formatMoney(remaining)}</Display>
+            <Display size={22} weight="500" color={GP.clay}>{formatMoney(remaining)}</Display>
           </View>
           <Text className="text-xs text-mute">
             {formatMoney(plan.spentAmount ?? 0)} / {formatMoney(plan.budgetTarget)}

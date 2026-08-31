@@ -9,7 +9,7 @@ const CATEGORIES = [
   { key: "catering", pct: 22, color: GP.mustard },
   { key: "photography", pct: 12, color: GP.olive },
   { key: "decoration", pct: 16, color: GP.blue },
-  { key: "attire", pct: 12, color: "#a3502f" },
+  { key: "attire", pct: 12, color: GP.strawberry },
 ] as const;
 
 const MIN_TOTAL = 5000;
@@ -82,7 +82,7 @@ export function BudgetMiniDemo() {
                 {formatMoney((total * cat.pct) / 100)}
               </Text>
             </View>
-            <View style={{ height: 8, borderRadius: 5, backgroundColor: "rgba(42,36,24,0.08)", overflow: "hidden" }}>
+            <View style={{ height: 8, borderRadius: 5, backgroundColor: "rgba(17,36,31,0.08)", overflow: "hidden" }}>
               <View
                 style={{
                   height: "100%",

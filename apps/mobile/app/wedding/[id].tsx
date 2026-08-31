@@ -40,6 +40,7 @@ import { Sprig } from "@/components/Sprig";
 import { ScriptButton } from "@/components/ScriptButton";
 import { Seo } from "@/components/Seo";
 import { BASE_URL } from "@/lib/seo-urls";
+import { theme as GP } from "@/lib/theme";
 
 function weddingSeoTitle(page: PublicWeddingPage, t: (key: string, opts?: Record<string, string>) => string): string {
   const names = [page.about.partner1Name, page.about.partner2Name].filter(Boolean).join(" & ");
@@ -186,7 +187,7 @@ export default function WeddingPublicPage() {
           style={{ width: 64, height: 64, borderRadius: 16 }}
           resizeMode="contain"
         />
-        <ActivityIndicator size="small" color="#b96a4a" className="mt-4" />
+        <ActivityIndicator size="small" color={GP.clay} className="mt-4" />
         <Text className="text-sm text-mute mt-2">{t("loading")}</Text>
       </View>
     );
@@ -246,13 +247,13 @@ export default function WeddingPublicPage() {
             <View className="items-center mt-5" style={{ overflow: "visible" }}>
               <View style={{ flexDirection: "row", alignItems: "flex-start", marginBottom: 4 }}>
                 <View style={{ transform: [{ rotate: "-18deg" }], marginRight: 8, marginTop: 4, opacity: 0.7 }}>
-                  <Sprig size={16} color="#c9922f" angle={0} />
+                  <Sprig size={16} color={GP.mustard} angle={0} />
                 </View>
-                <Label size={10} color="#c9922f">
+                <Label size={10} color={GP.mustard}>
                   {t("withJoy")}
                 </Label>
                 <View style={{ transform: [{ rotate: "18deg" }, { scaleX: -1 }], marginLeft: 8, marginTop: 4, opacity: 0.7 }}>
-                  <Sprig size={16} color="#c9922f" angle={0} />
+                  <Sprig size={16} color={GP.mustard} angle={0} />
                 </View>
               </View>
               <Display as="h1" size={36} italic style={{ textAlign: "center" }}>
@@ -263,7 +264,7 @@ export default function WeddingPublicPage() {
 
           {formattedDate && (
             <View className="flex-row items-center gap-2 mt-4 bg-white/70 px-4 py-2 rounded-full">
-              <Calendar size={14} color="#C9956B" />
+              <Calendar size={14} color={GP.clay} />
               <Text className="text-sm font-medium text-accent-gold capitalize">
                 {formattedDate}
               </Text>
@@ -297,11 +298,11 @@ export default function WeddingPublicPage() {
         {events.length > 0 && (
           <View className="mt-2 pb-4 px-5">
             <View className="flex-row items-center gap-2 mb-4">
-              <MapPin size={18} color="#C9956B" />
+              <MapPin size={18} color={GP.clay} />
               <Display size={20} italic>{t("events")}</Display>
             </View>
             {events.map((e) => (
-              <View key={e.id} className="bg-accent-card rounded-2xl p-4 mb-3 shadow-sm" style={{ shadowColor: "#b96a4a", shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
+              <View key={e.id} className="bg-accent-card rounded-2xl p-4 mb-3 shadow-sm" style={{ shadowColor: GP.clay, shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
                 <Text className="text-base font-semibold text-ink">{e.title}</Text>
                 <Text className="text-xs text-mute mt-0.5">
                   {safeFormat(new Date(e.date), "EEEE d MMMM", { locale: getDateLocale() })}
@@ -309,7 +310,7 @@ export default function WeddingPublicPage() {
                 </Text>
                 {e.venueName && (
                   <View className="flex-row items-center gap-1.5 mt-2">
-                    <MapPin size={12} color="#C9956B" />
+                    <MapPin size={12} color={GP.clay} />
                     <Text className="text-xs text-accent-gold font-medium">
                       {e.venueName}{e.address ? ` — ${e.address}` : ""}
                     </Text>
@@ -324,7 +325,7 @@ export default function WeddingPublicPage() {
         {timeline.length > 0 && (
           <View className="mt-2 pb-4">
             <View className="flex-row items-center gap-2 px-5 mb-4">
-              <Clock size={18} color="#C9956B" />
+              <Clock size={18} color={GP.clay} />
               <Display size={20} italic style={{ flex: 1 }}>
                 {t("timeline")}
               </Display>
@@ -332,7 +333,7 @@ export default function WeddingPublicPage() {
                 onPress={handlePrintSchedule}
                 className="flex-row items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/60 active:opacity-70"
               >
-                <Download size={13} color="#C9956B" />
+                <Download size={13} color={GP.clay} />
                 <Text className="text-xs font-medium text-accent-gold">
                   {t("printSchedule")}
                 </Text>
@@ -352,13 +353,13 @@ export default function WeddingPublicPage() {
                     <TimelineItem
                       key={item.id}
                       left={
-                        <Display size={14} weight="500" color="#c9922f" style={{ marginTop: 14 }}>
+                        <Display size={14} weight="500" color={GP.mustard} style={{ marginTop: 14 }}>
                           {item.time}
                         </Display>
                       }
                       showConnector={idx < dateItems.length - 1}
                     >
-                      <View className="bg-accent-card rounded-2xl p-4 mb-3 shadow-sm" style={{ shadowColor: "#b96a4a", shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
+                      <View className="bg-accent-card rounded-2xl p-4 mb-3 shadow-sm" style={{ shadowColor: GP.clay, shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
                         <Text className="text-base font-semibold text-ink">
                           {item.title}
                         </Text>
@@ -369,7 +370,7 @@ export default function WeddingPublicPage() {
                         )}
                         {item.location && (
                           <View className="flex-row items-center gap-1.5 mt-2">
-                            <MapPin size={12} color="#C9956B" />
+                            <MapPin size={12} color={GP.clay} />
                             <Text className="text-xs text-accent-gold font-medium">{item.location}</Text>
                           </View>
                         )}
@@ -384,7 +385,7 @@ export default function WeddingPublicPage() {
 
         {timeline.length === 0 && (
           <View className="items-center justify-center py-16 px-6">
-            <Clock size={40} color="#E8D5C0" />
+            <Clock size={40} color={GP.claySoft} />
             <Text className="text-sm text-mute text-center mt-3">{t("noTimeline")}</Text>
           </View>
         )}
@@ -400,7 +401,7 @@ export default function WeddingPublicPage() {
             </View>
 
             <View className="flex-row items-center gap-2 px-1 mb-4">
-              <HelpCircle size={18} color="#C9956B" />
+              <HelpCircle size={18} color={GP.clay} />
               <Display size={20} italic>
                 {t("faq")}
               </Display>
@@ -410,7 +411,7 @@ export default function WeddingPublicPage() {
               <View
                 key={index}
                 className="bg-accent-card rounded-2xl p-4 mb-3 shadow-sm"
-                style={{ shadowColor: "#b96a4a", shadowOpacity: 0.1, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 }}
+                style={{ shadowColor: GP.clay, shadowOpacity: 0.1, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 }}
               >
                 <Text className="text-base font-semibold text-ink">
                   {item.question}
@@ -433,7 +434,7 @@ export default function WeddingPublicPage() {
             </View>
 
             <View className="flex-row items-center gap-2 px-1 mb-4">
-              <Gift size={18} color="#C9956B" />
+              <Gift size={18} color={GP.clay} />
               <Display size={20} italic>
                 {t("giftRegistry")}
               </Display>
@@ -444,7 +445,7 @@ export default function WeddingPublicPage() {
                 key={gift.id}
                 onPress={gift.url ? () => Linking.openURL(gift.url!) : undefined}
                 className="bg-accent-card rounded-2xl p-4 mb-3 shadow-sm"
-                style={{ shadowColor: "#b96a4a", shadowOpacity: 0.1, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 }}
+                style={{ shadowColor: GP.clay, shadowOpacity: 0.1, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 }}
               >
                 <View className="flex-row items-start justify-between">
                   <View className="flex-1">
@@ -458,7 +459,7 @@ export default function WeddingPublicPage() {
                   </View>
                   {gift.url && (
                     <View className="ml-3 mt-0.5">
-                      <ExternalLink size={16} color="#C9956B" />
+                      <ExternalLink size={16} color={GP.clay} />
                     </View>
                   )}
                 </View>
@@ -477,12 +478,12 @@ export default function WeddingPublicPage() {
             </View>
 
             <View className="flex-row items-center gap-2 px-1 mb-4">
-              <Calendar size={18} color="#C9956B" />
+              <Calendar size={18} color={GP.clay} />
               <Display size={20} italic>{t("rsvp")}</Display>
             </View>
 
             {submitted ? (
-              <View className="bg-accent-card rounded-2xl p-6 items-center shadow-sm" style={{ shadowColor: "#b96a4a", shadowOpacity: 0.1, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 }}>
+              <View className="bg-accent-card rounded-2xl p-6 items-center shadow-sm" style={{ shadowColor: GP.clay, shadowOpacity: 0.1, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 }}>
                 <View className="w-16 h-16 rounded-full bg-green-50 items-center justify-center mb-3">
                   <CheckCircle2 size={40} color="#10B981" />
                 </View>

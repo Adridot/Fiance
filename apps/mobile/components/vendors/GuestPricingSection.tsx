@@ -9,6 +9,7 @@ import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
 import { ToggleRow } from "@/components/FormSection";
 import type { QuotePricing } from "@/db/schema";
 import { formatMoney } from "@/components/MoneyDisplay";
+import { theme as GP } from "@/lib/theme";
 
 /**
  * Guest count backing an invitation-type id, matching the guest screen. `countAll` (all invited,
@@ -173,7 +174,7 @@ export function GuestPricingSection({ vendorId }: { vendorId: string }) {
             onPress={() => setShowPicker(true)}
             className="flex-row items-center justify-center gap-1.5 mt-3 py-2.5 rounded-xl border border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-950 active:opacity-80"
           >
-            <Plus size={15} color="#b96a4a" />
+            <Plus size={15} color={GP.clay} />
             <Text className="text-sm font-semibold text-primary-500">{t("addPricingLine")}</Text>
           </Pressable>
         ))}

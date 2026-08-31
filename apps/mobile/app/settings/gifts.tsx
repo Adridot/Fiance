@@ -15,6 +15,7 @@ import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
 import { analytics } from "@/lib/analytics";
 import { useHasFeature } from "@/lib/limits";
 import { useShowPaywall } from "@/components/PaywallProvider";
+import { theme as GP } from "@/lib/theme";
 
 const CATEGORIES = ["maison", "voyage", "experience", "autre"] as const;
 type Category = (typeof CATEGORIES)[number];
@@ -138,7 +139,7 @@ export default function GiftsScreen() {
             onPress={() => openPaywall(t("giftRegistryLockedDesc"))}
             className="flex-row items-start gap-2 px-3.5 py-3 rounded-xl bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-800 active:opacity-70"
           >
-            <Lock size={14} color="#b96a4a" style={{ marginTop: 1 }} />
+            <Lock size={14} color={GP.clay} style={{ marginTop: 1 }} />
             <Text className="flex-1 text-xs text-primary-600 dark:text-primary-300 leading-4">
               {t("giftRegistryLockedDesc")}
             </Text>

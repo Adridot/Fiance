@@ -4115,7 +4115,7 @@
       "category": "TABLE_DECOR",
       "vendorId": "medium-v-001",
       "isFavorite": true,
-      "colorPalette": "[\"#f2ece0\",\"#b96a4a\",\"#6e7a4a\"]",
+      "colorPalette": "[\"#fdf4ef\",\"#00916e\",\"#0a6b53\"]",
       "createdAt": "2026-07-01T10:00:00.000Z",
       "updatedAt": "2026-07-01T10:00:00.000Z"
     },
@@ -4131,7 +4131,7 @@
       "category": "VENUE_DECOR",
       "vendorId": null,
       "isFavorite": false,
-      "colorPalette": "[\"#f2ece0\",\"#b96a4a\",\"#6e7a4a\"]",
+      "colorPalette": "[\"#fdf4ef\",\"#00916e\",\"#0a6b53\"]",
       "createdAt": "2026-07-01T10:00:00.000Z",
       "updatedAt": "2026-07-01T10:00:00.000Z"
     },
@@ -4147,7 +4147,7 @@
       "category": "CEREMONY_DECOR",
       "vendorId": "medium-v-001",
       "isFavorite": false,
-      "colorPalette": "[\"#f2ece0\",\"#b96a4a\",\"#6e7a4a\"]",
+      "colorPalette": "[\"#fdf4ef\",\"#00916e\",\"#0a6b53\"]",
       "createdAt": "2026-07-01T10:00:00.000Z",
       "updatedAt": "2026-07-01T10:00:00.000Z"
     },
@@ -4163,7 +4163,7 @@
       "category": "BOUQUET",
       "vendorId": "medium-v-002",
       "isFavorite": true,
-      "colorPalette": "[\"#f2ece0\",\"#b96a4a\",\"#6e7a4a\"]",
+      "colorPalette": "[\"#fdf4ef\",\"#00916e\",\"#0a6b53\"]",
       "createdAt": "2026-07-01T10:00:00.000Z",
       "updatedAt": "2026-07-01T10:00:00.000Z"
     },
@@ -4179,7 +4179,7 @@
       "category": "ATTIRE",
       "vendorId": null,
       "isFavorite": false,
-      "colorPalette": "[\"#f2ece0\",\"#b96a4a\",\"#6e7a4a\"]",
+      "colorPalette": "[\"#fdf4ef\",\"#00916e\",\"#0a6b53\"]",
       "createdAt": "2026-07-01T10:00:00.000Z",
       "updatedAt": "2026-07-01T10:00:00.000Z"
     },
@@ -4195,7 +4195,7 @@
       "category": "CAKE",
       "vendorId": "medium-v-002",
       "isFavorite": false,
-      "colorPalette": "[\"#f2ece0\",\"#b96a4a\",\"#6e7a4a\"]",
+      "colorPalette": "[\"#fdf4ef\",\"#00916e\",\"#0a6b53\"]",
       "createdAt": "2026-07-01T10:00:00.000Z",
       "updatedAt": "2026-07-01T10:00:00.000Z"
     },
@@ -4211,7 +4211,7 @@
       "category": "PHOTO_STYLE",
       "vendorId": "medium-v-003",
       "isFavorite": true,
-      "colorPalette": "[\"#f2ece0\",\"#b96a4a\",\"#6e7a4a\"]",
+      "colorPalette": "[\"#fdf4ef\",\"#00916e\",\"#0a6b53\"]",
       "createdAt": "2026-07-01T10:00:00.000Z",
       "updatedAt": "2026-07-01T10:00:00.000Z"
     },
@@ -4227,7 +4227,7 @@
       "category": "TABLE_DECOR",
       "vendorId": null,
       "isFavorite": false,
-      "colorPalette": "[\"#f2ece0\",\"#b96a4a\",\"#6e7a4a\"]",
+      "colorPalette": "[\"#fdf4ef\",\"#00916e\",\"#0a6b53\"]",
       "createdAt": "2026-07-01T10:00:00.000Z",
       "updatedAt": "2026-07-01T10:00:00.000Z"
     },
@@ -4243,7 +4243,7 @@
       "category": "VENUE",
       "vendorId": "medium-v-003",
       "isFavorite": false,
-      "colorPalette": "[\"#f2ece0\",\"#b96a4a\",\"#6e7a4a\"]",
+      "colorPalette": "[\"#fdf4ef\",\"#00916e\",\"#0a6b53\"]",
       "createdAt": "2026-07-01T10:00:00.000Z",
       "updatedAt": "2026-07-01T10:00:00.000Z"
     },
@@ -4259,7 +4259,7 @@
       "category": "VENUE_DECOR",
       "vendorId": "medium-v-004",
       "isFavorite": true,
-      "colorPalette": "[\"#f2ece0\",\"#b96a4a\",\"#6e7a4a\"]",
+      "colorPalette": "[\"#fdf4ef\",\"#00916e\",\"#0a6b53\"]",
       "createdAt": "2026-07-01T10:00:00.000Z",
       "updatedAt": "2026-07-01T10:00:00.000Z"
     },
@@ -4275,7 +4275,7 @@
       "category": "TABLE_DECOR",
       "vendorId": null,
       "isFavorite": false,
-      "colorPalette": "[\"#f2ece0\",\"#b96a4a\",\"#6e7a4a\"]",
+      "colorPalette": "[\"#fdf4ef\",\"#00916e\",\"#0a6b53\"]",
       "createdAt": "2026-07-01T10:00:00.000Z",
       "updatedAt": "2026-07-01T10:00:00.000Z"
     },
@@ -4291,7 +4291,7 @@
       "category": "OTHER",
       "vendorId": "medium-v-004",
       "isFavorite": false,
-      "colorPalette": "[\"#f2ece0\",\"#b96a4a\",\"#6e7a4a\"]",
+      "colorPalette": "[\"#fdf4ef\",\"#00916e\",\"#0a6b53\"]",
       "createdAt": "2026-07-01T10:00:00.000Z",
       "updatedAt": "2026-07-01T10:00:00.000Z"
     }

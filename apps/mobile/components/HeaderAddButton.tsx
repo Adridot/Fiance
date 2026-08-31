@@ -2,6 +2,7 @@ import React from "react";
 import { View, Pressable } from "react-native-css/components";
 import { Plus, Lock } from "lucide-react-native";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
+import { theme as GP } from "@/lib/theme";
 
 interface HeaderAddButtonProps {
   onPress: () => void;
@@ -23,7 +24,7 @@ export function HeaderAddButton({ onPress, accessibilityLabel, locked = false }:
       hitSlop={8}
       style={{ position: "relative" }}
     >
-      <Plus size={24} color="#b96a4a" />
+      <Plus size={24} color={GP.clay} />
       {locked && (
         <View
           className="w-3.5 h-3.5 rounded-full bg-primary-500 items-center justify-center"

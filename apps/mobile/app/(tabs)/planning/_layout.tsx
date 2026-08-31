@@ -4,6 +4,7 @@ import { Stack } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useSettingsStore } from "@/store/useSettingsStore";
 import { useIsWideScreen } from "@/lib/useIsWideScreen";
+import { theme as GP } from "@/lib/theme";
 
 export default function PlanningLayout() {
   const { t } = useTranslation("planning");
@@ -25,7 +26,7 @@ export default function PlanningLayout() {
           title: "",
           headerShown: !isWide,
           headerShadowVisible: false,
-          headerStyle: { backgroundColor: isDark ? "#1a1510" : "#f2ece0" },
+          headerStyle: { backgroundColor: isDark ? GP.paperDark : GP.paper },
           animation: "none",
         }}
       />
@@ -35,7 +36,7 @@ export default function PlanningLayout() {
           title: "",
           headerShown: !isWide,
           headerShadowVisible: false,
-          headerStyle: { backgroundColor: isDark ? "#1a1510" : "#f2ece0" },
+          headerStyle: { backgroundColor: isDark ? GP.paperDark : GP.paper },
           animation: "none",
         }}
       />
@@ -45,7 +46,7 @@ export default function PlanningLayout() {
           title: "",
           headerShown: !isWide,
           headerShadowVisible: false,
-          headerStyle: { backgroundColor: isDark ? "#1a1510" : "#f2ece0" },
+          headerStyle: { backgroundColor: isDark ? GP.paperDark : GP.paper },
           animation: "none",
         }}
       />

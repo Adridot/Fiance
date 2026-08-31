@@ -34,7 +34,7 @@ import { localizedSeo, localizedPath } from "@/lib/seo-urls";
  *  page background, instead of a flat hairline-bordered rectangle. */
 const vignetteCardStyle = {
   borderRadius: 18,
-  borderColor: "rgba(42,36,24,0.08)",
+  borderColor: "rgba(17,36,31,0.08)",
   shadowColor: GP.ink,
   shadowOffset: { width: 0, height: 14 },
   shadowOpacity: 0.18,
@@ -134,9 +134,9 @@ const SeatingVignette = React.memo(function SeatingVignette() {
         {Array.from({ length: 36 }, (_, idx) => {
           const row = Math.floor(idx / 6);
           const col = idx % 6;
-          return <Circle key={idx} cx={18 + col * 26} cy={18 + row * 26} r={1} fill="rgba(42,36,24,0.14)" />;
+          return <Circle key={idx} cx={18 + col * 26} cy={18 + row * 26} r={1} fill={GP.hair} />;
         })}
-        <Circle cx={90} cy={78} r={27} fill={GP.card} stroke="rgba(42,36,24,0.24)" strokeWidth={1.5} />
+        <Circle cx={90} cy={78} r={27} fill={GP.card} stroke={GP.hairStrong} strokeWidth={1.5} />
         <SvgText x={90} y={82} fontSize={10} fill={GP.mute} textAnchor="middle">
           6/8
         </SvgText>
@@ -162,18 +162,18 @@ const WebsiteVignette = React.memo(function WebsiteVignette() {
   return (
     <View style={{ width: 200, height: 150, position: "relative" }}>
       <Svg width={200} height={150} viewBox="0 0 200 150">
-        <Rect x={4} y={4} width={192} height={142} rx={12} fill={GP.card} stroke="rgba(42,36,24,0.14)" />
+        <Rect x={4} y={4} width={192} height={142} rx={12} fill={GP.card} stroke={GP.hair} />
         <Rect x={4} y={4} width={192} height={24} fill={GP.paper} />
         <Circle cx={16} cy={16} r={3} fill={GP.clay} />
         <Circle cx={26} cy={16} r={3} fill={GP.mustard} />
         <Circle cx={36} cy={16} r={3} fill={GP.olive} />
-        <Rect x={52} y={10} width={120} height={12} rx={6} fill={GP.card} stroke="rgba(42,36,24,0.14)" />
+        <Rect x={52} y={10} width={120} height={12} rx={6} fill={GP.card} stroke={GP.hair} />
         <Rect x={14} y={38} width={172} height={52} rx={8} fill={GP.oliveSoft} />
         <Path
           d="M100 70 C 96 63, 86 63, 86 71 C 86 78, 100 87, 100 87 C 100 87, 114 78, 114 71 C 114 63, 104 63, 100 70 Z"
           fill={GP.clay}
         />
-        <Rect x={66} y={100} width={68} height={5} rx={2.5} fill="rgba(42,36,24,0.18)" />
+        <Rect x={66} y={100} width={68} height={5} rx={2.5} fill="rgba(17,36,31,0.18)" />
         <Rect x={78} y={114} width={44} height={16} rx={8} fill={GP.mustard} />
         <SvgText x={100} y={125} fontSize={8} fill={GP.card} textAnchor="middle" fontWeight="700">
           {t("landing.features.publicPage.peek.rsvp")}
@@ -319,7 +319,7 @@ export function LandingPage() {
         <SectionGradient
           spots={[
             { cx: 82, cy: -12, r: 100, color: "#f0dccf" },
-            { cx: 3, cy: 112, r: 85, color: "#dde3cc" },
+            { cx: 3, cy: 112, r: 85, color: GP.oliveSoft },
           ]}
         />
         <Grain />
@@ -335,7 +335,7 @@ export function LandingPage() {
                 gap: 9,
                 backgroundColor: "rgba(253,250,241,0.85)",
                 borderWidth: 1,
-                borderColor: "rgba(42,36,24,0.09)",
+                borderColor: "rgba(17,36,31,0.09)",
                 borderRadius: 999,
                 paddingHorizontal: 15,
                 paddingVertical: 7,
@@ -343,7 +343,7 @@ export function LandingPage() {
               }}
             >
               <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: GP.olive }} />
-              <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 12.5, color: "#4a4234" }}>
+              <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 12.5, color: GP.inkSoft }}>
                 {t("landing.hero.badge")}
               </Text>
             </View>
