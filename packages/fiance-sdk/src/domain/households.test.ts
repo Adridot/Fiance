@@ -3,15 +3,24 @@ import type { Guest, Household } from './schema.js';
 import {
   createHousehold,
   updateHousehold,
+  attachToHousehold,
+  detachFromHousehold,
+  splitHousehold,
+  removeHousehold,
   pruneEmptyHouseholds,
+  resolveHousehold,
   householdMembers,
   householdName,
   deriveHouseholdName,
+  householdAddress,
   householdCandidates,
   householdsRemaining,
+  recipients,
+  recipientOf,
   materializeHousehold,
   proposeHouseholdName,
   householdCategory,
+  householdScope,
 } from './households.js';
 
 function guest(id: string, firstName: string, lastName: string, extra: Partial<Guest> = {}): Guest {
@@ -64,6 +73,146 @@ const household = (id: string, fields: Partial<Household> = {}): Household => ({
   ...fields,
 });
 
+describe('forming and splitting', () => {
+  it('forms a household and attaches its members', () => {
+    const guests = [guest('a', 'Christian', 'DIDOT'), guest('b', 'Anne-Sophie', 'DIDOT')];
+    const r = createHousehold([], guests, ['a', 'b'], 'h1');
+    expect(r.households).toHaveLength(1);
+    expect(householdMembers(r.guests, 'h1').map((g) => g.id)).toEqual(['a', 'b']);
+  });
+
+  it('a guest belongs to AT MOST one household — attaching pulls it out of the previous one', () => {
+    const guests = [guest('a', 'A', 'X', { householdId: 'h1' }), guest('b', 'B', 'X', { householdId: 'h1' })];
+    const next = attachToHousehold(guests, ['b'], 'h2');
+    expect(next.find((g) => g.id === 'b')!.householdId).toBe('h2');
+    expect(householdMembers(next, 'h1').map((g) => g.id)).toEqual(['a']);
+  });
+
+  it('removing a member leaves it WITHOUT a household, it does not delete it', () => {
+    const guests = [
+      guest('a', 'A', 'X', { householdId: 'h1' }),
+      guest('b', 'B', 'X', { householdId: 'h1' }),
+      guest('c', 'C', 'X', { householdId: 'h1' }),
+    ];
+    const r = detachFromHousehold([household('h1')], guests, ['c']);
+    expect(householdMembers(r.guests, 'h1')).toHaveLength(2);
+    const removed = r.guests.find((g) => g.id === 'c')!;
+    expect(removed.householdId).toBeNull();
+    expect(r.guests).toHaveLength(3);
+    const { household: h, members, implicit } = resolveHousehold(r.households, r.guests, 'c');
+    expect(h).toBeNull();
+    expect(implicit).toBe(true);
+    expect(members.map((g) => g.id)).toEqual(['c']);
+  });
+
+  it('the last member leaving makes the household disappear', () => {
+    const guests = [guest('a', 'A', 'X', { householdId: 'h1' })];
+    const r = detachFromHousehold([household('h1', { address: '12 rue du Puits' })], guests, ['a']);
+    expect(r.households).toHaveLength(0);
+  });
+
+  it('deleting a guest leaves the household intact for the other members', () => {
+    const guests = [guest('a', 'A', 'X', { householdId: 'h1' }), guest('b', 'B', 'X', { householdId: 'h1' })];
+    const remaining = guests.filter((g) => g.id !== 'b');
+    expect(pruneEmptyHouseholds([household('h1')], remaining)).toHaveLength(1);
+    expect(pruneEmptyHouseholds([household('h1')], [])).toHaveLength(0);
+  });
+
+  it('splits a household of six into two households of three', () => {
+    const guests = Array.from({ length: 6 }, (_, i) =>
+      guest(`g${i}`, `P${i}`, 'MERY', { householdId: 'h1' }),
+    );
+    const r = splitHousehold([household('h1')], guests, ['g3', 'g4', 'g5'], 'h2');
+    expect(r.households).toHaveLength(2);
+    expect(householdMembers(r.guests, 'h1').map((g) => g.id)).toEqual(['g0', 'g1', 'g2']);
+    expect(householdMembers(r.guests, 'h2').map((g) => g.id)).toEqual(['g3', 'g4', 'g5']);
+    expect(householdMembers(r.guests, 'h1').some((g) => g.id === 'g3')).toBe(false);
+  });
+
+  it('deleting a household leaves its members invited, without a household', () => {
+    const guests = [guest('a', 'A', 'X', { householdId: 'h1' })];
+    const r = removeHousehold([household('h1')], guests, 'h1');
+    expect(r.households).toHaveLength(0);
+    expect(r.guests).toHaveLength(1);
+    expect(r.guests[0].householdId).toBeNull();
+  });
+
+  it('joins two guests from different categories into one household, without touching their category', () => {
+    const guests = [guest('a', 'A', 'X', { groupId: 'g1' }), guest('b', 'B', 'X', { groupId: 'g2' })];
+    const r = createHousehold([], guests, ['a', 'b'], 'h1');
+    expect(householdMembers(r.guests, 'h1')).toHaveLength(2);
+    expect(r.guests.map((g) => g.groupId)).toEqual(['g1', 'g2']);
+  });
+
+  it('keeps the mixed invitation types of a household', () => {
+    const guests = [
+      guest('a', 'A', 'X', { invitationType: 'FULL' }),
+      guest('b', 'B', 'X', { invitationType: 'COCKTAIL' }),
+    ];
+    const r = createHousehold([], guests, ['a', 'b'], 'h1');
+    expect(r.guests.map((g) => g.invitationType)).toEqual(['FULL', 'COCKTAIL']);
+    expect(recipients(r.households, r.guests)).toHaveLength(1);
+  });
+});
+
+describe('resolving a household — no household means a household of one', () => {
+  it('no caller has to tell the two cases apart', () => {
+    const guests = [guest('a', 'A', 'X', { householdId: 'h1' }), guest('b', 'B', 'Y')];
+    const households = [household('h1')];
+    for (const id of ['a', 'b']) {
+      const r = resolveHousehold(households, guests, id);
+      expect(r.members.length).toBeGreaterThan(0);
+      expect(r.members.some((g) => g.id === id)).toBe(true);
+    }
+    expect(resolveHousehold(households, guests, 'b').members).toHaveLength(1);
+  });
+
+  it('a membership pointing at a vanished household is also a household of one', () => {
+    const guests = [guest('a', 'A', 'X', { householdId: 'gone' })];
+    const r = resolveHousehold([], guests, 'a');
+    expect(r.household).toBeNull();
+    expect(r.members.map((g) => g.id)).toEqual(['a']);
+  });
+
+  it('a guest with no household raises neither error nor warning, and counts as a recipient', () => {
+    const guests = [guest('a', 'A', 'X'), guest('b', 'B', 'Y')];
+    expect(recipients([], guests)).toHaveLength(2);
+  });
+});
+
+describe('a membership SEEDED with no entity still groups — regression', () => {
+  const five = ['a', 'b', 'c', 'd', 'e'].map((id) => guest(id, id.toUpperCase(), 'DIDOT', { householdId: 'seeded' }));
+
+  it('resolves the five members while NO household entity exists', () => {
+    const r = resolveHousehold([], five, 'a');
+    expect(r.members).toHaveLength(5);
+    expect(r.household).toBeNull();
+    expect(r.implicit).toBe(false);
+  });
+
+  it('yields ONE envelope, not five', () => {
+    const dests = recipients([], five);
+    expect(dests).toHaveLength(1);
+    expect(dests[0].members).toHaveLength(5);
+    expect(dests[0].id).toBe('seeded');
+    expect(dests[0].name).toBe('DIDOT');
+    expect(dests[0].address).toBeNull();
+  });
+
+  it('the entity, once it arrives, only adds the label and the address', () => {
+    const withEntity = recipients([household('seeded', { name: 'Les DIDOT', address: 'ici' })], five);
+    expect(withEntity).toHaveLength(1);
+    expect(withEntity[0].members).toHaveLength(5);
+    expect(withEntity[0].name).toBe('Les DIDOT');
+    expect(withEntity[0].address).toBe('ici');
+  });
+
+  it('mixes seeded memberships and formed households without flinching', () => {
+    const roster = [...five, guest('z', 'Z', 'SEUL')];
+    expect(recipients([], roster)).toHaveLength(2);
+  });
+});
+
 describe('label — a READ fallback, never a write', () => {
   it('derives a readable label from the members, without writing anything', () => {
     const members = [guest('a', 'Hubert', 'FONTAINES'), guest('b', 'Chantal', 'FONTAINES')];
@@ -94,6 +243,57 @@ describe('label — a READ fallback, never a write', () => {
     const next = updateHousehold([household('h1', { address: 'ici' })], 'h1', { name: 'Les X' });
     expect(next[0].name).toBe('Les X');
     expect(next[0].address).toBe('ici');
+  });
+});
+
+describe('the address is carried by the household', () => {
+  it('an address typed once holds for all four members, without writing on their records', () => {
+    const guests = Array.from({ length: 4 }, (_, i) => guest(`g${i}`, `P${i}`, 'FONTAINES'));
+    const r = createHousehold([], guests, ['g0', 'g1', 'g2', 'g3'], 'h1', {
+      address: '3 allée des Tilleuls',
+    });
+    for (const g of r.guests) {
+      expect(householdAddress(r.households, r.guests, g.id)).toBe('3 allée des Tilleuls');
+      expect(g.address).toBeNull();
+    }
+  });
+
+  it('a correction holds for every member, with no other write', () => {
+    const guests = [guest('a', 'A', 'X', { householdId: 'h1' }), guest('b', 'B', 'X', { householdId: 'h1' })];
+    const households = updateHousehold([household('h1', { address: 'avant' })], 'h1', { address: 'après' });
+    expect(guests.map((g) => householdAddress(households, guests, g.id))).toEqual(['après', 'après']);
+  });
+
+  it('a household with no address stays usable', () => {
+    const guests = [guest('a', 'A', 'X', { householdId: 'h1' })];
+    const [dest] = recipients([household('h1')], guests);
+    expect(dest.address).toBeNull();
+    expect(dest.members).toHaveLength(1);
+  });
+});
+
+describe('recipients are counted per household', () => {
+  it('a household of four yields ONE recipient row', () => {
+    const guests = Array.from({ length: 4 }, (_, i) => guest(`g${i}`, `P${i}`, 'X', { householdId: 'h1' }));
+    const dests = recipients([household('h1')], guests);
+    expect(dests).toHaveLength(1);
+    expect(dests[0].members).toHaveLength(4);
+    expect(dests[0].members.map((g) => g.id)).toEqual(['g0', 'g1', 'g2', 'g3']);
+  });
+
+  it('mixes formed households and household-less guests without telling them apart', () => {
+    const guests = [
+      guest('a', 'A', 'X', { householdId: 'h1' }),
+      guest('b', 'B', 'X', { householdId: 'h1' }),
+      guest('c', 'C', 'Y'),
+    ];
+    expect(recipients([household('h1')], guests).map((d) => d.members.length)).toEqual([2, 1]);
+  });
+
+  it('a guest\'s recipient is its household, or itself', () => {
+    const guests = [guest('a', 'A', 'X', { householdId: 'h1' }), guest('b', 'B', 'X', { householdId: 'h1' })];
+    expect(recipientOf([household('h1')], guests, 'a')!.members).toHaveLength(2);
+    expect(recipientOf([], [guest('z', 'Z', 'W')], 'z')!.members).toHaveLength(1);
   });
 });
 
@@ -283,3 +483,37 @@ describe('a household category is derived, and refused when mixed', () => {
   });
 });
 
+describe('householdScope — la portée d’une action « tout le foyer »', () => {
+  it('un foyer de quatre rend ses quatre membres', () => {
+    const guests = [
+      guest('a', 'Henri', 'FLEITH', { householdId: 'h1' }),
+      guest('b', 'Pia', 'FLEITH', { householdId: 'h1' }),
+      guest('c', 'Jean', 'FLEITH', { householdId: 'h1' }),
+      guest('d', 'Léa', 'FLEITH', { householdId: 'h1' }),
+      guest('e', 'Marc', 'DURAND', { householdId: 'h2' }),
+    ];
+    expect(householdScope(guests, 'a').sort()).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('seul dans son foyer : aucune portée', () => {
+    const guests = [guest('a', 'Henri', 'FLEITH', { householdId: 'h1' })];
+    expect(householdScope(guests, 'a')).toEqual([]);
+  });
+
+  it('sans foyer : aucune portée', () => {
+    const guests = [guest('a', 'Henri', 'FLEITH', { householdId: null })];
+    expect(householdScope(guests, 'a')).toEqual([]);
+  });
+
+  it('des homonymes non rapprochés ne forment pas un foyer', () => {
+    const guests = [
+      guest('a', 'Henri', 'FLEITH', { householdId: null }),
+      guest('b', 'Pia', 'FLEITH', { householdId: null }),
+    ];
+    expect(householdScope(guests, 'a')).toEqual([]);
+  });
+
+  it('un invité inconnu n’a aucune portée', () => {
+    expect(householdScope([], 'zz')).toEqual([]);
+  });
+});

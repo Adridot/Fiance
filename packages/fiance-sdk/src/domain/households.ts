@@ -319,3 +319,78 @@ export function householdCategory<G extends Pick<Guest, 'groupId'>>(members: G[]
   return members.every((m) => (m.groupId ?? null) === first) ? first : null;
 }
 
+// ─── Recipients ──────────────────────────────────────────────────────────────
+
+/** One recipient row per household, whatever its number of members. */
+export interface Recipient<G> {
+  /** The household id, or the GUEST id for an implicit household. */
+  id: string;
+  household: Household | null;
+  members: G[];
+  name: string;
+  address: string | null;
+}
+
+export function recipients<
+  G extends Pick<Guest, 'id' | 'firstName' | 'lastName' | 'nameParticle' | 'householdId'>,
+>(households: Household[], guests: G[]): Recipient<G>[] {
+  const byId = new Map(households.map((h) => [h.id, h]));
+  const out: Recipient<G>[] = [];
+  const seen = new Set<string>();
+  for (const g of guests) {
+    const id = g.householdId || null;
+    if (id) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const household = byId.get(id) ?? null;
+      const members = householdMembers(guests, id);
+      out.push({
+        id,
+        household,
+        members,
+        name: householdName(household, members),
+        address: household?.address?.trim() || null,
+      });
+    } else {
+      out.push({
+        id: g.id,
+        household: null,
+        members: [g],
+        name: householdName(null, [g]),
+        address: null,
+      });
+    }
+  }
+  return out;
+}
+
+export function recipientOf<
+  G extends Pick<Guest, 'id' | 'firstName' | 'lastName' | 'nameParticle' | 'householdId'>,
+>(households: Household[], guests: G[], guestId: string): Recipient<G> | null {
+  const { household, members } = resolveHousehold(households, guests, guestId);
+  if (members.length === 0) return null;
+  return {
+    id: household?.id ?? guestId,
+    household,
+    members,
+    name: householdName(household, members),
+    address: household?.address?.trim() || null,
+  };
+}
+
+/**
+ * Les membres du foyer RÉEL d'un invité, et seulement quand ils sont plusieurs.
+ *
+ * Un tableau vide vaut « pas de portée de foyer » — sans foyer, ou seul dans le
+ * sien. Le rapprochement par nom de famille n'entre jamais ici : deux homonymes
+ * non rapprochés ne forment pas un foyer.
+ */
+export function householdScope<G extends Pick<Guest, 'id' | 'householdId'>>(
+  guests: G[],
+  guestId: string,
+): string[] {
+  const guest = guests.find((g) => g.id === guestId);
+  if (!guest?.householdId) return [];
+  const members = householdMembers(guests, guest.householdId);
+  return members.length >= 2 ? members.map((m) => m.id) : [];
+}
