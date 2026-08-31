@@ -25,6 +25,7 @@ import collections
 import os
 import subprocess
 import sys
+import tempfile
 
 # Nature d'un sujet : contribuable à l'amont, ou propre à cette instance. Elle
 # décide de la langue attendue et de ce qui peut être proposé en pull request.
@@ -801,12 +802,60 @@ def main():
         attendus.update(fichiers)
         print(f"  {nom}.patch  ({len(contenu.splitlines())} lignes)")
 
-    # Filet : une modification non attribuée disparaîtrait des patches et serait
-    # perdue au prochain rebase, sans le moindre signal. Il porte désormais sur
-    # ce que l'HISTOIRE touche, ce qui le rend indépendant de l'état de l'arbre.
+    # ── Filet 1 : un fichier de l'histoire que la table ne réclame pas ────────
+    #
+    # Calculé sur l'INTERVALLE et non sur `git status` : un fichier absent de la
+    # table disparaîtrait de la série sans le moindre signal, et c'est arrivé
+    # trois fois. Le contrôle porte désormais sur ce que l'histoire touche, ce
+    # qui le rend indépendant de l'état de l'arbre.
     orphelins = sorted(fichiers_de_l_intervalle() - attendus - set(PARTAGES))
     if orphelins:
         sys.exit("\nfichiers de l'histoire dans aucun patch :\n  " + "\n  ".join(orphelins))
+
+    verifier_equivalence()
+
+
+def verifier_equivalence():
+    """La série, appliquée en séquence sur l'amont, doit rendre l'arbre de tête.
+
+    Ce contrôle REMPLACE le filet « fichiers modifiés mais dans aucun patch »,
+    et il est strictement plus fort : l'ancien vérifiait une couverture
+    NOMINALE — le nom du fichier figure quelque part dans la table — le nouveau
+    vérifie le RÉSULTAT. Un fichier déclaré dans un patch mais dont le contenu
+    n'y est pas le passait ; il ne passe plus.
+
+    Il s'exécute dans un index temporaire, sans jamais toucher l'arbre de
+    travail : la génération doit rester lançable pendant qu'on travaille.
+    """
+    attendu = git("rev-parse", f"{TETE}^{{tree}}").strip()
+    with tempfile.TemporaryDirectory() as tmp:
+        index = os.path.join(tmp, "index")
+        env = {**os.environ, "GIT_INDEX_FILE": index}
+
+        def g(*args):
+            return subprocess.run(["git", *args], capture_output=True, text=True,
+                                  check=True, env=env).stdout
+
+        g("read-tree", BASE)
+        for nom in GROUPES:
+            chemin = f"deploy/patches/{nom}.patch"
+            if os.path.getsize(chemin) == 0:
+                continue
+            subprocess.run(["git", "apply", "--cached", "--whitespace=nowarn", chemin],
+                           check=True, env=env)
+        # `deploy/` n'est pas dans la série : on le retire de la comparaison en
+        # le lisant depuis la tête, plutôt qu'en comparant deux arbres partiels.
+        g("read-tree", "--prefix=deploy/", f"{TETE}:deploy")
+        obtenu = g("write-tree").strip()
+
+    if obtenu != attendu:
+        sys.exit(
+            "\ncontrôle d'équivalence ÉCHOUÉ : la série appliquée sur "
+            f"{BASE} ne reproduit pas l'arbre de {TETE}.\n"
+            f"  attendu {attendu}\n  obtenu  {obtenu}\n"
+            "Comparer avec :  git diff " + obtenu + " " + attendu
+        )
+    print(f"\n  équivalence vérifiée : la série reproduit l'arbre de {TETE} ({attendu[:8]})")
 
 
 if __name__ == "__main__":
