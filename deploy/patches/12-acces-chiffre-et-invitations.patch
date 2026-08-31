@@ -1,0 +1,2909 @@
+diff --git a/apps/mobile/__tests__/acces-chiffre-refus-ecriture.test.ts b/apps/mobile/__tests__/acces-chiffre-refus-ecriture.test.ts
+new file mode 100644
+index 0000000..7e1f132
+--- /dev/null
++++ b/apps/mobile/__tests__/acces-chiffre-refus-ecriture.test.ts
+@@ -0,0 +1,161 @@
++/**
++ * Un appareil qui ne peut pas lire ne peut pas écrire.
++ *
++ * Deux barrages, et il faut les deux : le geste d'édition est refusé avant la
++ * saisie (`usePermissions`), et la poussée elle-même n'émet aucune requête
++ * (`pushSpaceSnapshot`) — le second est ce qui protège réellement les données.
++ */
++import { beforeEach, describe, expect, it, vi } from "vitest";
++
++import { COLLECTIONS_PAR_SURFACE, surfaceIllisible } from "@/lib/acces-chiffre";
++
++let mockArbre: unknown[] = [];
++const mockPoussees: string[] = [];
++
++vi.mock("@fiance/sdk", async (importOriginal) => ({
++  ...(await importOriginal<Record<string, unknown>>()),
++  readObjectTree: async () => mockArbre,
++  updateObjectIndex: vi.fn(async (_s: unknown, _i: unknown, f: (n: unknown[], t: number) => unknown[]) =>
++    f(mockArbre, Date.now()),
++  ),
++  clearNodeAccessCache: vi.fn(),
++  getSpaceAccessEntry: () => null,
++  getSpacesConfig: () => ({ kvAdapter: { getItem: () => null, setItem: () => {}, removeItem: () => {} } }),
++  getSyncNamespace: () => "dk",
++  getNodeAccess: async (_sid: string, nodeId: string) => ({
++    isOwnerOpen: false,
++    encryptor: null,
++    client: { push: vi.fn(), pull: async () => ({ hash: "", data: null }), batchPullMany: async () => [] },
++    push: vi.fn(async () => { mockPoussees.push(nodeId); }),
++  }),
++}));
++
++const SESSION = {
++  userId: "u1",
++  keys: { kemPub: "emma" },
++  layout: { keyringPull: (id: string) => `pull/spaces/${id}/_keyring` },
++};
++
++vi.mock("@/lib/starfish", () => ({
++  getActiveSession: () => SESSION,
++  getActiveSpaceId: () => "sp-1",
++  getActiveWeddingNodeId: () => "node-A",
++}));
++vi.mock("@/lib/kv-storage", () => ({ readCollection: () => null, writeCollection: () => {} }));
++vi.mock("@/lib/rsvp-sync", () => ({ applyHouseholdRsvpDocs: vi.fn() }));
++
++const UN_INVITE = { id: "g1", lastName: "Fleith", firstName: "Luc" };
++
++const magasinVide = {
++  getState: () => ({
++    wedding: null, guests: [], tables: [], groups: [], households: [], vendors: [],
++    quotePricings: [], vendorPayments: [], accommodations: [], gifts: [],
++    invitationTypes: [], communications: [], weddingRoles: [], weddingRoleAssignments: [],
++    seatingConstraints: [], weddingEvents: [], mealSelections: [], communicationTemplates: [],
++    documents: [], legalMilestones: [], honeymoonPlans: [], categories: [], tasks: [],
++    agendaEvents: [], dayOfItems: [], collections: [], ideas: [], ceremonyItems: [],
++    speeches: [], playlistTracks: [], roles: [], assignments: [],
++    setWedding: vi.fn(), setGroups: vi.fn(), setTables: vi.fn(), setGuests: vi.fn(),
++    setVendors: vi.fn(), setQuotePricings: vi.fn(), setVendorPayments: vi.fn(),
++    setAccommodations: vi.fn(), setGifts: vi.fn(), setInvitationTypes: vi.fn(),
++    setCommunications: vi.fn(), setWeddingRoles: vi.fn(), setWeddingRoleAssignments: vi.fn(),
++    setSeatingConstraints: vi.fn(), setWeddingEvents: vi.fn(), setMealSelections: vi.fn(),
++    setCommunicationTemplates: vi.fn(), setDocuments: vi.fn(), setLegalMilestones: vi.fn(),
++    setHoneymoonPlans: vi.fn(), setCategories: vi.fn(), setTasks: vi.fn(),
++    setAgendaEvents: vi.fn(), setDayOfItems: vi.fn(), setCollections: vi.fn(),
++    setIdeas: vi.fn(), setCeremonyItems: vi.fn(), setSpeeches: vi.fn(),
++    setPlaylistTracks: vi.fn(), setRoles: vi.fn(), setAssignments: vi.fn(),
++  }),
++};
++vi.mock("@/store/useWeddingStore", () => ({
++  useWeddingStore: { getState: () => ({ ...magasinVide.getState(), wedding: { id: "w1", name: "M" } }) },
++}));
++vi.mock("@/store/useWeddingRegistryStore", () => ({
++  useWeddingRegistryStore: {
++    getState: () => ({ registry: { activeWeddingId: "w1", weddings: [{ id: "w1", role: "member" }] } }),
++  },
++}));
++vi.mock("@/store/useGuestsStore", () => ({
++  useGuestsStore: { getState: () => ({ ...magasinVide.getState(), guests: [UN_INVITE] }) },
++}));
++vi.mock("@/store/useVendorsStore", () => ({ useVendorsStore: magasinVide }));
++vi.mock("@/store/usePlanningStore", () => ({ usePlanningStore: magasinVide }));
++vi.mock("@/store/useIdeasStore", () => ({ useIdeasStore: magasinVide }));
++vi.mock("@/store/useAccommodationsStore", () => ({ useAccommodationsStore: magasinVide }));
++vi.mock("@/store/useGiftsStore", () => ({ useGiftsStore: magasinVide }));
++vi.mock("@/store/useInvitationTypesStore", () => ({ useInvitationTypesStore: magasinVide }));
++vi.mock("@/store/useCommunicationsStore", () => ({ useCommunicationsStore: magasinVide }));
++vi.mock("@/store/useWeddingPartyStore", () => ({ useWeddingPartyStore: magasinVide }));
++vi.mock("@/store/useSeatingConstraintsStore", () => ({ useSeatingConstraintsStore: magasinVide }));
++vi.mock("@/store/useWeddingEventsStore", () => ({ useWeddingEventsStore: magasinVide }));
++vi.mock("@/store/useMealSelectionsStore", () => ({ useMealSelectionsStore: magasinVide }));
++vi.mock("@/store/useCommunicationTemplatesStore", () => ({ useCommunicationTemplatesStore: magasinVide }));
++vi.mock("@/store/useDocumentsStore", () => ({ useDocumentsStore: magasinVide }));
++vi.mock("@/store/useLegalStore", () => ({ useLegalStore: magasinVide }));
++vi.mock("@/store/useHoneymoonStore", () => ({ useHoneymoonStore: magasinVide }));
++vi.mock("@/store/useCeremonyStore", () => ({ useCeremonyStore: magasinVide }));
++vi.mock("@/store/useSpeechesMusicStore", () => ({ useSpeechesMusicStore: magasinVide }));
++vi.mock("@/store/usePermissionsStore", () => ({ usePermissionsStore: magasinVide }));
++vi.mock("@/store/useSyncAccessStore", () => ({
++  useSyncAccessStore: { getState: () => ({ writeDenied: false, setWriteDenied: vi.fn() }) },
++}));
++vi.mock("@/store/useSyncPendingStore", () => ({
++  useSyncPendingStore: { getState: () => ({ setPending: vi.fn(), setFailed: vi.fn(), clear: vi.fn() }) },
++}));
++
++describe("pushSpaceSnapshot — une collection illisible n'est jamais poussée", () => {
++  beforeEach(() => {
++    vi.resetModules();
++    mockPoussees.length = 0;
++    mockArbre = [];
++  });
++
++  it("une mutation sur une collection marquée n'émet aucune requête pour elle", async () => {
++    const { useAccesChiffreStore } = await import("@/store/useAccesChiffreStore");
++    useAccesChiffreStore.getState().reinitialiser();
++    useAccesChiffreStore.getState().marquerIllisible("guest", "epoque-hors-de-portee", 1);
++
++    const { pushSpaceSnapshot } = await import("@/lib/space-sync");
++    await pushSpaceSnapshot(SESSION as never, "sp-1", "node-A");
++
++    expect(mockPoussees.filter((id) => id.startsWith("col:guest:"))).toEqual([]);
++  });
++
++  it("la même mutation part quand la collection est lisible", async () => {
++    const { useAccesChiffreStore } = await import("@/store/useAccesChiffreStore");
++    useAccesChiffreStore.getState().reinitialiser();
++
++    const { pushSpaceSnapshot } = await import("@/lib/space-sync");
++    await pushSpaceSnapshot(SESSION as never, "sp-1", "node-A");
++
++    expect(mockPoussees.filter((id) => id.startsWith("col:guest:")).length).toBeGreaterThan(0);
++  });
++
++  it("marquer les invités ne retient pas les autres collections", async () => {
++    const { useAccesChiffreStore } = await import("@/store/useAccesChiffreStore");
++    useAccesChiffreStore.getState().reinitialiser();
++    useAccesChiffreStore.getState().marquerIllisible("guest", "epoque-hors-de-portee", 1);
++
++    const { pushSpaceSnapshot } = await import("@/lib/space-sync");
++    await pushSpaceSnapshot(SESSION as never, "sp-1", "node-A");
++
++    expect(mockPoussees.some((id) => !id.startsWith("col:guest:"))).toBe(true);
++  });
++});
++
++describe("surfaceIllisible — le refus est par surface, jamais global", () => {
++  it("une collection illisible ferme sa surface", () => {
++    expect(surfaceIllisible("guests", { guest: "epoque-hors-de-portee" })).toBe(true);
++  });
++
++  it("et n'en ferme aucune autre", () => {
++    expect(surfaceIllisible("vendors", { guest: "epoque-hors-de-portee" })).toBe(false);
++    expect(surfaceIllisible("ideas", { guest: "epoque-hors-de-portee" })).toBe(false);
++  });
++
++  it("un espace sain n'en ferme aucune", () => {
++    for (const surface of Object.keys(COLLECTIONS_PAR_SURFACE)) {
++      expect(surfaceIllisible(surface, {})).toBe(false);
++    }
++  });
++});
+diff --git a/apps/mobile/__tests__/acces-chiffre-store.test.ts b/apps/mobile/__tests__/acces-chiffre-store.test.ts
+new file mode 100644
+index 0000000..ed837e3
+--- /dev/null
++++ b/apps/mobile/__tests__/acces-chiffre-store.test.ts
+@@ -0,0 +1,57 @@
++import { beforeEach, describe, expect, it } from "vitest";
++
++import {
++  collectionIllisible,
++  lectureImpossible,
++  useAccesChiffreStore,
++} from "@/store/useAccesChiffreStore";
++
++describe("useAccesChiffreStore", () => {
++  beforeEach(() => {
++    useAccesChiffreStore.getState().reinitialiser();
++  });
++
++  it("marquer une collection n'en marque aucune autre", () => {
++    useAccesChiffreStore.getState().marquerIllisible("guest", "epoque-hors-de-portee", 1);
++
++    expect(collectionIllisible("guest")).toBe(true);
++    expect(collectionIllisible("budget")).toBe(false);
++    expect(collectionIllisible("household")).toBe(false);
++    expect(Object.keys(useAccesChiffreStore.getState().illisibles)).toEqual(["guest"]);
++  });
++
++  it("retient l'époque hors de portée pour le message", () => {
++    useAccesChiffreStore.getState().marquerIllisible("guest", "epoque-hors-de-portee", 1);
++    expect(useAccesChiffreStore.getState().epoqueHorsDePortee).toBe(1);
++  });
++
++  it("marquer lisible ne libère que la collection nommée", () => {
++    const s = useAccesChiffreStore.getState();
++    s.marquerIllisible("guest", "epoque-hors-de-portee", 1);
++    s.marquerIllisible("vendor", "epoque-hors-de-portee", 1);
++    s.marquerLisible("guest");
++
++    expect(collectionIllisible("guest")).toBe(false);
++    expect(collectionIllisible("vendor")).toBe(true);
++    expect(lectureImpossible()).toBe(true);
++  });
++
++  it("la dernière collection libérée éteint le bandeau et l'époque", () => {
++    const s = useAccesChiffreStore.getState();
++    s.marquerIllisible("guest", "epoque-hors-de-portee", 1);
++    s.marquerLisible("guest");
++
++    expect(lectureImpossible()).toBe(false);
++    expect(useAccesChiffreStore.getState().epoqueHorsDePortee).toBeNull();
++  });
++
++  it("libérer une collection jamais marquée ne change rien", () => {
++    const avant = useAccesChiffreStore.getState().illisibles;
++    useAccesChiffreStore.getState().marquerLisible("inconnue");
++    expect(useAccesChiffreStore.getState().illisibles).toBe(avant);
++  });
++
++  it("un espace sain ne lève pas le bandeau", () => {
++    expect(lectureImpossible()).toBe(false);
++  });
++});
+diff --git a/apps/mobile/__tests__/acces-chiffre-sync.test.ts b/apps/mobile/__tests__/acces-chiffre-sync.test.ts
+new file mode 100644
+index 0000000..cabc976
+--- /dev/null
++++ b/apps/mobile/__tests__/acces-chiffre-sync.test.ts
+@@ -0,0 +1,211 @@
++/**
++ * L'échec de déchiffrement remonte depuis `hydrateFromSpace` au lieu d'être avalé.
++ *
++ * Les trois cas doivent produire trois issues distinctes, et le garde-fou du
++ * propriétaire tient : seule une époque avérée hors de portée lève l'état.
++ */
++import { beforeEach, describe, expect, it, vi } from "vitest";
++
++let mockArbre: unknown[] = [];
++let mockEntrees: { data?: unknown; error?: unknown; hash?: string }[] = [];
++let mockKeyring: unknown = null;
++let mockDechiffrerLeve: (data: Record<string, unknown>) => boolean = () => false;
++
++vi.mock("@fiance/sdk", async (importOriginal) => ({
++  ...(await importOriginal<Record<string, unknown>>()),
++  readObjectTree: async () => mockArbre,
++  updateObjectIndex: vi.fn(),
++  clearNodeAccessCache: vi.fn(),
++  getSpaceAccessEntry: () => null,
++  getSpacesConfig: () => ({ kvAdapter: { getItem: () => null, setItem: () => {}, removeItem: () => {} } }),
++  getSyncNamespace: () => "dk",
++  getNodeAccess: async () => ({
++    isOwnerOpen: false,
++    push: vi.fn(),
++    encryptor: {
++      encrypt: async (d: unknown) => d,
++      decrypt: async (data: Record<string, unknown>) => {
++        if (mockDechiffrerLeve(data)) throw new Error("epoch CEK is wrong");
++        return data;
++      },
++    },
++    client: {
++      push: vi.fn(),
++      pull: async (chemin: string) =>
++        chemin.includes("_keyring") ? { hash: "k", data: mockKeyring } : { hash: "", data: null },
++      batchPullMany: async () => mockEntrees,
++    },
++  }),
++}));
++
++/** Une session minimale : `layout.keyringPull` est ce qui donne les époques détenues. */
++const SESSION = {
++  userId: "u1",
++  keys: { kemPub: "emma" },
++  layout: { keyringPull: (id: string) => `pull/spaces/${id}/_keyring` },
++};
++
++vi.mock("@/lib/starfish", () => ({
++  getActiveSession: () => SESSION,
++  getActiveSpaceId: () => "sp-1",
++  getActiveWeddingNodeId: () => "node-A",
++}));
++// `getStorage` rend `null` : la persistance de l'hydratation est hors sujet ici,
++// et un KV fermé la fait passer son tour.
++vi.mock("@/lib/kv-storage", () => ({ readCollection: () => null, writeCollection: () => {}, getStorage: () => null }));
++vi.mock("@/lib/rsvp-sync", () => ({ applyHouseholdRsvpDocs: vi.fn() }));
++
++// Les magasins de domaine tirent `react-native` (KV, secure-store) : hors sujet ici.
++const magasinVide = {
++  getState: () => ({
++    wedding: null, guests: [], tables: [], groups: [], households: [], vendors: [],
++    quotePricings: [], vendorPayments: [], accommodations: [], gifts: [],
++    invitationTypes: [], communications: [], weddingRoles: [], weddingRoleAssignments: [],
++    seatingConstraints: [], weddingEvents: [], mealSelections: [], communicationTemplates: [],
++    documents: [], legalMilestones: [], honeymoonPlans: [], categories: [], tasks: [],
++    agendaEvents: [], dayOfItems: [], collections: [], ideas: [], ceremonyItems: [],
++    speeches: [], playlistTracks: [], roles: [], assignments: [],
++    setWedding: vi.fn(), setGroups: vi.fn(), setTables: vi.fn(), setGuests: vi.fn(),
++    setVendors: vi.fn(), setQuotePricings: vi.fn(), setVendorPayments: vi.fn(),
++    setAccommodations: vi.fn(), setGifts: vi.fn(), setInvitationTypes: vi.fn(),
++    setCommunications: vi.fn(), setWeddingRoles: vi.fn(), setWeddingRoleAssignments: vi.fn(),
++    setSeatingConstraints: vi.fn(), setWeddingEvents: vi.fn(), setMealSelections: vi.fn(),
++    setCommunicationTemplates: vi.fn(), setDocuments: vi.fn(), setLegalMilestones: vi.fn(),
++    setHoneymoonPlans: vi.fn(), setCategories: vi.fn(), setTasks: vi.fn(),
++    setAgendaEvents: vi.fn(), setDayOfItems: vi.fn(), setCollections: vi.fn(),
++    setIdeas: vi.fn(), setCeremonyItems: vi.fn(), setSpeeches: vi.fn(),
++    setPlaylistTracks: vi.fn(), setRoles: vi.fn(), setAssignments: vi.fn(),
++  }),
++};
++vi.mock("@/store/useWeddingStore", () => ({ useWeddingStore: magasinVide }));
++vi.mock("@/store/useWeddingRegistryStore", () => ({
++  useWeddingRegistryStore: {
++    getState: () => ({ registry: { activeWeddingId: "w1", weddings: [{ id: "w1", role: "member" }] } }),
++  },
++}));
++vi.mock("@/store/useGuestsStore", () => ({ useGuestsStore: magasinVide }));
++vi.mock("@/store/useVendorsStore", () => ({ useVendorsStore: magasinVide }));
++vi.mock("@/store/usePlanningStore", () => ({ usePlanningStore: magasinVide }));
++vi.mock("@/store/useIdeasStore", () => ({ useIdeasStore: magasinVide }));
++vi.mock("@/store/useAccommodationsStore", () => ({ useAccommodationsStore: magasinVide }));
++vi.mock("@/store/useGiftsStore", () => ({ useGiftsStore: magasinVide }));
++vi.mock("@/store/useInvitationTypesStore", () => ({ useInvitationTypesStore: magasinVide }));
++vi.mock("@/store/useCommunicationsStore", () => ({ useCommunicationsStore: magasinVide }));
++vi.mock("@/store/useWeddingPartyStore", () => ({ useWeddingPartyStore: magasinVide }));
++vi.mock("@/store/useSeatingConstraintsStore", () => ({ useSeatingConstraintsStore: magasinVide }));
++vi.mock("@/store/useWeddingEventsStore", () => ({ useWeddingEventsStore: magasinVide }));
++vi.mock("@/store/useMealSelectionsStore", () => ({ useMealSelectionsStore: magasinVide }));
++vi.mock("@/store/useCommunicationTemplatesStore", () => ({ useCommunicationTemplatesStore: magasinVide }));
++vi.mock("@/store/useDocumentsStore", () => ({ useDocumentsStore: magasinVide }));
++vi.mock("@/store/useLegalStore", () => ({ useLegalStore: magasinVide }));
++vi.mock("@/store/useHoneymoonStore", () => ({ useHoneymoonStore: magasinVide }));
++vi.mock("@/store/useCeremonyStore", () => ({ useCeremonyStore: magasinVide }));
++vi.mock("@/store/useSpeechesMusicStore", () => ({ useSpeechesMusicStore: magasinVide }));
++vi.mock("@/store/usePermissionsStore", () => ({ usePermissionsStore: magasinVide }));
++vi.mock("@/store/useSyncAccessStore", () => ({
++  useSyncAccessStore: { getState: () => ({ writeDenied: false, setWriteDenied: vi.fn() }) },
++}));
++vi.mock("@/store/useSyncPendingStore", () => ({
++  useSyncPendingStore: { getState: () => ({ setPending: vi.fn(), setFailed: vi.fn(), clear: vi.fn() }) },
++}));
++
++const KEYRING_EMMA = {
++  currentEpoch: 2,
++  epochs: {
++    "1": { wrappedKeys: [{ subKem: "proprio" }] },
++    "2": { wrappedKeys: [{ subKem: "proprio" }, { subKem: "emma" }] },
++  },
++};
++
++/** Trois sentinelles de collection, une par cas à distinguer. */
++const SENTINELLES = ["guest", "vendor", "household"].map((type) => ({
++  id: `col:${type}:node-A`,
++  type,
++  parentId: "node-A",
++  updatedAt: 1000,
++  contentKind: "merge",
++  access: "space",
++  enc: true,
++  meta: { collection: true },
++}));
++
++async function hydrater() {
++  const { hydrateFromSpace } = await import("@/lib/space-sync");
++  const { useAccesChiffreStore } = await import("@/store/useAccesChiffreStore");
++  useAccesChiffreStore.getState().reinitialiser();
++  await hydrateFromSpace(SESSION as never, "sp-1", "node-A");
++  return useAccesChiffreStore.getState();
++}
++
++describe("hydrateFromSpace — les trois issues d'une lecture ratée", () => {
++  beforeEach(() => {
++    vi.resetModules();
++    mockArbre = SENTINELLES;
++    mockKeyring = KEYRING_EMMA;
++    mockDechiffrerLeve = () => false;
++  });
++
++  it("époque hors de portée : l'état est levé, et seulement pour cette collection", async () => {
++    mockEntrees = [
++      { hash: "h", data: { _encrypted: "…", _epoch: 1 } },
++      { hash: "h", data: { _encrypted: "…", _epoch: 2, items: {}, rev: {}, tombstones: {} } },
++      { hash: "h", data: { _encrypted: "…", _epoch: 2, items: {}, rev: {}, tombstones: {} } },
++    ];
++    mockDechiffrerLeve = (d) => d._epoch === 1;
++
++    const etat = await hydrater();
++    expect(etat.illisibles).toEqual({ guest: "epoque-hors-de-portee" });
++    expect(etat.epoqueHorsDePortee).toBe(1);
++  });
++
++  it("document absent : l'état n'est PAS levé", async () => {
++    mockEntrees = [{ hash: "", data: null }, { hash: "", data: null }, { hash: "", data: null }];
++
++    const etat = await hydrater();
++    expect(etat.illisibles).toEqual({});
++  });
++
++  it("erreur réseau : l'état n'est PAS levé", async () => {
++    mockEntrees = [
++      { error: new Error("fetch failed") },
++      { error: new Error("fetch failed") },
++      { error: new Error("fetch failed") },
++    ];
++
++    const etat = await hydrater();
++    expect(etat.illisibles).toEqual({});
++  });
++
++  it("keyring illisible : rien n'est avéré, l'état n'est pas levé", async () => {
++    mockKeyring = null;
++    mockEntrees = [
++      { hash: "h", data: { _encrypted: "…", _epoch: 1 } },
++      { hash: "h", data: { _encrypted: "…", _epoch: 1 } },
++      { hash: "h", data: { _encrypted: "…", _epoch: 1 } },
++    ];
++    mockDechiffrerLeve = () => true;
++
++    const etat = await hydrater();
++    expect(etat.illisibles).toEqual({});
++  });
++
++  it("une lecture redevenue possible efface l'état — c'est l'effet d'un rescellement", async () => {
++    mockEntrees = [
++      { hash: "h", data: { _encrypted: "…", _epoch: 1 } },
++      { hash: "h", data: { _encrypted: "…", _epoch: 2, items: {}, rev: {}, tombstones: {} } },
++      { hash: "h", data: { _encrypted: "…", _epoch: 2, items: {}, rev: {}, tombstones: {} } },
++    ];
++    mockDechiffrerLeve = (d) => d._epoch === 1;
++    expect((await hydrater()).illisibles).toEqual({ guest: "epoque-hors-de-portee" });
++
++    const { useAccesChiffreStore } = await import("@/store/useAccesChiffreStore");
++    mockEntrees = mockEntrees.map(() => ({
++      hash: "h",
++      data: { _encrypted: "…", _epoch: 2, items: {}, rev: {}, tombstones: {} },
++    }));
++    const { hydrateFromSpace } = await import("@/lib/space-sync");
++    await hydrateFromSpace(SESSION as never, "sp-1", "node-A");
++
++    expect(useAccesChiffreStore.getState().illisibles).toEqual({});
++  });
++});
+diff --git a/apps/mobile/__tests__/acces-chiffre.test.ts b/apps/mobile/__tests__/acces-chiffre.test.ts
+new file mode 100644
+index 0000000..af6db9a
+--- /dev/null
++++ b/apps/mobile/__tests__/acces-chiffre.test.ts
+@@ -0,0 +1,112 @@
++import { describe, expect, it } from "vitest";
++
++import {
++  classerEchecDeLecture,
++  epoqueCourante,
++  epoqueDeLEnveloppe,
++  epoquesDetenues,
++  leveLEtatIllisible,
++} from "@/lib/acces-chiffre";
++
++const keyring = {
++  v: 1,
++  currentEpoch: 2,
++  epochs: {
++    "1": { wrappedKeys: [{ subKem: "proprio" }, { subKem: "ancien-lien" }] },
++    "2": { wrappedKeys: [{ subKem: "proprio" }, { subKem: "emma" }] },
++  },
++};
++
++describe("epoqueDeLEnveloppe", () => {
++  it("lit l'_epoch en clair sans aucune clé", () => {
++    expect(epoqueDeLEnveloppe({ _encrypted: "…", _epoch: 1 })).toBe(1);
++  });
++
++  it("rend null quand l'enveloppe n'en porte pas", () => {
++    expect(epoqueDeLEnveloppe({ _encrypted: "…" })).toBeNull();
++    expect(epoqueDeLEnveloppe(null)).toBeNull();
++    expect(epoqueDeLEnveloppe({ _epoch: "2" })).toBeNull();
++  });
++});
++
++describe("epoquesDetenues", () => {
++  it("rend les deux époques du propriétaire", () => {
++    expect([...epoquesDetenues(keyring, "proprio")].sort()).toEqual([1, 2]);
++  });
++
++  it("n'accorde à l'arrivant que l'époque de son arrivée", () => {
++    expect([...epoquesDetenues(keyring, "emma")]).toEqual([2]);
++  });
++
++  it("n'accorde au lien évincé que l'époque antérieure", () => {
++    expect([...epoquesDetenues(keyring, "ancien-lien")]).toEqual([1]);
++  });
++
++  it("écarte une époque où la clé apparaît deux fois — falsification", () => {
++    const truque = { epochs: { "1": { wrappedKeys: [{ subKem: "emma" }, { subKem: "emma" }] } } };
++    expect(epoquesDetenues(truque, "emma").size).toBe(0);
++  });
++
++  it("rend un ensemble vide sur un keyring illisible", () => {
++    expect(epoquesDetenues(null, "emma").size).toBe(0);
++    expect(epoquesDetenues(keyring, "").size).toBe(0);
++  });
++
++  it("epoqueCourante lit currentEpoch", () => {
++    expect(epoqueCourante(keyring)).toBe(2);
++    expect(epoqueCourante({})).toBeNull();
++  });
++});
++
++describe("classerEchecDeLecture — les trois cas", () => {
++  const detenues = epoquesDetenues(keyring, "emma"); // { 2 }
++
++  it("document absent : le serveur répond hash vide et data vide", () => {
++    expect(classerEchecDeLecture({ hash: "", data: {}, epoquesDetenues: detenues })).toBe("absent");
++  });
++
++  it("époque hors de portée : le document est scellé sous l'époque 1", () => {
++    expect(
++      classerEchecDeLecture({
++        hash: "h",
++        data: { _encrypted: "…", _epoch: 1 },
++        epoquesDetenues: detenues,
++      }),
++    ).toBe("epoque-hors-de-portee");
++  });
++
++  it("erreur réseau : rien n'a pu être lu", () => {
++    expect(
++      classerEchecDeLecture({ erreur: new Error("fetch failed"), epoquesDetenues: detenues }),
++    ).toBe("reseau");
++  });
++
++  it("les trois cas sont distincts", () => {
++    const cas = new Set([
++      classerEchecDeLecture({ hash: "", data: {}, epoquesDetenues: detenues }),
++      classerEchecDeLecture({ hash: "h", data: { _epoch: 1 }, epoquesDetenues: detenues }),
++      classerEchecDeLecture({ erreur: new Error("réseau"), epoquesDetenues: detenues }),
++    ]);
++    expect(cas.size).toBe(3);
++  });
++
++  it("une époque détenue n'est pas hors de portée", () => {
++    expect(
++      classerEchecDeLecture({ hash: "h", data: { _epoch: 2 }, epoquesDetenues: detenues }),
++    ).toBe("reseau");
++  });
++
++  it("un keyring illisible ne rend jamais l'échec avéré", () => {
++    expect(
++      classerEchecDeLecture({ hash: "h", data: { _epoch: 1 }, epoquesDetenues: null }),
++    ).toBe("reseau");
++  });
++});
++
++describe("leveLEtatIllisible — le garde-fou du propriétaire", () => {
++  it("ne lève l'état que sur une époque hors de portée", () => {
++    expect(leveLEtatIllisible("epoque-hors-de-portee")).toBe(true);
++    expect(leveLEtatIllisible("reseau")).toBe(false);
++    expect(leveLEtatIllisible("absent")).toBe(false);
++  });
++});
+diff --git a/apps/mobile/__tests__/invitation-courte.test.ts b/apps/mobile/__tests__/invitation-courte.test.ts
+new file mode 100644
+index 0000000..b4c2af5
+--- /dev/null
++++ b/apps/mobile/__tests__/invitation-courte.test.ts
+@@ -0,0 +1,232 @@
++/**
++ * Le lien court : le serveur ne détient que du chiffré, la clé reste dans le
++ * fragment, et un dépôt substitué ne se déchiffre pas — il est SIGNALÉ.
++ */
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++
++vi.mock("@fiance/sdk", () => ({ getSyncNamespace: () => "dk" }));
++
++import {
++  InvitationCourteError,
++  LONGUEUR_DU_CODE,
++  chiffrerLeJeton,
++  construireLeLienCourt,
++  dechiffrerLeDepot,
++  decoderBase64Url,
++  deposer,
++  encoderBase64Url,
++  lireLeLienCourt,
++  normaliserLeCode,
++  ouvrirLInvitationCourte,
++  recuperer,
++  retirer,
++  tirerUnCode,
++  type DepotChiffre,
++} from "@/lib/invitation-courte";
++
++/** Un jeton de la taille réelle : 984 octets, la cause de la longueur du lien. */
++const JETON = "e".repeat(1312);
++const BASE = "https://mariage.didot.io/sync";
++
++/** Le magasin du serveur d'essai, indexé par code. */
++let depots: Record<string, unknown> = {};
++const requetes: { url: string; corps?: unknown }[] = [];
++
++beforeEach(() => {
++  depots = {};
++  requetes.length = 0;
++  vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
++    const code = url.match(/_invite\/([^/?#]+)/)?.[1] ?? "";
++    if (init?.method === "POST") {
++      const corps = JSON.parse(String(init.body)) as { data: unknown; baseHash?: string | null };
++      requetes.push({ url, corps: corps.data });
++      // Le vrai serveur est en CAS, et il lit `baseHash` — JAMAIS `hash`. Un
++      // faux qui accepterait les deux noms masquerait un retrait qui échoue en
++      // production : `"baseHash" in corps` est donc une assertion, pas un détail.
++      const existant = depots[code] as { ct?: string } | undefined;
++      if (!("baseHash" in corps)) {
++        return { ok: false, status: 400, json: async () => ({ error: "baseHash attendu" }) };
++      }
++      if (existant?.ct && corps.baseHash !== "h") {
++        return { ok: false, status: 409, json: async () => ({ error: "hash_mismatch", currentHash: "h" }) };
++      }
++      depots[code] = corps.data;
++      return { ok: true, status: 200, json: async () => ({ hash: "h" }) };
++    }
++    requetes.push({ url });
++    const d = depots[code] as DepotChiffre | undefined;
++    const vide = !d || !Object.keys(d).length;
++    return { ok: true, status: 200, json: async () => (vide ? { hash: "", data: {} } : { hash: "h", data: d }) };
++  });
++});
++
++afterEach(() => vi.unstubAllGlobals());
++
++describe("le code de dépôt", () => {
++  it("fait dix caractères, dans un alphabet recopiable à la main", () => {
++    for (let i = 0; i < 50; i += 1) {
++      const code = tirerUnCode();
++      expect(code).toHaveLength(LONGUEUR_DU_CODE);
++      expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]+$/);
++    }
++  });
++
++  it("ne contient jamais I, L, O ni U — les confusions d'une recopie", () => {
++    const tirés = Array.from({ length: 200 }, () => tirerUnCode()).join("");
++    expect(tirés).not.toMatch(/[ILOU]/);
++  });
++
++  it("tolère la casse, les espaces et les tirets d'une saisie manuelle", () => {
++    const code = tirerUnCode();
++    expect(normaliserLeCode(code.toLowerCase())).toBe(code);
++    expect(normaliserLeCode(` ${code.slice(0, 5)}-${code.slice(5)} `)).toBe(code);
++  });
++
++  it("corrige les confusions ordinaires dans le sens de Crockford", () => {
++    expect(normaliserLeCode("OI L0123456".replace(/\s/g, ""))).toBe("0110123456");
++  });
++
++  it("refuse ce qui n'est pas un code", () => {
++    expect(normaliserLeCode("trop court")).toBeNull();
++    expect(normaliserLeCode("")).toBeNull();
++    expect(normaliserLeCode("K7M2P9QWX3TROPLONG")).toBeNull();
++  });
++});
++
++describe("base64url", () => {
++  it("fait l'aller-retour, sans rembourrage ni caractère hors URL", () => {
++    const octets = new Uint8Array([0, 1, 250, 251, 252, 253, 254, 255]);
++    const texte = encoderBase64Url(octets);
++    expect(texte).not.toMatch(/[+/=]/);
++    expect([...decoderBase64Url(texte)]).toEqual([...octets]);
++  });
++});
++
++describe("chiffrer et déchiffrer", () => {
++  it("fait l'aller-retour sur un jeton de taille réelle", async () => {
++    const { depot, cle } = await chiffrerLeJeton(JETON);
++    expect(await dechiffrerLeDepot(depot, cle)).toBe(JETON);
++  });
++
++  it("la clé fait 32 octets, soit 43 caractères en base64url", async () => {
++    const { cle } = await chiffrerLeJeton(JETON);
++    expect(decoderBase64Url(cle)).toHaveLength(32);
++    expect(cle).toHaveLength(43);
++  });
++
++  it("deux chiffrements du même jeton ne se ressemblent pas", async () => {
++    const a = await chiffrerLeJeton(JETON);
++    const b = await chiffrerLeJeton(JETON);
++    expect(a.depot.ct).not.toBe(b.depot.ct);
++    expect(a.cle).not.toBe(b.cle);
++  });
++
++  it("le dépôt ne porte AUCUNE trace du jeton en clair", async () => {
++    const { depot } = await chiffrerLeJeton("sp-f88da0e30ce94f4dabcc6d050103e931");
++    expect(JSON.stringify(depot)).not.toContain("sp-f88da0e3");
++  });
++
++  it("un dépôt SUBSTITUÉ ne se déchiffre pas, et c'est signalé", async () => {
++    const { cle } = await chiffrerLeJeton(JETON);
++    const autre = await chiffrerLeJeton("un tout autre jeton");
++    await expect(dechiffrerLeDepot(autre.depot, cle)).rejects.toThrow(InvitationCourteError);
++    await expect(dechiffrerLeDepot(autre.depot, cle)).rejects.toMatchObject({ cas: "depot-illisible" });
++  });
++
++  it("un dépôt ALTÉRÉ d'un octet ne se déchiffre pas non plus", async () => {
++    const { depot, cle } = await chiffrerLeJeton(JETON);
++    const octets = decoderBase64Url(depot.ct);
++    octets[0] ^= 0xff;
++    const altéré = { iv: depot.iv, ct: encoderBase64Url(octets) };
++    await expect(dechiffrerLeDepot(altéré, cle)).rejects.toMatchObject({ cas: "depot-illisible" });
++  });
++
++  it("une clé tronquée est refusée, pas devinée", async () => {
++    const { depot, cle } = await chiffrerLeJeton(JETON);
++    await expect(dechiffrerLeDepot(depot, cle.slice(0, 20))).rejects.toMatchObject({
++      cas: "depot-illisible",
++    });
++  });
++});
++
++describe("le dépôt sur le serveur", () => {
++  it("dépose puis retrouve, et le serveur ne voit que du chiffré", async () => {
++    const code = tirerUnCode();
++    const { depot, cle } = await chiffrerLeJeton(JETON);
++    await deposer(BASE, code, depot);
++
++    // Ce que le serveur détient, mot pour mot.
++    const détenu = JSON.stringify(requetes.find((r) => r.corps)?.corps);
++    expect(détenu).not.toContain(cle);
++    expect(détenu).not.toContain(JETON.slice(0, 40));
++
++    expect(await ouvrirLInvitationCourte(BASE, { code, cle })).toBe(JETON);
++  });
++
++  it("la clé ne part JAMAIS au serveur, ni en adresse ni en corps", async () => {
++    const code = tirerUnCode();
++    const { depot, cle } = await chiffrerLeJeton(JETON);
++    await deposer(BASE, code, depot);
++    await recuperer(BASE, code);
++
++    for (const r of requetes) {
++      expect(r.url).not.toContain(cle);
++      expect(JSON.stringify(r.corps ?? "")).not.toContain(cle);
++    }
++  });
++
++  it("un code inconnu rend « dépôt absent », pas une erreur réseau", async () => {
++    await expect(recuperer(BASE, tirerUnCode())).rejects.toMatchObject({ cas: "depot-absent" });
++  });
++
++  it("un dépôt retiré se lit comme absent, malgré le CAS du serveur", async () => {
++    const code = tirerUnCode();
++    const { depot } = await chiffrerLeJeton(JETON);
++    await deposer(BASE, code, depot);
++    await retirer(BASE, code);
++    await expect(recuperer(BASE, code)).rejects.toMatchObject({ cas: "depot-absent" });
++  });
++
++  it("un conflit qui ne porte pas le hash courant est signalé, pas avalé", async () => {
++    vi.stubGlobal("fetch", async () => ({
++      ok: false,
++      status: 409,
++      json: async () => ({ error: "hash_mismatch" }),
++    }));
++    await expect(retirer(BASE, tirerUnCode())).rejects.toMatchObject({ cas: "reseau" });
++  });
++
++  it("une panne du serveur est classée réseau, jamais « absent »", async () => {
++    vi.stubGlobal("fetch", async () => { throw new Error("fetch failed"); });
++    await expect(recuperer(BASE, tirerUnCode())).rejects.toMatchObject({ cas: "reseau" });
++  });
++});
++
++describe("le lien court", () => {
++  it("tient largement sous cent caractères", async () => {
++    const { cle } = await chiffrerLeJeton(JETON);
++    const lien = construireLeLienCourt("https://mariage.didot.io", tirerUnCode(), cle);
++    expect(lien.length).toBeLessThan(100);
++  });
++
++  it("se relit : code dans le chemin, clé dans le fragment", async () => {
++    const code = tirerUnCode();
++    const { cle } = await chiffrerLeJeton(JETON);
++    expect(lireLeLienCourt(construireLeLienCourt("https://mariage.didot.io", code, cle))).toEqual({ code, cle });
++  });
++
++  it("survit à un fragment pollué par un partage", async () => {
++    const code = tirerUnCode();
++    const { cle } = await chiffrerLeJeton(JETON);
++    const lien = `https://mariage.didot.io/i/${code}#${cle}%20Rejoins-nous%20!`;
++    expect(lireLeLienCourt(lien)?.cle).toBe(cle);
++  });
++
++  it("n'est pas confondu avec un lien au format long", () => {
++    expect(lireLeLienCourt("https://mariage.didot.io/join#eyJ2IjoxfQ")).toBeNull();
++  });
++
++  it("un lien sans fragment n'est pas une invitation courte", () => {
++    expect(lireLeLienCourt(`https://mariage.didot.io/i/${tirerUnCode()}`)).toBeNull();
++  });
++});
+diff --git a/apps/mobile/__tests__/join-lien-court.test.ts b/apps/mobile/__tests__/join-lien-court.test.ts
+new file mode 100644
+index 0000000..11422e9
+--- /dev/null
++++ b/apps/mobile/__tests__/join-lien-court.test.ts
+@@ -0,0 +1,161 @@
++/**
++ * L'écran de jonction accepte les DEUX formes de lien, et sait dire laquelle
++ * des trois causes explique un échec.
++ *
++ * Un lien au format long déjà remis à quelqu'un ne doit jamais cesser de
++ * fonctionner : le changement de format ne réécrit pas le passé.
++ */
++import { beforeEach, describe, expect, it, vi } from "vitest";
++
++vi.mock("expo-linking", () => ({ createURL: (p: string) => `fiance:///${p}` }));
++
++// `getSyncNamespace` lève tant que `configureDKSpaces` n'a pas tourné : hors sujet ici.
++vi.mock("@fiance/sdk", async (importOriginal) => ({
++  ...(await importOriginal<Record<string, unknown>>()),
++  getSyncNamespace: () => "dk",
++}));
++
++import { parseSpaceInviteUrl } from "@/lib/identity";
++import { encodeSpaceInviteLink, type SpaceInviteLinkToken } from "@fiance/sdk";
++import { resoudreLInvitation } from "@/lib/resolution-d-invitation";
++import {
++  chiffrerLeJeton,
++  decoderLeJeton,
++  construireLeLienCourt,
++  deposer,
++  lireLeLienCourt,
++  ouvrirLInvitationCourte,
++  tirerUnCode,
++  type DepotChiffre,
++} from "@/lib/invitation-courte";
++
++const JETON: SpaceInviteLinkToken = {
++  v: 1,
++  spaceId: "sp-f88da0e30ce94f4dabcc6d050103e931",
++  spaceName: "Adrien & Emma",
++  write: true,
++  key: "a".repeat(64),
++  kemPriv: "b".repeat(64),
++  kemPub: "c".repeat(64),
++  cap: { iss: "d".repeat(32), sub: "e".repeat(32), exp: 4102444800, nonce: "f".repeat(32) },
++} as unknown as SpaceInviteLinkToken;
++
++const BASE = "https://mariage.didot.io/sync";
++const ORIGINE = "https://mariage.didot.io";
++
++/** `encodeSpaceInviteLink` rend l'URL entière : le fragment en est la seconde moitié. */
++function fragmentLong(): string {
++  const url = encodeSpaceInviteLink(ORIGINE, JETON);
++  return url.slice(url.indexOf("#") + 1);
++}
++
++let depots: Record<string, unknown> = {};
++
++beforeEach(() => {
++  depots = {};
++  vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
++    const code = url.match(/_invite\/([^/?#]+)/)?.[1] ?? "";
++    if (init?.method === "POST") {
++      depots[code] = JSON.parse(String(init.body)).data;
++      return { ok: true, status: 200, json: async () => ({ hash: "h" }) };
++    }
++    const d = depots[code] as DepotChiffre | undefined;
++    const vide = !d || !Object.keys(d).length;
++    return { ok: true, status: 200, json: async () => (vide ? { hash: "", data: {} } : { hash: "h", data: d }) };
++  });
++});
++
++/** L'émission telle que `invite-link.ts` la fait : jeton long → dépôt → lien court. */
++async function emettreUnLienCourt() {
++  const fragment = fragmentLong();
++  const { depot, cle } = await chiffrerLeJeton(fragment);
++  const code = tirerUnCode();
++  await deposer(BASE, code, depot);
++  return { lien: construireLeLienCourt(ORIGINE, code, cle), code, cle, fragment };
++}
++
++/** Le chemin de résolution de `join.tsx` — le vrai module, pas une copie. */
++async function resoudre(url: string) {
++  const r = await resoudreLInvitation(BASE, url, parseSpaceInviteUrl(url));
++  return "jeton" in r ? { jeton: r.jeton } : { cause: r.cause };
++}
++
++describe("les deux formes de lien", () => {
++  it("un lien au format LONG déjà émis est toujours accepté", async () => {
++    const long = `${ORIGINE}/join#${fragmentLong()}`;
++    const r = await resoudre(long);
++    expect(r).toMatchObject({ jeton: { spaceId: JETON.spaceId, spaceName: "Adrien & Emma" } });
++  });
++
++  it("un lien au format long au fragment pollué par un partage passe aussi", async () => {
++    const long = `${ORIGINE}/join#${fragmentLong()}%20Rejoins-nous%20!`;
++    expect(await resoudre(long)).toMatchObject({ jeton: { spaceId: JETON.spaceId } });
++  });
++
++  it("un lien au format COURT rend exactement le même jeton", async () => {
++    const { lien } = await emettreUnLienCourt();
++    const r = await resoudre(lien);
++    expect(r).toMatchObject({ jeton: { spaceId: JETON.spaceId, spaceName: "Adrien & Emma" } });
++  });
++
++  it("le lien court tient sous cent caractères, quelle que soit la taille du jeton", async () => {
++    const { lien } = await emettreUnLienCourt();
++    const long = `${ORIGINE}/join#${fragmentLong()}`;
++    expect(lien.length).toBeLessThan(100);
++    expect(lien.length).toBeLessThan(long.length);
++    // La longueur du lien court NE DÉPEND PAS du jeton : c'est tout l'intérêt.
++    // Le jeton réel pèse 1342 caractères, soit seize fois plus.
++    expect(1342 / lien.length).toBeGreaterThan(15);
++  });
++});
++
++describe("les trois causes d'un échec", () => {
++  it("adresse tronquée — le fragment a été perdu en route → INCOMPLÈTE", async () => {
++    const { lien } = await emettreUnLienCourt();
++    expect(await resoudre(lien.split("#")[0])).toEqual({ cause: "incomplete" });
++  });
++
++  it("dépôt expiré ou retiré → EXPIRÉE", async () => {
++    const { lien, code } = await emettreUnLienCourt();
++    depots[code] = {};
++    expect(await resoudre(lien)).toEqual({ cause: "expiree" });
++  });
++
++  it("dépôt substitué sous le même code → INCOMPLÈTE, jamais avalé", async () => {
++    const { lien, code } = await emettreUnLienCourt();
++    depots[code] = (await chiffrerLeJeton("un autre jeton")).depot;
++    expect(await resoudre(lien)).toEqual({ cause: "incomplete" });
++  });
++
++  it("adresse qui ne veut rien dire → INVALIDE", async () => {
++    expect(await resoudre(`${ORIGINE}/join`)).toEqual({ cause: "invalide" });
++    expect(await resoudre(`${ORIGINE}/join#pasunjeton`)).toEqual({ cause: "invalide" });
++  });
++
++  it("les trois causes sont bien distinctes", async () => {
++    const { lien, code } = await emettreUnLienCourt();
++    const tronquée = await resoudre(lien.split("#")[0]);
++    depots[code] = {};
++    const expirée = await resoudre(lien);
++    const invalide = await resoudre(`${ORIGINE}/join`);
++    expect(new Set([JSON.stringify(tronquée), JSON.stringify(expirée), JSON.stringify(invalide)]).size).toBe(3);
++  });
++});
++
++describe("le repli par code saisi à la main", () => {
++  it("un code recopié permet de rejoindre, sans passer par l'adresse", async () => {
++    const { code, cle } = await emettreUnLienCourt();
++    const jeton = decoderLeJeton(await ouvrirLInvitationCourte(BASE, { code, cle }));
++    expect(jeton).toMatchObject({ spaceId: JETON.spaceId });
++  });
++
++  it("le même code saisi en minuscules et avec un tiret aboutit", async () => {
++    const { code, cle } = await emettreUnLienCourt();
++    const { normaliserLeCode } = await import("@/lib/invitation-courte");
++    const saisi = normaliserLeCode(`${code.slice(0, 5).toLowerCase()}-${code.slice(5).toLowerCase()}`);
++    expect(saisi).toBe(code);
++    expect(decoderLeJeton(await ouvrirLInvitationCourte(BASE, { code: saisi!, cle }))).toMatchObject({
++      spaceId: JETON.spaceId,
++    });
++  });
++});
+diff --git a/apps/mobile/__tests__/rescellement.test.ts b/apps/mobile/__tests__/rescellement.test.ts
+new file mode 100644
+index 0000000..3a9346a
+--- /dev/null
++++ b/apps/mobile/__tests__/rescellement.test.ts
+@@ -0,0 +1,170 @@
++/**
++ * Le rescellement d'un espace côté application.
++ *
++ * Même contrat que `fiance-db reseal` : sauter ce qui est déjà à l'époque
++ * courante, ne rien changer au contenu, relire avant de rechiffrer en cas de
++ * conflit, et nommer ce qui reste quand il en reste.
++ */
++import { beforeEach, describe, expect, it, vi } from "vitest";
++
++interface DocumentDeTest {
++  hash: string;
++  data: Record<string, unknown> | null;
++}
++
++let mockArbre: unknown[] = [];
++let mockKeyring: unknown = null;
++let mockDocs: Record<string, DocumentDeTest> = {};
++let mockPoussEnEchec: Set<string> = new Set();
++const mockPoussees: { nodeId: string; contenu: unknown }[] = [];
++/** Les nœuds dont la première poussée lève un conflit — le mutateur doit être rappelé. */
++let mockConflitUneFois: Set<string> = new Set();
++
++vi.mock("@fiance/sdk", () => ({
++  readObjectTree: async () => mockArbre,
++  objDocPull: (s: string, n: string) => `pull/${s}/${n}`,
++  objDocPush: (s: string, n: string) => `push/${s}/${n}`,
++  getNodeAccess: async (_sid: string, nodeId: string) => ({
++    encryptor: { encrypt: async (d: unknown) => d, decrypt: async (d: unknown) => d },
++    client: {
++      pull: async (chemin: string) => {
++        if (chemin.includes("_keyring")) return { hash: "k", data: mockKeyring };
++        return mockDocs[nodeId] ?? { hash: "", data: {} };
++      },
++      push: vi.fn(),
++    },
++    push: async (
++      _pull: string,
++      _push: string,
++      mutateur: (cur: Record<string, unknown> | null) => Record<string, unknown> | null,
++    ) => {
++      if (mockPoussEnEchec.has(nodeId)) throw new Error("403");
++      if (mockConflitUneFois.has(nodeId)) {
++        // Premier essai au hash périmé : `runCas` relit et rappelle le mutateur.
++        mockConflitUneFois.delete(nodeId);
++        mutateur(null);
++      }
++      const suite = mutateur(mockDocs[nodeId]?.data ?? null);
++      if (suite === null) return;
++      mockPoussees.push({ nodeId, contenu: suite });
++      mockDocs[nodeId] = { hash: "h2", data: { ...(suite as Record<string, unknown>), _epoch: 2 } };
++    },
++  }),
++}));
++
++vi.mock("@/lib/space-sync", () => ({ neutraliserCachesDePoussée: vi.fn() }));
++
++const SESSION = {
++  userId: "u1",
++  layout: { keyringPull: (id: string) => `pull/spaces/${id}/_keyring` },
++} as never;
++
++const KEYRING = { currentEpoch: 2, epochs: { "1": { wrappedKeys: [] }, "2": { wrappedKeys: [] } } };
++
++function noeud(type: string, enc = true) {
++  return { id: `col:${type}:node-A`, type, parentId: "node-A", enc, access: "space", contentKind: "merge", updatedAt: 1 };
++}
++
++describe("rescellerEspace", () => {
++  beforeEach(() => {
++    vi.resetModules();
++    mockPoussees.length = 0;
++    mockPoussEnEchec = new Set();
++    mockConflitUneFois = new Set();
++    mockKeyring = KEYRING;
++    mockArbre = [noeud("guest"), noeud("vendor"), noeud("household")];
++    mockDocs = {
++      "col:guest:node-A": { hash: "h", data: { _encrypted: "…", _epoch: 1, items: { g1: { id: "g1" } } } },
++      "col:vendor:node-A": { hash: "h", data: { _encrypted: "…", _epoch: 1, items: {} } },
++      "col:household:node-A": { hash: "h", data: { _encrypted: "…", _epoch: 2, items: {} } },
++    };
++  });
++
++  it("rescelle ce qui est en retard et saute ce qui est à jour", async () => {
++    const { rescellerEspace, rescellementComplet } = await import("@/lib/rescellement");
++    const r = await rescellerEspace(SESSION, "sp-1");
++
++    expect(r.epoque).toBe(2);
++    expect(r.rescellees.sort()).toEqual(["guest", "vendor"]);
++    expect(r.dejaAJour).toEqual(["household"]);
++    expect(r.restant).toEqual([]);
++    expect(rescellementComplet(r)).toBe(true);
++    expect(mockPoussees.map((p) => p.nodeId).sort()).toEqual(["col:guest:node-A", "col:vendor:node-A"]);
++  });
++
++  it("ne change RIEN au contenu : ce qui repart est ce qui était là", async () => {
++    const avant = JSON.parse(JSON.stringify(mockDocs["col:guest:node-A"].data));
++    const { rescellerEspace } = await import("@/lib/rescellement");
++    await rescellerEspace(SESSION, "sp-1");
++
++    const poussee = mockPoussees.find((p) => p.nodeId === "col:guest:node-A");
++    expect(poussee?.contenu).toEqual(avant);
++  });
++
++  it("est rejouable : un espace déjà rescellé n'émet aucune écriture", async () => {
++    for (const k of Object.keys(mockDocs)) mockDocs[k].data!._epoch = 2;
++    const { rescellerEspace } = await import("@/lib/rescellement");
++    const r = await rescellerEspace(SESSION, "sp-1");
++
++    expect(mockPoussees).toEqual([]);
++    expect(r.rescellees).toEqual([]);
++    expect(r.dejaAJour.sort()).toEqual(["guest", "household", "vendor"]);
++  });
++
++  it("relit avant de rechiffrer en cas de conflit", async () => {
++    mockConflitUneFois = new Set(["col:guest:node-A"]);
++    const { rescellerEspace } = await import("@/lib/rescellement");
++    await rescellerEspace(SESSION, "sp-1");
++
++    // Le mutateur a été rappelé avec la relecture : ce qui part n'est pas `null`.
++    const poussee = mockPoussees.find((p) => p.nodeId === "col:guest:node-A");
++    expect(poussee?.contenu).toMatchObject({ _epoch: 1, items: { g1: { id: "g1" } } });
++  });
++
++  it("nomme ce qui reste quand une poussée échoue", async () => {
++    mockPoussEnEchec = new Set(["col:vendor:node-A"]);
++    const { rescellerEspace, rescellementComplet } = await import("@/lib/rescellement");
++    const r = await rescellerEspace(SESSION, "sp-1");
++
++    expect(r.rescellees).toEqual(["guest"]);
++    expect(r.restant).toEqual(["vendor"]);
++    expect(rescellementComplet(r)).toBe(false);
++  });
++
++  it("un keyring illisible n'écrit rien et rapporte tout comme restant", async () => {
++    mockKeyring = null;
++    const { rescellerEspace, rescellementComplet } = await import("@/lib/rescellement");
++    const r = await rescellerEspace(SESSION, "sp-1");
++
++    expect(mockPoussees).toEqual([]);
++    expect(r.epoque).toBeNull();
++    expect(r.restant.sort()).toEqual(["guest", "household", "vendor"]);
++    expect(rescellementComplet(r)).toBe(false);
++  });
++
++  it("un document absent est sauté sans déchiffrement ni écriture", async () => {
++    mockDocs["col:guest:node-A"] = { hash: "", data: {} };
++    const { rescellerEspace } = await import("@/lib/rescellement");
++    const r = await rescellerEspace(SESSION, "sp-1");
++
++    expect(r.rescellees).toEqual(["vendor"]);
++    expect(r.restant).toEqual([]);
++  });
++
++  it("les nœuds en clair sont hors périmètre", async () => {
++    mockArbre = [...mockArbre, noeud("publicPage", false)];
++    const { rescellerEspace } = await import("@/lib/rescellement");
++    const r = await rescellerEspace(SESSION, "sp-1");
++
++    expect([...r.rescellees, ...r.dejaAJour, ...r.restant]).not.toContain("publicPage");
++  });
++
++  it("rend l'avancement, du premier au dernier", async () => {
++    const vus: number[] = [];
++    const { rescellerEspace } = await import("@/lib/rescellement");
++    await rescellerEspace(SESSION, "sp-1", { onAvancement: (a) => vus.push(a.fait) });
++
++    expect(vus[0]).toBe(0);
++    expect(vus[vus.length - 1]).toBe(2);
++  });
++});
+diff --git a/apps/mobile/__tests__/revocation-atomique.test.ts b/apps/mobile/__tests__/revocation-atomique.test.ts
+new file mode 100644
+index 0000000..1feba47
+--- /dev/null
++++ b/apps/mobile/__tests__/revocation-atomique.test.ts
+@@ -0,0 +1,109 @@
++/**
++ * Une révocation ne rend la main qu'une fois le contenu rescellé.
++ *
++ * L'ordre est le tout du sujet : retrait d'assignation → poussée → rotation →
++ * rescellement. Et un rescellement en échec ne rend JAMAIS `evicted: true` —
++ * sinon on annoncerait une éviction que le lien évincé pourrait démentir.
++ */
++import { beforeEach, describe, expect, it, vi } from "vitest";
++
++const journal: string[] = [];
++let mockRescellement: {
++  epoque: number | null;
++  rescellees: string[];
++  dejaAJour: string[];
++  restant: string[];
++} = { epoque: 2, rescellees: ["guest"], dejaAJour: [], restant: [] };
++let mockRotationLeve = false;
++
++vi.mock("@fiance/sdk", () => ({
++  revokeSpaceAccess: vi.fn(async () => {
++    journal.push("rotation");
++    if (mockRotationLeve) throw new Error("pas d'entrée d'invitation");
++  }),
++  removeSpaceMember: vi.fn(async () => { journal.push("retrait-registre"); }),
++  hydrateSpaceInviteStore: vi.fn(),
++}));
++
++vi.mock("@/lib/starfish", () => ({
++  getActiveSession: () => ({ userId: "u1", accountClient: {} }),
++  getActiveSpaceId: () => "sp-1",
++}));
++
++vi.mock("@/lib/space-sync", () => ({
++  pushSpaceSnapshot: vi.fn(async () => { journal.push("poussee"); return true; }),
++}));
++
++vi.mock("@/lib/kv-storage", () => ({ readCollection: () => null }));
++vi.mock("@/lib/invite-link", () => ({ SPACE_INVITE_STORE_KEY: "invites" }));
++
++vi.mock("@/lib/rescellement", async () => {
++  const reel = await vi.importActual<typeof import("@/lib/rescellement")>("@/lib/rescellement");
++  return {
++    rescellementComplet: reel.rescellementComplet,
++    rescellerEspace: vi.fn(async () => { journal.push("rescellement"); return mockRescellement; }),
++  };
++});
++
++const mockRemoveAssignment = vi.fn(() => { journal.push("retrait-assignation"); });
++vi.mock("@/store/usePermissionsStore", () => ({
++  usePermissionsStore: { getState: () => ({ removeAssignment: mockRemoveAssignment }) },
++}));
++vi.mock("@/store/useWeddingRegistryStore", () => ({
++  useWeddingRegistryStore: {
++    getState: () => ({
++      registry: { activeWeddingId: "w1", weddings: [{ id: "w1", weddingNodeId: "node-A" }] },
++      updateWedding: vi.fn(),
++    }),
++  },
++}));
++
++describe("revokeCollaborator", () => {
++  beforeEach(() => {
++    journal.length = 0;
++    mockRotationLeve = false;
++    mockRescellement = { epoque: 2, rescellees: ["guest"], dejaAJour: [], restant: [] };
++  });
++
++  it("l'ordre est retrait d'assignation → poussée → rotation → rescellement", async () => {
++    const { revokeCollaborator } = await import("@/lib/permissions/revoke");
++    await revokeCollaborator("sujet", "a1");
++
++    expect(journal).toEqual(["retrait-assignation", "poussee", "rotation", "rescellement"]);
++  });
++
++  it("rend evicted: true quand tout le contenu est rescellé", async () => {
++    const { revokeCollaborator } = await import("@/lib/permissions/revoke");
++    const r = await revokeCollaborator("sujet", "a1");
++
++    expect(r.evicted).toBe(true);
++    expect(r.aResceller).toEqual([]);
++  });
++
++  it("un rescellement en échec ne rend JAMAIS evicted: true, et nomme ce qui reste", async () => {
++    mockRescellement = { epoque: 2, rescellees: ["guest"], dejaAJour: [], restant: ["vendor", "household"] };
++    const { revokeCollaborator } = await import("@/lib/permissions/revoke");
++    const r = await revokeCollaborator("sujet", "a1");
++
++    expect(r.evicted).toBe(false);
++    expect(r.aResceller).toEqual(["vendor", "household"]);
++  });
++
++  it("un keyring illisible laisse la révocation incomplète", async () => {
++    mockRescellement = { epoque: null, rescellees: [], dejaAJour: [], restant: [] };
++    const { revokeCollaborator } = await import("@/lib/permissions/revoke");
++    const r = await revokeCollaborator("sujet", "a1");
++
++    expect(r.evicted).toBe(false);
++    expect(r.aResceller).toEqual(["*"]);
++  });
++
++  it("une rotation impossible n'atteint jamais le rescellement, et n'évince pas", async () => {
++    mockRotationLeve = true;
++    const { revokeCollaborator } = await import("@/lib/permissions/revoke");
++    const r = await revokeCollaborator("sujet", "a1");
++
++    expect(journal).toEqual(["retrait-assignation", "poussee", "rotation", "retrait-registre"]);
++    expect(r.evicted).toBe(false);
++  });
++});
+diff --git a/apps/mobile/app/i/[code].tsx b/apps/mobile/app/i/[code].tsx
+new file mode 100644
+index 0000000..12b42f8
+--- /dev/null
++++ b/apps/mobile/app/i/[code].tsx
+@@ -0,0 +1,13 @@
++/**
++ * L'adresse courte d'une invitation : `/i/<code>#<clé>`.
++ *
++ * MODIFICATION LOCALE — le code vit dans le CHEMIN, la clé dans le fragment.
++ * C'est ce qui fait qu'une adresse abîmée en route reste diagnosticable :
++ * `/i/<code>` sans fragment dit « invitation incomplète » au lieu de renvoyer
++ * la personne à l'accueil.
++ *
++ * L'écran est celui de `/join` — les deux formes de lien y aboutissent. Sans
++ * cette route, nginx sert bien la coquille mais le routeur ne reconnaît pas le
++ * chemin et affiche « Unmatched Route ».
++ */
++export { default } from "@/app/join";
+diff --git a/apps/mobile/components/BandeauLectureImpossible.tsx b/apps/mobile/components/BandeauLectureImpossible.tsx
+new file mode 100644
+index 0000000..e0f768c
+--- /dev/null
++++ b/apps/mobile/components/BandeauLectureImpossible.tsx
+@@ -0,0 +1,54 @@
++import React from "react";
++import { StyleSheet, Text, View } from "react-native";
++import { useTranslation } from "react-i18next";
++
++import { theme as GP } from "@/lib/theme";
++import { useAccesChiffreStore } from "@/store/useAccesChiffreStore";
++
++/**
++ * Bandeau d'un appareil qui ne peut pas déchiffrer le contenu de l'espace.
++ *
++ * Distinct de `ReadOnlyBanner` : celui-là dit « vous n'avez pas le droit
++ * d'écrire », celui-ci « votre invitation ne donne pas accès à ce contenu ».
++ * Et il s'affiche à TOUTES les largeurs — un mariage qui paraît vide alors
++ * qu'il ne l'est pas est le défaut que ce changement corrige.
++ */
++export function BandeauLectureImpossible() {
++  const { t } = useTranslation("settings");
++  const illisibles = useAccesChiffreStore((s) => s.illisibles);
++
++  if (Object.keys(illisibles).length === 0) return null;
++
++  return (
++    <View style={styles.bandeau}>
++      <Text style={styles.texte}>{t("chiffrementHorsDePortee")}</Text>
++      <Text style={styles.geste}>{t("chiffrementHorsDePorteeGeste")}</Text>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  bandeau: {
++    width: "100%",
++    zIndex: 999,
++    backgroundColor: GP.mustardSoft, // attention — la même convention que le pense-bête
++    alignItems: "center",
++    justifyContent: "center",
++    paddingVertical: 8,
++    paddingHorizontal: 12,
++  },
++  texte: {
++    color: GP.mustard, // ambre sombre, lisible sur son fond clair
++    fontSize: 12,
++    fontFamily: "Inter_600SemiBold",
++    letterSpacing: 0.2,
++    textAlign: "center",
++  },
++  geste: {
++    color: GP.mustard,
++    fontSize: 12,
++    fontFamily: "Inter_400Regular",
++    textAlign: "center",
++    marginTop: 2,
++  },
++});
+diff --git a/apps/mobile/components/InvitationDejaAcceptee.tsx b/apps/mobile/components/InvitationDejaAcceptee.tsx
+new file mode 100644
+index 0000000..9ee56d3
+--- /dev/null
++++ b/apps/mobile/components/InvitationDejaAcceptee.tsx
+@@ -0,0 +1,57 @@
++import { View, Text, Pressable } from "react-native-css/components";
++import { useRouter } from "expo-router";
++import { useTranslation } from "react-i18next";
++import { Heart, ArrowRight } from "lucide-react-native";
++
++import { Seo } from "@/components/Seo";
++import { PageHeader } from "@/components/PageHeader";
++import { theme as GP } from "@/lib/theme";
++
++/**
++ * MODIFICATION LOCALE — l'écran remplace une redirection SILENCIEUSE.
++ *
++ * Une invitation vers un espace déjà rejoint renvoyait vers l'accueil sans un
++ * mot. Vu de la personne, c'est indiscernable d'un lien qui ne marche pas —
++ * c'est d'ailleurs ainsi que le propriétaire l'a lu en testant son propre lien.
++ * L'écran de jonction ne doit JAMAIS rediriger de lui-même quand une invitation
++ * lui a été présentée : elle doit toujours pouvoir lire ce qu'il en est advenu.
++ */
++export function InvitationDejaAcceptee({
++  weddingName,
++  onContinuer,
++}: {
++  weddingName?: string;
++  onContinuer: () => void;
++}) {
++  const { t } = useTranslation("common");
++  const router = useRouter();
++  void router;
++
++  return (
++    <View className="flex-1 bg-accent-paper justify-center px-6">
++      <Seo title="Fiancé" description="" noindex />
++      <View className="items-center mb-10">
++        <View className="w-20 h-20 rounded-full bg-primary-50 dark:bg-primary-900 items-center justify-center mb-5">
++          <Heart size={36} color={GP.clay} />
++        </View>
++        <PageHeader
++          eyebrow={t("join.inviteEyebrow")}
++          title={t("join.dejaMembre")}
++          tagline={weddingName ? t("join.dejaMembreDetail", { name: weddingName }) : t("join.dejaMembreDetailSansNom")}
++          titleSize={24}
++          style={{ paddingHorizontal: 0, paddingTop: 0 }}
++        />
++      </View>
++
++      <Pressable
++        onPress={onContinuer}
++        className="bg-primary-500 rounded-2xl py-4 items-center active:bg-primary-600"
++      >
++        <View className="flex-row items-center">
++          <Text className="text-white font-semibold text-base mr-2">{t("join.allerAuMariage")}</Text>
++          <ArrowRight size={20} color="#fff" />
++        </View>
++      </Pressable>
++    </View>
++  );
++}
+diff --git a/apps/mobile/components/InvitationNonReconnue.tsx b/apps/mobile/components/InvitationNonReconnue.tsx
+new file mode 100644
+index 0000000..db81437
+--- /dev/null
++++ b/apps/mobile/components/InvitationNonReconnue.tsx
+@@ -0,0 +1,112 @@
++import { useState } from "react";
++import { View, Text, Pressable, TextInput } from "react-native-css/components";
++import { useRouter } from "expo-router";
++import { useTranslation } from "react-i18next";
++import { AlertCircle, ArrowLeft } from "lucide-react-native";
++
++import { Seo } from "@/components/Seo";
++import { PageHeader } from "@/components/PageHeader";
++import { theme as GP } from "@/lib/theme";
++import { normaliserLeCode } from "@/lib/invitation-courte";
++import type { CauseDEchec } from "@/lib/resolution-d-invitation";
++
++/**
++ * MODIFICATION LOCALE — l'écran `InvalidInvite` muet, remplacé.
++ *
++ * Il dit désormais LAQUELLE des trois causes s'applique, et offre un second
++ * chemin qui ne dépend pas de l'intégrité de l'adresse : saisir ou coller le
++ * code. Il ne redirige JAMAIS de lui-même : la personne doit toujours pouvoir
++ * lire ce qu'il est advenu de son invitation.
++ */
++export function InvitationNonReconnue({
++  cause,
++  onCode,
++}: {
++  cause: CauseDEchec;
++  onCode: (code: string, cle: string) => void;
++}) {
++  const { t } = useTranslation("common");
++  const router = useRouter();
++  const [code, setCode] = useState("");
++  const [cle, setCle] = useState("");
++  const [erreurDeSaisie, setErreurDeSaisie] = useState<string | null>(null);
++
++  const titres: Record<CauseDEchec, [string, string]> = {
++    incomplete: ["join.invitationIncomplete", "join.invitationIncompleteDetail"],
++    expiree: ["join.invitationExpiree", "join.invitationExpireeDetail"],
++    invalide: ["join.invitationInvalide", "join.invitationInvalideDetail"],
++  };
++  const [titre, detail] = titres[cause];
++
++  // Une invitation expirée ne se rattrape pas par un code : il faut en demander
++  // une neuve. Le repli n'a de sens que pour une adresse abîmée.
++  const offrirLeRepli = cause !== "expiree";
++
++  const valider = () => {
++    const codeNormalisé = normaliserLeCode(code);
++    const cleNettoyée = cle.trim().replace(/^#/, "").match(/^[A-Za-z0-9_-]+/)?.[0] ?? "";
++    if (!codeNormalisé || !cleNettoyée) { setErreurDeSaisie(t("join.codeIncomplet")); return; }
++    setErreurDeSaisie(null);
++    onCode(codeNormalisé, cleNettoyée);
++  };
++
++  return (
++    <View className="flex-1 bg-accent-paper justify-center px-6">
++      <Seo title="Fiancé" description="" noindex />
++      <View className="items-center mb-8">
++        <View className="w-20 h-20 rounded-full bg-red-50 dark:bg-red-900 items-center justify-center mb-5">
++          <AlertCircle size={36} color="#EF4444" />
++        </View>
++        <PageHeader
++          eyebrow={t("join.inviteEyebrow")}
++          title={t(titre)}
++          tagline={t(detail)}
++          titleSize={24}
++          style={{ paddingHorizontal: 0, paddingTop: 0 }}
++        />
++      </View>
++
++      {offrirLeRepli && (
++        <View className="mb-6">
++          <Text className="text-ink font-semibold text-base mb-1">{t("join.codeSaisieTitre")}</Text>
++          <Text className="text-sm text-mute mb-3">{t("join.codeSaisieAide")}</Text>
++          <TextInput
++            value={code}
++            onChangeText={setCode}
++            placeholder={t("join.codeSaisiePlaceholder")}
++            autoCapitalize="characters"
++            autoCorrect={false}
++            className="bg-accent-card rounded-2xl px-4 py-3 border border-hair text-ink mb-2"
++          />
++          <TextInput
++            value={cle}
++            onChangeText={setCle}
++            placeholder={t("join.cleSaisiePlaceholder")}
++            autoCapitalize="none"
++            autoCorrect={false}
++            className="bg-accent-card rounded-2xl px-4 py-3 border border-hair text-ink"
++          />
++          {erreurDeSaisie && <Text className="text-sm mt-2" style={{ color: GP.strawberryInk }}>{erreurDeSaisie}</Text>}
++          <Pressable
++            onPress={valider}
++            className="bg-primary-500 rounded-2xl py-4 items-center mt-3 active:bg-primary-600"
++          >
++            <Text className="text-white font-semibold text-base">{t("join.codeValider")}</Text>
++          </Pressable>
++        </View>
++      )}
++
++      <Pressable
++        onPress={() => router.replace("/" as any)}
++        className="bg-accent-card rounded-2xl py-4 items-center border border-hair active:opacity-80"
++      >
++        <View className="flex-row items-center">
++          <ArrowLeft size={20} color={GP.clay} />
++          <Text className="text-ink font-semibold text-base ml-2">
++            {t("join.noGoBack")}
++          </Text>
++        </View>
++      </Pressable>
++    </View>
++  );
++}
+diff --git a/apps/mobile/i18n/locales/en/common.json b/apps/mobile/i18n/locales/en/common.json
+index 6ee5786..c6921b7 100644
+--- a/apps/mobile/i18n/locales/en/common.json
++++ b/apps/mobile/i18n/locales/en/common.json
+@@ -85,7 +85,24 @@
+     "postit": "codes expire fast — for safety 🌿",
+     "inviteEyebrow": "Invitation",
+     "joinThisWedding": "Join this wedding?",
+-    "joinThisWeddingFirst": "You've been invited to join this wedding."
++    "joinThisWeddingFirst": "You've been invited to join this wedding.",
++    "invitationIncomplete": "Incomplete invitation",
++    "invitationIncompleteDetail": "The address arrived truncated — the part after the “#” is missing. Ask whoever invited you to send the link again, or enter the invitation code below.",
++    "invitationExpiree": "Invitation expired",
++    "invitationExpireeDetail": "This invitation is no longer valid. Ask the couple for a new one.",
++    "invitationInvalide": "Invitation not recognised",
++    "invitationInvalideDetail": "This link doesn't match any invitation. Check that it's complete, or enter the invitation code below.",
++    "codeSaisieTitre": "Enter the invitation code",
++    "codeSaisiePlaceholder": "e.g. K7M2P9QWX3",
++    "codeSaisieAide": "Ten characters, easy to copy by hand or read out loud. The key that goes with it is the part of the link after the “#”.",
++    "cleSaisiePlaceholder": "The part after the #",
++    "codeValider": "Join with this code",
++    "codeIncomplet": "Both the code and its key are needed.",
++    "espaceRejointIllisible": "You've joined the wedding, but your invitation doesn't open its content. Ask the couple for a new one — don't enter anything until the list appears.",
++    "dejaMembre": "You're already a member",
++    "dejaMembreDetail": "This invitation opens “{{name}}”, a wedding this device already has access to. There's nothing to join.",
++    "dejaMembreDetailSansNom": "This invitation opens a wedding this device already has access to. There's nothing to join.",
++    "allerAuMariage": "Go to the wedding"
+   },
+   "homeEyebrow": "Wedding",
+   "homeTagline": "days",
+diff --git a/apps/mobile/i18n/locales/fr/common.json b/apps/mobile/i18n/locales/fr/common.json
+index c4cae3d..584c2b2 100644
+--- a/apps/mobile/i18n/locales/fr/common.json
++++ b/apps/mobile/i18n/locales/fr/common.json
+@@ -85,7 +85,24 @@
+     "postit": "les codes expirent vite — par sécurité 🌿",
+     "inviteEyebrow": "Invitation",
+     "joinThisWedding": "Rejoindre ce mariage ?",
+-    "joinThisWeddingFirst": "Vous êtes invité(e) à rejoindre ce mariage."
++    "joinThisWeddingFirst": "Vous êtes invité(e) à rejoindre ce mariage.",
++    "invitationIncomplete": "Invitation incomplète",
++    "invitationIncompleteDetail": "L'adresse est arrivée tronquée — il manque la partie après le « # ». Demandez à la personne qui vous a invité(e) de vous redonner le lien, ou saisissez le code d'invitation ci-dessous.",
++    "invitationExpiree": "Invitation expirée",
++    "invitationExpireeDetail": "Cette invitation n'est plus valable. Demandez-en une nouvelle aux mariés.",
++    "invitationInvalide": "Invitation non reconnue",
++    "invitationInvalideDetail": "Ce lien ne correspond à aucune invitation. Vérifiez qu'il est complet, ou saisissez le code d'invitation ci-dessous.",
++    "codeSaisieTitre": "Saisir le code d'invitation",
++    "codeSaisiePlaceholder": "Par ex. K7M2P9QWX3",
++    "codeSaisieAide": "Dix caractères, qu'on peut recopier à la main ou se faire dicter. La clé qui l'accompagne est dans la partie du lien après le « # ».",
++    "cleSaisiePlaceholder": "La partie après le #",
++    "codeValider": "Rejoindre avec ce code",
++    "codeIncomplet": "Il faut le code ET la clé qui l'accompagne.",
++    "espaceRejointIllisible": "Vous avez rejoint le mariage, mais votre invitation n'en ouvre pas le contenu. Demandez-en une nouvelle aux mariés — ne saisissez rien tant que la liste ne s'affiche pas.",
++    "dejaMembre": "Vous êtes déjà membre",
++    "dejaMembreDetail": "Cette invitation ouvre « {{name}} », un mariage auquel cet appareil a déjà accès. Il n'y a rien à rejoindre.",
++    "dejaMembreDetailSansNom": "Cette invitation ouvre un mariage auquel cet appareil a déjà accès. Il n'y a rien à rejoindre.",
++    "allerAuMariage": "Aller au mariage"
+   },
+   "homeEyebrow": "Mariage",
+   "homeTagline": "jours",
+diff --git a/apps/mobile/lib/acces-chiffre.ts b/apps/mobile/lib/acces-chiffre.ts
+new file mode 100644
+index 0000000..518da19
+--- /dev/null
++++ b/apps/mobile/lib/acces-chiffre.ts
+@@ -0,0 +1,199 @@
++/**
++ * Ce qu'un appareil peut déchiffrer, et pourquoi une lecture a échoué.
++ *
++ * Le keyring est versionné par époques ; le contenu ne l'est pas. Chaque
++ * document scellé porte son `_epoch` EN CLAIR dans l'enveloppe, hors
++ * chiffrement. Un appareil peut donc comparer l'époque d'un document à celles
++ * dont il détient la clé enveloppée, sans posséder aucune de ces clés — et
++ * produire un diagnostic exact au lieu de dépendre du message d'erreur d'une
++ * dépendance vendorisée.
++ */
++
++import { useAccesChiffreStore } from "@/store/useAccesChiffreStore";
++
++/** Enveloppe telle que le serveur la stocke : `{ _encrypted, _epoch }`. */
++export interface EnveloppeScellee {
++  _encrypted?: unknown;
++  _epoch?: unknown;
++}
++
++interface EpoqueDuKeyring {
++  wrappedKeys?: { subKem?: unknown }[];
++}
++
++/** Le document `_keyring` d'un espace, tel que `starfish-keyring` l'écrit. */
++export interface DocumentKeyring {
++  currentEpoch?: unknown;
++  epochs?: Record<string, EpoqueDuKeyring>;
++}
++
++/** Les trois façons dont une lecture échoue, et qui n'ont pas le même remède. */
++export type EchecDeLecture =
++  /** Le serveur n'a pas ce document. Un espace jeune est dans ce cas, sans anomalie. */
++  | "absent"
++  /** Le document est scellé sous une époque dont cet appareil n'a pas la clé. */
++  | "epoque-hors-de-portee"
++  /** Réseau, serveur, ou tout échec que l'époque n'explique pas. Jamais avéré. */
++  | "reseau";
++
++/** L'`_epoch` en clair d'une enveloppe, ou `null` si elle n'en porte pas. */
++export function epoqueDeLEnveloppe(data: unknown): number | null {
++  if (!data || typeof data !== "object") return null;
++  const brut = (data as EnveloppeScellee)._epoch;
++  return typeof brut === "number" && Number.isFinite(brut) ? brut : null;
++}
++
++/** L'époque courante déclarée par le keyring, ou `null`. */
++export function epoqueCourante(keyring: unknown): number | null {
++  if (!keyring || typeof keyring !== "object") return null;
++  const brut = (keyring as DocumentKeyring).currentEpoch;
++  return typeof brut === "number" && Number.isFinite(brut) ? brut : null;
++}
++
++/**
++ * Les époques dont ce destinataire détient la clé enveloppée.
++ *
++ * Une époque où sa clé publique KEM apparaît plusieurs fois est écartée :
++ * `createKeyringEncryptor` fait de même, y voyant une falsification.
++ */
++export function epoquesDetenues(keyring: unknown, kemPubHex: string): Set<number> {
++  const out = new Set<number>();
++  if (!keyring || typeof keyring !== "object" || !kemPubHex) return out;
++  const epochs = (keyring as DocumentKeyring).epochs;
++  if (!epochs || typeof epochs !== "object") return out;
++  for (const [cle, epoque] of Object.entries(epochs)) {
++    const n = Number.parseInt(cle, 10);
++    if (!Number.isFinite(n)) continue;
++    const clefs = Array.isArray(epoque?.wrappedKeys) ? epoque.wrappedKeys : [];
++    if (clefs.filter((k) => k?.subKem === kemPubHex).length === 1) out.add(n);
++  }
++  return out;
++}
++
++export interface LectureAClasser {
++  /** Le hash rendu par le serveur, quand l'appelant l'a. Vide = document inexistant. */
++  hash?: string | null;
++  /** L'enveloppe brute, non déchiffrée. */
++  data?: unknown;
++  /** Ce que le pull ou le déchiffrement a levé, s'il a levé. */
++  erreur?: unknown;
++  /** Les époques détenues par cet appareil ; `null` si le keyring est illisible. */
++  epoquesDetenues?: Set<number> | null;
++}
++
++/**
++ * Classe un échec de lecture.
++ *
++ * L'ordre compte : un document absent n'est pas un échec de clé, et une erreur
++ * réseau ne prouve rien. Seule une époque connue ET hors de portée est avérée.
++ */
++export function classerEchecDeLecture(lecture: LectureAClasser): EchecDeLecture {
++  const { hash, data, erreur, epoquesDetenues: detenues } = lecture;
++
++  // Un document absent se lit `{hash:"",data:{}}`, jamais un 404.
++  const vide = !data || typeof data !== "object" || Object.keys(data).length === 0;
++  const sansHash = hash !== undefined && !hash;
++  if (vide || sansHash) return erreur ? "reseau" : "absent";
++
++  const epoque = epoqueDeLEnveloppe(data);
++  if (epoque !== null && detenues && !detenues.has(epoque)) return "epoque-hors-de-portee";
++
++  return "reseau";
++}
++
++/**
++ * Le garde-fou du propriétaire : seul un échec AVÉRÉ bloque les écritures.
++ *
++ * Une panne réseau ou un document absent ne doivent jamais verrouiller
++ * quelqu'un hors de son propre espace.
++ */
++export function leveLEtatIllisible(cas: EchecDeLecture): boolean {
++  return cas === "epoque-hors-de-portee";
++}
++
++// ---------------------------------------------------------------------------
++// Raccordement — ce que `space-sync.ts` appelle
++// ---------------------------------------------------------------------------
++
++interface SessionMinimale {
++  layout: { keyringPull: (spaceId: string) => string };
++  keys: { kemPub: string };
++}
++
++interface ClientDePull {
++  pull: (path: string) => Promise<{ data?: unknown } | null>;
++}
++
++/**
++ * Les époques que cet appareil détient sur cet espace, lues dans le `_keyring`.
++ *
++ * Rend `null` — et non un ensemble vide — dès que le keyring est illisible ou
++ * ne nomme pas ce destinataire : un ensemble vide rendrait TOUT document hors
++ * de portée et verrouillerait l'appareil sur une simple panne de lecture.
++ */
++export async function epoquesDetenuesDeLEspace(
++  session: SessionMinimale,
++  spaceId: string,
++  client: ClientDePull,
++  entreeDAcces?: { kind?: string; kemPub?: string } | null,
++): Promise<Set<number> | null> {
++  try {
++    const kemPub =
++      entreeDAcces?.kind === "link" && entreeDAcces.kemPub ? entreeDAcces.kemPub : session.keys.kemPub;
++    const res = await client.pull(session.layout.keyringPull(spaceId));
++    const keyring = res?.data;
++    if (!keyring) return null;
++    const detenues = epoquesDetenues(keyring, kemPub);
++    return detenues.size ? detenues : null;
++  } catch {
++    return null;
++  }
++}
++
++/**
++ * Classe une lecture et met l'état à jour. Le point d'appel de `space-sync.ts`.
++ *
++ * Une lecture réussie efface l'état de sa collection : c'est ainsi qu'un
++ * rescellement rend la main sans qu'on ait à vider quoi que ce soit.
++ */
++export function signalerLecture(collection: string, lecture: LectureAClasser | null): EchecDeLecture | null {
++  const magasin = useAccesChiffreStore.getState();
++  if (lecture === null) {
++    magasin.marquerLisible(collection);
++    return null;
++  }
++  const cas = classerEchecDeLecture(lecture);
++  if (leveLEtatIllisible(cas)) magasin.marquerIllisible(collection, cas, epoqueDeLEnveloppe(lecture.data));
++  else magasin.marquerLisible(collection);
++  return cas;
++}
++
++/**
++ * Les collections que chaque surface d'écran écrit.
++ *
++ * `permissions.ts` accorde par surface, l'état d'accès se tient par collection :
++ * cette table est le seul point où les deux se rencontrent. Une surface dont
++ * AUCUNE collection n'est illisible reste éditable — le refus ne punit jamais
++ * plus large que le défaut.
++ */
++export const COLLECTIONS_PAR_SURFACE: Record<string, readonly string[]> = {
++  guests: [
++    "guest", "guestGroup", "household", "table", "invitationType", "communication",
++    "communicationTemplate", "guestMealSelection", "seatingConstraint", "accommodation",
++  ],
++  vendors: ["vendor", "quotePricing", "vendorPayment"],
++  planning: [
++    "taskCategory", "task", "agendaEvent", "dayOfItem", "weddingEvent", "legalMilestone",
++    "document", "ceremonyItem", "speech", "playlistTrack",
++  ],
++  budget: ["vendor", "quotePricing", "vendorPayment"],
++  ideas: ["ideaCollection", "idea", "honeymoonPlan"],
++  gifts: ["gift"],
++};
++
++/** Vrai quand au moins une collection de cette surface est illisible. */
++export function surfaceIllisible(surface: string, illisibles: Record<string, unknown>): boolean {
++  const collections = COLLECTIONS_PAR_SURFACE[surface];
++  if (!collections) return false;
++  return collections.some((c) => c in illisibles);
++}
+diff --git a/apps/mobile/lib/invitation-courte.ts b/apps/mobile/lib/invitation-courte.ts
+new file mode 100644
+index 0000000..12395b6
+--- /dev/null
++++ b/apps/mobile/lib/invitation-courte.ts
+@@ -0,0 +1,250 @@
++/**
++ * Le lien d'invitation court : dépôt chiffré, clé dans le fragment.
++ *
++ * Le jeton d'invitation pèse ~984 octets, soit 1342 caractères d'URL une fois
++ * encodé — une longueur qui ne survit ni au repli d'un message, ni à un aperçu
++ * de lien, ni à un copier-coller partiel, ni à un QR code lisible.
++ *
++ * On ne touche pas au format du jeton : `encodeSpaceInviteLink` appartient à
++ * `starfish-spaces`, dépendance vendorisée qu'aucun patch n'atteint. Le
++ * raccourcissement est une enveloppe posée par-dessus :
++ *
++ *     jeton ──chiffré AES-GCM sous K (32 o)──▶ dépôt public `_invite/<code>`
++ *     K reste dans le fragment `#`, la seule part de l'URL qu'un navigateur
++ *     n'envoie jamais — donc la seule qui ne peut pas finir dans un journal.
++ *
++ * Le serveur ne détient que du chiffré, et la clé ne lui parvient jamais.
++ * Obtenir tout ce qu'il détient ne donne ni l'identifiant de l'espace, ni le
++ * droit d'y accéder.
++ */
++
++import { decodeSpaceInviteLink, getSyncNamespace, type SpaceInviteLinkToken } from "@fiance/sdk";
++
++/** Base32 de Crockford, sans I/L/O/U : recopiable à la main, dictable de vive voix. */
++const ALPHABET_CODE = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
++
++/**
++ * Dix caractères, ~50 bits. À lui seul le code ne donne que du chiffré : il n'a
++ * donc à résister qu'à l'énumération, pas à la recherche exhaustive.
++ */
++export const LONGUEUR_DU_CODE = 10;
++
++const OCTETS_DE_CLE = 32;
++const OCTETS_D_IV = 12;
++
++export type EchecDInvitationCourte =
++  /** Aucun dépôt à ce code : jamais émis, ou expiré. */
++  | "depot-absent"
++  /** Le dépôt ne se déchiffre pas sous cette clé : substitué, ou clé tronquée. */
++  | "depot-illisible"
++  /** Le serveur n'a pas répondu. */
++  | "reseau";
++
++export class InvitationCourteError extends Error {
++  constructor(readonly cas: EchecDInvitationCourte, message: string) {
++    super(message);
++    this.name = "InvitationCourteError";
++  }
++}
++
++function crypto(): Crypto {
++  const c = globalThis.crypto;
++  if (!c?.subtle) throw new Error("invitation-courte : WebCrypto indisponible");
++  return c;
++}
++
++/** Un code de dépôt tiré au hasard. */
++export function tirerUnCode(): string {
++  const octets = crypto().getRandomValues(new Uint8Array(LONGUEUR_DU_CODE));
++  let out = "";
++  for (const o of octets) out += ALPHABET_CODE[o % ALPHABET_CODE.length];
++  return out;
++}
++
++/** Un code recopié à la main : casse et séparateurs sont tolérés. */
++export function normaliserLeCode(saisie: string): string | null {
++  const brut = saisie.trim().toUpperCase().replace(/[\s-]/g, "");
++  // Les confusions ordinaires d'une recopie manuscrite, dans le sens de Crockford.
++  const corrigé = brut.replace(/[IL]/g, "1").replace(/O/g, "0").replace(/U/g, "V");
++  if (corrigé.length !== LONGUEUR_DU_CODE) return null;
++  return [...corrigé].every((c) => ALPHABET_CODE.includes(c)) ? corrigé : null;
++}
++
++export function encoderBase64Url(octets: Uint8Array): string {
++  let binaire = "";
++  for (const o of octets) binaire += String.fromCharCode(o);
++  return btoa(binaire).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
++}
++
++export function decoderBase64Url(texte: string): Uint8Array<ArrayBuffer> {
++  const rembourré = texte.replace(/-/g, "+").replace(/_/g, "/");
++  const binaire = atob(rembourré + "=".repeat((4 - (rembourré.length % 4)) % 4));
++  const out = new Uint8Array(new ArrayBuffer(binaire.length));
++  for (let i = 0; i < binaire.length; i += 1) out[i] = binaire.charCodeAt(i);
++  return out;
++}
++
++export interface DepotChiffre {
++  /** Le vecteur d'initialisation, en base64url. */
++  iv: string;
++  /** Le jeton chiffré, en base64url. */
++  ct: string;
++}
++
++/** Chiffre un jeton sous une clé neuve. Rend le dépôt ET la clé, séparément. */
++export async function chiffrerLeJeton(
++  jeton: string,
++): Promise<{ depot: DepotChiffre; cle: string }> {
++  const c = crypto();
++  const brute = c.getRandomValues(new Uint8Array(OCTETS_DE_CLE));
++  const iv = c.getRandomValues(new Uint8Array(OCTETS_D_IV));
++  const cle = await c.subtle.importKey("raw", brute, "AES-GCM", false, ["encrypt"]);
++  const chiffré = await c.subtle.encrypt({ name: "AES-GCM", iv }, cle, new TextEncoder().encode(jeton));
++  return {
++    depot: { iv: encoderBase64Url(iv), ct: encoderBase64Url(new Uint8Array(chiffré)) },
++    cle: encoderBase64Url(brute),
++  };
++}
++
++/**
++ * Déchiffre un dépôt sous la clé du fragment.
++ *
++ * Le chiffrement étant authentifié, un dépôt substitué ne se déchiffre pas :
++ * l'échec est SIGNALÉ, jamais avalé — sinon on remplacerait un défaut par un
++ * autre, plus difficile à diagnostiquer.
++ */
++export async function dechiffrerLeDepot(depot: DepotChiffre, cleBase64Url: string): Promise<string> {
++  const c = crypto();
++  try {
++    const brute = decoderBase64Url(cleBase64Url);
++    if (brute.length !== OCTETS_DE_CLE) throw new Error("clé de longueur inattendue");
++    const cle = await c.subtle.importKey("raw", brute, "AES-GCM", false, ["decrypt"]);
++    const clair = await c.subtle.decrypt(
++      { name: "AES-GCM", iv: decoderBase64Url(depot.iv) },
++      cle,
++      decoderBase64Url(depot.ct),
++    );
++    return new TextDecoder().decode(clair);
++  } catch (err) {
++    throw new InvitationCourteError(
++      "depot-illisible",
++      `le dépôt ne se déchiffre pas sous cette clé — substitué, ou lien tronqué (${
++        err instanceof Error ? err.message : String(err)
++      })`,
++    );
++  }
++}
++
++/** L'adresse d'API du dépôt. Distincte de la route `/i/<code>` que sert l'app. */
++function cheminDuDepot(base: string, code: string, sens: "pull" | "push"): string {
++  return `${base.replace(/\/$/, "")}/v1/${getSyncNamespace()}/${sens}/_invite/${code}`;
++}
++
++/**
++ * Pousse un document sur le dépôt.
++ *
++ * Le champ du hash de base s'appelle `baseHash`, JAMAIS `hash` : le serveur
++ * ignore silencieusement un nom inconnu, le lit alors `undefined`, et refuse
++ * en 409 toute écriture sur un document qui existe. L'erreur ne se voit que
++ * contre le vrai serveur — un faux qui accepte n'importe quel nom la masque.
++ */
++async function pousser(syncBase: string, code: string, data: unknown, baseHash: string | null) {
++  return fetch(cheminDuDepot(syncBase, code, "push"), {
++    method: "POST",
++    headers: { "content-type": "application/json" },
++    body: JSON.stringify({ data, baseHash }),
++  });
++}
++
++/** Dépose le chiffré. Aucune identité requise : le futur invité n'en a pas encore. */
++export async function deposer(syncBase: string, code: string, depot: DepotChiffre): Promise<void> {
++  const rép = await pousser(syncBase, code, depot, null);
++  if (!rép.ok) throw new InvitationCourteError("reseau", `dépôt refusé — HTTP ${rép.status}`);
++}
++
++/**
++ * Récupère un dépôt.
++ *
++ * Un document absent — jamais écrit, ou expiré — se lit `{hash:"",data:{}}`,
++ * jamais un 404 : c'est l'absence de hash qui est le signal fiable.
++ */
++export async function recuperer(syncBase: string, code: string): Promise<DepotChiffre> {
++  let lu: { hash?: string; data?: Partial<DepotChiffre> } | null = null;
++  try {
++    const rép = await fetch(cheminDuDepot(syncBase, code, "pull"), { cache: "no-store" });
++    if (!rép.ok) throw new Error(`HTTP ${rép.status}`);
++    lu = (await rép.json()) as { hash?: string; data?: Partial<DepotChiffre> };
++  } catch (err) {
++    throw new InvitationCourteError("reseau", `dépôt injoignable (${err instanceof Error ? err.message : String(err)})`);
++  }
++  if (!lu?.hash || !lu.data?.iv || !lu.data?.ct) {
++    throw new InvitationCourteError("depot-absent", "aucun dépôt à ce code — jamais émis, expiré, ou retiré");
++  }
++  return { iv: lu.data.iv, ct: lu.data.ct };
++}
++
++/**
++ * Retire un dépôt avant son terme. Un dépôt vidé se lit comme un dépôt absent.
++ *
++ * L'écriture est en CAS : pousser avec `hash: null` sur un document qui existe
++ * rend un 409 `hash_mismatch`, et le dépôt survivrait au retrait. On repart
++ * donc du `currentHash` que le serveur rend dans le corps du conflit.
++ */
++export async function retirer(syncBase: string, code: string): Promise<void> {
++  let rép = await pousser(syncBase, code, {}, null);
++  if (rép.status === 409) {
++    const conflit = (await rép.json().catch(() => null)) as { currentHash?: string } | null;
++    if (!conflit?.currentHash) {
++      throw new InvitationCourteError("reseau", "retrait refusé — le conflit ne porte pas le hash courant");
++    }
++    rép = await pousser(syncBase, code, {}, conflit.currentHash);
++  }
++  if (!rép.ok) throw new InvitationCourteError("reseau", `retrait refusé — HTTP ${rép.status}`);
++}
++
++/** `https://origine/i/<code>#<clé>` — environ 81 caractères. */
++export function construireLeLienCourt(origine: string, code: string, cle: string): string {
++  return `${origine.replace(/\/$/, "")}/i/${code}#${cle}`;
++}
++
++export interface LienCourt {
++  code: string;
++  cle: string;
++}
++
++/** Reconnaît la forme courte dans une URL. Rend `null` si ce n'en est pas une. */
++export function lireLeLienCourt(url: string): LienCourt | null {
++  try {
++    const u = new URL(url);
++    const code = normaliserLeCode(u.pathname.match(/\/i\/([^/?#]+)/)?.[1] ?? "");
++    if (!code) return null;
++    // Un fragment partagé peut traîner du texte derrière la clé : on ne garde
++    // que la suite base64url de tête.
++    const cle = u.hash.slice(1).match(/^[A-Za-z0-9_-]+/)?.[0];
++    return cle ? { code, cle } : null;
++  } catch {
++    return null;
++  }
++}
++
++/** Récupère puis déchiffre : le jeton, tel qu'`encodeSpaceInviteLink` l'avait rendu. */
++export async function ouvrirLInvitationCourte(syncBase: string, lien: LienCourt): Promise<string> {
++  return dechiffrerLeDepot(await recuperer(syncBase, lien.code), lien.cle);
++}
++
++/**
++ * Décode un jeton d'invitation, quel que soit son emballage.
++ *
++ * Les deux formes aboutissent au même jeton : le format long le porte en clair
++ * dans le fragment, la forme courte le fait passer par un dépôt chiffré.
++ * Tolérant d'un fragment pollué par un partage — seule la suite base64url de
++ * tête est décodée.
++ */
++export function decoderLeJeton(fragment: string): SpaceInviteLinkToken | null {
++  try {
++    const jeton = fragment.match(/^[A-Za-z0-9_-]+/)?.[0];
++    return jeton ? decodeSpaceInviteLink(jeton) : null;
++  } catch {
++    return null;
++  }
++}
+diff --git a/apps/mobile/lib/permissions/revoke.ts b/apps/mobile/lib/permissions/revoke.ts
+index 7a15f84..8a2b953 100644
+--- a/apps/mobile/lib/permissions/revoke.ts
++++ b/apps/mobile/lib/permissions/revoke.ts
+@@ -1,14 +1,29 @@
+ /**
+- * Collaborator revocation (owner side).
++ * Révocation d'un collaborateur (côté propriétaire).
+  *
+- * True eviction = keyring rotation (evicted member can no longer decrypt new content) +
+- * roster removal (server denies `space:member`, so every collection 403s for future reads/
+- * writes). Revoking one subject evicts ONLY that subject — other links/members keep access.
++ * MODIFICATION LOCALE — l'en-tête d'amont affirmait que le retrait du registre
++ * coupe l'accès serveur, « every object collection requires the roster
++ * `space:member` role ». C'est FAUX sur ce déploiement : `spaceDoc` de
++ * `fiance-sync/src/collections.mjs` déclare
++ * `readRoles: ["space:member", "cap:read:objdoc"]`, donc un porteur de cap lit
++ * sans figurer dans `_access` — c'est exactement ainsi que le robot `fiance-db`
++ * travaille. Et `createInMemoryRevocationStore` perd sa liste à chaque
++ * redémarrage du conteneur, tandis que `submitRevocation` n'écrit que dans le
++ * registre local.
+  *
+- * `submitRevocation` is local: the dk server has no RevocationList endpoint, and it isn't
+- * needed here — every object collection requires the roster `space:member` role, which the
+- * roster drop removes. We still persist the RevocationList (generation + cumulative entries)
+- * so a future server endpoint can consume it.
++ * La rotation du keyring est donc le SEUL levier réel — et une rotation qui ne
++ * rescelle rien ne révoque rien : le lien évincé continue d'ouvrir tout le
++ * contenu déjà écrit. D'où l'ordre ci-dessous, dont l'étape 4 est nouvelle :
++ *
++ *   1. retirer l'assignation + pousser  ← le révoqué, encore dans l'époque
++ *                                         courante, déchiffre son propre retrait
++ *   2. faire tourner le keyring         ← il perd l'époque suivante
++ *   3. resceller tout le contenu        ← il perd le contenu déjà écrit
++ *   4. rendre la main
++ *
++ * Le rescellement ferme l'accès FUTUR ; il ne reprend rien de ce qui a déjà été
++ * lu et gardé. La `RevocationList` reste persistée pour un futur point de
++ * terminaison serveur, mais rien ne s'appuie plus dessus.
+  */
+ 
+ import {
+@@ -22,15 +37,36 @@ import { readCollection } from "@/lib/kv-storage";
+ import { SPACE_INVITE_STORE_KEY } from "@/lib/invite-link";
+ import { usePermissionsStore } from "@/store/usePermissionsStore";
+ import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
++// MODIFICATION LOCALE — l'étape 3 : une rotation qui ne rescelle rien ne révoque rien.
++import {
++  rescellerEspace,
++  rescellementComplet,
++  type AvancementDuRescellement,
++} from "@/lib/rescellement";
+ 
+ export interface RevokeResult {
+-  /** True when the keyring was rotated (full eviction); false when only the roster was dropped. */
++  /**
++   * True quand l'éviction est ACCOMPLIE : keyring tourné ET contenu rescellé.
++   * Une rotation seule ne suffit pas — le révoqué relirait tout l'existant.
++   */
+   evicted: boolean;
++  /**
++   * Les collections qui n'ont pas pu être rescellées. Non vide = révocation
++   * INCOMPLÈTE : l'espace est en époques mêlées, sûr pour ceux qui étaient déjà
++   * là, et réparable par `fiance-db reseal`. `evicted` est alors `false`.
++   */
++  aResceller?: string[];
++}
++
++export interface RevokeOptions {
++  /** Appelé pendant le rescellement, pour montrer la progression. */
++  onAvancement?: (avancement: AvancementDuRescellement) => void;
+ }
+ 
+ export async function revokeCollaborator(
+   subjectUserId: string,
+   assignmentId: string,
++  options: RevokeOptions = {},
+ ): Promise<RevokeResult> {
+   const permStore = usePermissionsStore.getState();
+   const regStore = useWeddingRegistryStore.getState();
+@@ -79,10 +115,10 @@ export async function revokeCollaborator(
+         });
+       },
+     });
+-    return { evicted: true };
+   } catch (err) {
+-    // No stored invite entry (link minted on another device) — roster drop still cuts server
+-    // access, since every object collection requires the roster space:member role.
++    // Aucune entrée d'invitation en magasin (lien minté sur un autre appareil).
++    // Le retrait du registre est alors tout ce qui reste — et il ne coupe PAS
++    // l'accès serveur ici (voir l'en-tête). L'éviction n'est donc pas accomplie.
+     console.warn("[revoke] revokeSpaceAccess failed; falling back to removeSpaceMember", err);
+     try {
+       await removeSpaceMember(session.accountClient, spaceId, subjectUserId, session);
+@@ -91,4 +127,17 @@ export async function revokeCollaborator(
+     }
+     return { evicted: false };
+   }
++
++  // 3. RESCELLER — sans quoi les deux étapes précédentes ne retirent rien du
++  //    contenu déjà écrit, que le lien évincé continue de déchiffrer.
++  const rescellement = await rescellerEspace(session, spaceId, { onAvancement: options.onAvancement });
++  if (!rescellementComplet(rescellement)) {
++    console.warn("[revoke] rescellement incomplet, reste :", rescellement.restant);
++    return {
++      evicted: false,
++      aResceller: rescellement.restant.length ? rescellement.restant : ["*"],
++    };
++  }
++
++  return { evicted: true, aResceller: [] };
+ }
+diff --git a/apps/mobile/lib/permissions/usePermissions.ts b/apps/mobile/lib/permissions/usePermissions.ts
+index 01606b5..7ff990a 100644
+--- a/apps/mobile/lib/permissions/usePermissions.ts
++++ b/apps/mobile/lib/permissions/usePermissions.ts
+@@ -14,10 +14,18 @@
+  * flag closes that gap: it's set from the real cap (providers.tsx) and from an actual
+  * 403 (space-sync.ts), and forces edit/create/delete off here regardless of what the
+  * matrix says — 'view' stays untouched so the member still sees data, just can't edit it.
++ *
++ * MODIFICATION LOCALE — `useAccesChiffreStore` ferme une seconde brèche, de sens
++ * inverse : un appareil qui ne parvient pas à DÉCHIFFRER une collection tient
++ * une copie locale vide, et la première saisie la repousserait par-dessus le
++ * contenu scellé. Le refus est par surface, jamais global.
+  */
+ 
+ import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
+ import { useSyncAccessStore } from "@/store/useSyncAccessStore";
++// MODIFICATION LOCALE — un appareil qui ne peut pas lire ne peut pas écrire.
++import { useAccesChiffreStore } from "@/store/useAccesChiffreStore";
++import { surfaceIllisible } from "@/lib/acces-chiffre";
+ import {
+   matrixAllows,
+   FEATURE_SURFACES,
+@@ -38,6 +46,7 @@ export interface Permissions {
+ export function usePermissions(): Permissions {
+   const registry = useWeddingRegistryStore((s) => s.registry);
+   const writeDenied = useSyncAccessStore((s) => s.writeDenied);
++  const illisibles = useAccesChiffreStore((s) => s.illisibles);
+   const active = registry?.weddings.find((w) => w.id === registry.activeWeddingId) ?? null;
+   const isOwner = !active || active.role !== "member";
+   const matrix: PermissionMatrix = active?.permissions ?? {};
+@@ -45,6 +54,9 @@ export function usePermissions(): Permissions {
+ 
+   const can = (surface: FeatureSurface, action: PermissionAction = "edit"): boolean => {
+     if (writeDenied && action !== "view") return false;
++    // MODIFICATION LOCALE — le refus est opposé AVANT la saisie, et par surface :
++    // une surface dont aucune collection n'est illisible reste éditable.
++    if (action !== "view" && surfaceIllisible(surface, illisibles)) return false;
+     return unrestricted ? true : matrixAllows(matrix, surface, action);
+   };
+ 
+diff --git a/apps/mobile/lib/rescellement.ts b/apps/mobile/lib/rescellement.ts
+new file mode 100644
+index 0000000..afc1707
+--- /dev/null
++++ b/apps/mobile/lib/rescellement.ts
+@@ -0,0 +1,151 @@
++/**
++ * Resceller le contenu d'un espace sous l'époque courante du keyring.
++ *
++ * Une rotation de clé ne touche à aucun document : tout ce qui a été scellé
++ * avant elle reste illisible pour qui a rejoint le keyring après. Resceller est
++ * donc ce qui donne son sens à une rotation — sans quoi une révocation ne
++ * révoque rien, et un invité n'obtient qu'un mariage vide.
++ *
++ * L'opération se fait au niveau DOCUMENT, jamais entité par entité : `deepMerge`
++ * restitue une clé absente du gagnant depuis le perdant, et un aller-retour par
++ * entités réinjecterait des champs supprimés en recalculant des `rev`. Le
++ * mutateur rend `cur` tel quel — le contenu déchiffré repart octet pour octet.
++ */
++
++import {
++  getNodeAccess,
++  objDocPull,
++  objDocPush,
++  readObjectTree,
++  type ObjectNode,
++  type Session,
++} from "@fiance/sdk";
++
++import { epoqueCourante, epoqueDeLEnveloppe } from "@/lib/acces-chiffre";
++import { neutraliserCachesDePoussée } from "@/lib/space-sync";
++
++export interface AvancementDuRescellement {
++  /** Le type d'entité en cours, pour l'afficher. */
++  collection: string;
++  /** Combien ont été traitées, sur combien à resceller. */
++  fait: number;
++  total: number;
++}
++
++export interface ResultatDuRescellement {
++  /** L'époque sous laquelle tout devrait être scellé. `null` = keyring illisible. */
++  epoque: number | null;
++  /** Les collections effectivement rescellées. */
++  rescellees: string[];
++  /** Celles déjà à jour, qu'on a sautées sans rien écrire. */
++  dejaAJour: string[];
++  /**
++   * Ce qui reste à resceller. Non vide = l'espace est en époques mêlées : sûr
++   * pour qui était déjà là, réparable par `fiance-db reseal`, et jamais à
++   * rapporter comme une révocation réussie.
++   */
++  restant: string[];
++}
++
++/** Vrai quand tout ce qui devait être rescellé l'a été. */
++export function rescellementComplet(resultat: ResultatDuRescellement): boolean {
++  return resultat.epoque !== null && resultat.restant.length === 0;
++}
++
++interface OptionsDeRescellement {
++  onAvancement?: (avancement: AvancementDuRescellement) => void;
++}
++
++/** L'époque courante du keyring de l'espace, lue en clair. */
++async function lireEpoqueCourante(
++  session: Session,
++  spaceId: string,
++  noeud: ObjectNode,
++): Promise<number | null> {
++  try {
++    const handle = await getNodeAccess(spaceId, noeud.id, noeud, session, null);
++    const res = (await handle.client.pull(
++      (session as unknown as { layout: { keyringPull: (id: string) => string } }).layout.keyringPull(spaceId),
++    )) as { data?: unknown } | null;
++    return epoqueCourante(res?.data);
++  } catch {
++    return null;
++  }
++}
++
++/**
++ * Rescelle tout le contenu chiffré de l'espace sous l'époque courante.
++ *
++ * Ce qui est déjà à l'époque courante est sauté sans aucune écriture :
++ * l'opération est rejouable, et la relancer sur un espace à jour est sans effet.
++ */
++export async function rescellerEspace(
++  session: Session,
++  spaceId: string,
++  options: OptionsDeRescellement = {},
++): Promise<ResultatDuRescellement> {
++  const resultat: ResultatDuRescellement = { epoque: null, rescellees: [], dejaAJour: [], restant: [] };
++
++  const arbre = (await readObjectTree(session, spaceId)) as ObjectNode[];
++  const chiffres = arbre.filter((n) => n.enc !== false);
++  if (!chiffres.length) return resultat;
++
++  const epoque = await lireEpoqueCourante(session, spaceId, chiffres[0]);
++  resultat.epoque = epoque;
++  if (epoque === null) {
++    resultat.restant = chiffres.map((n) => n.type);
++    return resultat;
++  }
++
++  // Relevé d'abord, écritures ensuite : on ne pousse rien tant qu'on ne sait pas
++  // ce qu'il y a à pousser, et l'avancement affiché porte sur un total connu.
++  const enRetard: ObjectNode[] = [];
++  for (const noeud of chiffres) {
++    try {
++      const handle = await getNodeAccess(spaceId, noeud.id, noeud, session, null);
++      const res = (await handle.client.pull(objDocPull(spaceId, noeud.id))) as
++        | { hash?: string; data?: Record<string, unknown> | null }
++        | null;
++      // Un document absent se lit `{hash:"",data:{}}`, jamais un 404.
++      const vide = !res?.hash || !res.data || Object.keys(res.data).length === 0;
++      if (vide) continue;
++      if (epoqueDeLEnveloppe(res.data) === epoque) { resultat.dejaAJour.push(noeud.type); continue; }
++      enRetard.push(noeud);
++    } catch {
++      resultat.restant.push(noeud.type);
++    }
++  }
++
++  if (!enRetard.length) return resultat;
++
++  // Sans ce vidage, `handle.push` prend son chemin cache-chaud, appelle le
++  // mutateur avec `cur = null`, qui rend `null` — et le rescellement devient un
++  // non-événement silencieux.
++  neutraliserCachesDePoussée(spaceId, enRetard.map((n) => n.id));
++
++  let fait = 0;
++  for (const noeud of enRetard) {
++    options.onAvancement?.({ collection: noeud.type, fait, total: enRetard.length });
++    try {
++      const handle = await getNodeAccess(spaceId, noeud.id, noeud, session, null);
++      let ecrit = false;
++      await handle.push(
++        objDocPull(spaceId, noeud.id),
++        objDocPush(spaceId, noeud.id),
++        // Le contenu repart tel quel ; seule l'enveloppe change d'époque. En cas
++        // de conflit, `runCas` relit avant de rappeler ce mutateur — sans quoi
++        // on réémettrait une version périmée sous une époque neuve.
++        (cur) => { ecrit = cur !== null; return cur; },
++      );
++      if (ecrit) resultat.rescellees.push(noeud.type);
++      else resultat.dejaAJour.push(noeud.type);
++    } catch (err) {
++      console.warn(`[rescellement] ${noeud.type} :`, err instanceof Error ? err.message : String(err));
++      resultat.restant.push(noeud.type);
++    }
++    fait += 1;
++    options.onAvancement?.({ collection: noeud.type, fait, total: enRetard.length });
++  }
++
++  return resultat;
++}
+diff --git a/apps/mobile/lib/resolution-d-invitation.ts b/apps/mobile/lib/resolution-d-invitation.ts
+new file mode 100644
+index 0000000..4cef9a4
+--- /dev/null
++++ b/apps/mobile/lib/resolution-d-invitation.ts
+@@ -0,0 +1,72 @@
++/**
++ * Reconnaître une invitation, et savoir dire pourquoi quand on n'y arrive pas.
++ *
++ * L'écran de jonction se bornait à déclarer une invitation « invalide », quelle
++ * que soit la cause. Or les trois causes n'appellent pas le même geste : une
++ * adresse tronquée se rattrape en saisissant le code, une invitation expirée
++ * demande qu'on en réclame une neuve, et un lien qui ne veut rien dire n'est
++ * pas la même chose qu'un dépôt qu'on a retiré.
++ */
++
++import type { SpaceInviteLinkToken } from "@fiance/sdk";
++
++import {
++  InvitationCourteError,
++  decoderLeJeton,
++  lireLeLienCourt,
++  ouvrirLInvitationCourte,
++  type EchecDInvitationCourte,
++} from "@/lib/invitation-courte";
++
++export type CauseDEchec = "incomplete" | "expiree" | "invalide";
++
++const CAUSE_PAR_ECHEC: Record<EchecDInvitationCourte, CauseDEchec> = {
++  "depot-absent": "expiree",
++  "depot-illisible": "incomplete",
++  reseau: "invalide",
++};
++
++export type ResolutionDInvitation =
++  | { jeton: SpaceInviteLinkToken }
++  | { cause: CauseDEchec };
++
++/** Vrai quand l'adresse désigne bien une invitation courte, fragment perdu ou non. */
++export function ressembleAUneInvitationCourte(url: string): boolean {
++  return /\/i\/[^/?#]+/.test(url);
++}
++
++/**
++ * Résout une invitation courte : dépôt, déchiffrement, décodage.
++ *
++ * `jetonLong` est passé par l'appelant quand le format long a déjà répondu —
++ * un lien déjà remis à quelqu'un ne doit jamais cesser de fonctionner.
++ */
++export async function resoudreLInvitation(
++  syncBase: string,
++  url: string,
++  jetonLong: SpaceInviteLinkToken | null,
++): Promise<ResolutionDInvitation> {
++  if (jetonLong) return { jeton: jetonLong };
++
++  const court = lireLeLienCourt(url);
++  if (!court) {
++    // Une adresse `/i/<code>` dont le fragment a été perdu en route : on sait
++    // nommer la cause, ce que l'écran muet ne savait pas faire.
++    return { cause: ressembleAUneInvitationCourte(url) ? "incomplete" : "invalide" };
++  }
++  return resoudreLeCode(syncBase, court.code, court.cle);
++}
++
++/** Le repli : un code et sa clé, saisis ou collés à la main. */
++export async function resoudreLeCode(
++  syncBase: string,
++  code: string,
++  cle: string,
++): Promise<ResolutionDInvitation> {
++  try {
++    const jeton = decoderLeJeton(await ouvrirLInvitationCourte(syncBase, { code, cle }));
++    return jeton ? { jeton } : { cause: "invalide" };
++  } catch (err) {
++    return { cause: err instanceof InvitationCourteError ? CAUSE_PAR_ECHEC[err.cas] : "invalide" };
++  }
++}
+diff --git a/apps/mobile/store/useAccesChiffreStore.ts b/apps/mobile/store/useAccesChiffreStore.ts
+new file mode 100644
+index 0000000..faa77e1
+--- /dev/null
++++ b/apps/mobile/store/useAccesChiffreStore.ts
+@@ -0,0 +1,58 @@
++import { create } from "zustand";
++
++import type { EchecDeLecture } from "@/lib/acces-chiffre";
++
++/**
++ * L'état « lecture impossible », par collection et jamais global.
++ *
++ * Un appareil qui déchiffre les invités mais pas le budget doit pouvoir éditer
++ * les invités : un refus global punirait plus large que le défaut. Non persisté
++ * — l'état se reconstruit à chaque hydratation, et un rescellement doit pouvoir
++ * l'effacer sans qu'on ait à vider quoi que ce soit.
++ */
++interface AccesChiffreState {
++  /** Collections dont le contenu n'a pas pu être déchiffré, par type d'entité. */
++  illisibles: Record<string, EchecDeLecture>;
++  /** L'époque sous laquelle le contenu illisible est scellé, pour le message. */
++  epoqueHorsDePortee: number | null;
++  marquerIllisible: (collection: string, cas: EchecDeLecture, epoque?: number | null) => void;
++  marquerLisible: (collection: string) => void;
++  reinitialiser: () => void;
++}
++
++export const useAccesChiffreStore = create<AccesChiffreState>((set) => ({
++  illisibles: {},
++  epoqueHorsDePortee: null,
++
++  marquerIllisible: (collection, cas, epoque = null) =>
++    set((etat) =>
++      etat.illisibles[collection] === cas && etat.epoqueHorsDePortee === (epoque ?? etat.epoqueHorsDePortee)
++        ? etat
++        : {
++            illisibles: { ...etat.illisibles, [collection]: cas },
++            epoqueHorsDePortee: epoque ?? etat.epoqueHorsDePortee,
++          },
++    ),
++
++  marquerLisible: (collection) =>
++    set((etat) => {
++      if (!(collection in etat.illisibles)) return etat;
++      const { [collection]: _retire, ...reste } = etat.illisibles;
++      return {
++        illisibles: reste,
++        epoqueHorsDePortee: Object.keys(reste).length ? etat.epoqueHorsDePortee : null,
++      };
++    }),
++
++  reinitialiser: () => set({ illisibles: {}, epoqueHorsDePortee: null }),
++}));
++
++/** Vrai quand cette collection est illisible — la seule question que pose une écriture. */
++export function collectionIllisible(collection: string): boolean {
++  return collection in useAccesChiffreStore.getState().illisibles;
++}
++
++/** Vrai dès qu'une collection est illisible : ce qui porte le bandeau. */
++export function lectureImpossible(): boolean {
++  return Object.keys(useAccesChiffreStore.getState().illisibles).length > 0;
++}
+diff --git a/apps/mobile/i18n/locales/fr/settings.json b/apps/mobile/i18n/locales/fr/settings.json
+index 3bf7b5b..81980b7 100644
+--- a/apps/mobile/i18n/locales/fr/settings.json
++++ b/apps/mobile/i18n/locales/fr/settings.json
+@@ -302,7 +310,7 @@
+   "noCollaborators": "Aucun collaborateur invité pour l'instant.",
+   "unknownRole": "Rôle inconnu",
+   "removeCollaboratorTitle": "Retirer le collaborateur",
+-  "removeCollaboratorMsg": "Retirer ce collaborateur ? Régénérez le lien d'invitation pour couper complètement l'accès.",
++  "removeCollaboratorMsg": "Retirer ce collaborateur ? Tout le contenu chiffré du mariage sera rescellé sous une clé neuve, ce qui prend un moment. Le rescellement ferme l'accès futur ; il ne reprend rien de ce que cette personne a déjà lu.",
+   "removeCollaborator": "Retirer",
+   "collaboratorRemoveError": "Le retrait a échoué. Régénérez le lien d'invitation pour couper l'accès.",
+   "rolePickerEyebrow": "Invitation",
+diff --git a/apps/mobile/i18n/locales/fr/settings.json b/apps/mobile/i18n/locales/fr/settings.json
+index 3bf7b5b..81980b7 100644
+--- a/apps/mobile/i18n/locales/fr/settings.json
++++ b/apps/mobile/i18n/locales/fr/settings.json
+@@ -312,5 +320,27 @@
+   "inviteNamePlaceholder": "ex. Maman, Julie, wedding planner",
+   "inviteNameRequired": "Indiquez un nom pour générer le lien",
+   "roleFullAccess": "Accès complet",
+-  "roleNoAccessSummary": "Aucun accès"
++  "roleNoAccessSummary": "Aucun accès",
++  "chiffrementHorsDePortee": "Votre invitation ne donne pas accès au contenu de ce mariage",
++  "chiffrementHorsDePorteeGeste": "Demandez une invitation à jour aux mariés — le contenu existant est scellé sous une clé que la vôtre n'ouvre pas.",
++  "chiffrementListeIllisible": "Liste illisible sur cet appareil",
++  "chiffrementListeIllisibleDetail": "Ce mariage n'est pas vide : votre invitation n'ouvre pas le contenu déjà écrit. Demandez-en une nouvelle.",
++  "rescellementEnCours": "Rescellement du contenu… {{fait}}/{{total}}",
++  "revocationAccomplie": "Collaborateur évincé — le contenu est rescellé",
++  "revocationIncomplete": "Révocation INCOMPLÈTE : {{restant}} n'a pas pu être rescellé. Le lien retiré peut encore lire ce contenu. Relancez le retrait, ou reprenez avec « fiance-db reseal ».",
++  "retirerLeDepot": "Retirer ce lien",
++  "depotRetire": "Lien retiré — il présente désormais un message d'expiration",
++  "depotRetraitEchoue": "Le retrait a échoué. Le lien reste valable jusqu'à son terme.",
++  "depotDureeDeVie": "Ce lien cesse d'être servi au bout de sept jours. Vous pouvez le retirer avant.",
++  "liensActifsUn": "1 lien actif",
++  "liensActifsPlusieurs": "{{count}} liens actifs",
++  "lienEmisLe": "émis le {{date}}",
++  "regenererLeLien": "Régénérer le lien",
++  "revoquerCeLien": "Révoquer ce lien",
++  "revoquerCeLienTitre": "Révoquer ce lien ?",
++  "revoquerCeLienMsg": "L'appareil appairé au moyen de CE lien perdra son accès — un lien et un appareil sont la même chose ici. Les autres liens de cette personne, s'il y en a, continueront de fonctionner. Tout le contenu chiffré sera rescellé sous une clé neuve.",
++  "revoquerDernierLienMsg": "C'est le seul lien de cette personne : la révoquer la retirera de la liste des collaborateurs, et l'appareil qui s'en sert perdra son accès. Tout le contenu chiffré sera rescellé sous une clé neuve.",
++  "lienNonConserve": "Un lien déjà émis n'est pas conservé : sa matière privée n'est écrite nulle part, à dessein. Il ne peut donc pas être recopié — régénérez-en un nouveau, l'ancien restera valable.",
++  "collaborateurSansNom": "Lien sans nom",
++  "collaborateurSansNomAide": "Émis avant que le nom soit obligatoire — impossible de savoir à qui il appartient."
+ }
+diff --git a/apps/mobile/i18n/locales/en/settings.json b/apps/mobile/i18n/locales/en/settings.json
+index 86026b0..98c264a 100644
+--- a/apps/mobile/i18n/locales/en/settings.json
++++ b/apps/mobile/i18n/locales/en/settings.json
+@@ -302,7 +310,7 @@
+   "noCollaborators": "No collaborators invited yet.",
+   "unknownRole": "Unknown role",
+   "removeCollaboratorTitle": "Remove collaborator",
+-  "removeCollaboratorMsg": "Remove this collaborator? Regenerate the invite link to fully cut off access.",
++  "removeCollaboratorMsg": "Remove this collaborator? All the wedding's encrypted content will be re-sealed under a fresh key, which takes a moment. Re-sealing closes future access; it takes back nothing this person has already read.",
+   "removeCollaborator": "Remove",
+   "collaboratorRemoveError": "Removal failed. Regenerate the invite link to cut off access.",
+   "rolePickerEyebrow": "Invitation",
+diff --git a/apps/mobile/i18n/locales/en/settings.json b/apps/mobile/i18n/locales/en/settings.json
+index 86026b0..98c264a 100644
+--- a/apps/mobile/i18n/locales/en/settings.json
++++ b/apps/mobile/i18n/locales/en/settings.json
+@@ -312,5 +320,27 @@
+   "inviteNamePlaceholder": "e.g. Mum, Julie, wedding planner",
+   "inviteNameRequired": "Enter a name to generate the link",
+   "roleFullAccess": "Full access",
+-  "roleNoAccessSummary": "No access"
++  "roleNoAccessSummary": "No access",
++  "chiffrementHorsDePortee": "Your invitation doesn't grant access to this wedding's content",
++  "chiffrementHorsDePorteeGeste": "Ask the couple for an up-to-date invitation — the existing content is sealed under a key yours can't open.",
++  "chiffrementListeIllisible": "List unreadable on this device",
++  "chiffrementListeIllisibleDetail": "This wedding isn't empty: your invitation doesn't open the content already written. Ask for a new one.",
++  "rescellementEnCours": "Re-sealing content… {{fait}}/{{total}}",
++  "revocationAccomplie": "Collaborator evicted — content re-sealed",
++  "revocationIncomplete": "Revocation INCOMPLETE: {{restant}} could not be re-sealed. The removed link can still read that content. Run the removal again, or repair with `fiance-db reseal`.",
++  "retirerLeDepot": "Revoke this link",
++  "depotRetire": "Link revoked — it now shows an expiry message",
++  "depotRetraitEchoue": "Revoking failed. The link stays valid until it expires.",
++  "depotDureeDeVie": "This link stops being served after seven days. You can revoke it sooner.",
++  "liensActifsUn": "1 active link",
++  "liensActifsPlusieurs": "{{count}} active links",
++  "lienEmisLe": "issued on {{date}}",
++  "regenererLeLien": "Regenerate link",
++  "revoquerCeLien": "Revoke this link",
++  "revoquerCeLienTitre": "Revoke this link?",
++  "revoquerCeLienMsg": "The device paired with THIS link will lose access — a link and a device are the same thing here. This person's other links, if any, keep working. All encrypted content will be re-sealed under a fresh key.",
++  "revoquerDernierLienMsg": "This is the person's only link: revoking it removes them from the collaborators list, and the device using it loses access. All encrypted content will be re-sealed under a fresh key.",
++  "lienNonConserve": "An issued link is not kept: its private material is written nowhere, by design. It therefore can't be copied again — regenerate a new one, the old stays valid.",
++  "collaborateurSansNom": "Unnamed link",
++  "collaborateurSansNomAide": "Issued before a name was required — there's no way to tell whose it is."
+ }
+diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
+index 8c90fdb..0ce885d 100644
+--- a/apps/mobile/lib/invite-link.ts
++++ b/apps/mobile/lib/invite-link.ts
+@@ -96,5 +119,58 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
+     console.warn("[invite] roster diagnostics failed", err);
+   }
+ 
+-  return link;
++  // MODIFICATION LOCALE — la forme courte. Le format long est conservé en repli :
++  // un dépôt injoignable ne doit pas empêcher d'inviter quelqu'un.
++  const fragment = link.includes("#") ? link.slice(link.indexOf("#") + 1) : link;
++  try {
++    const { depot, cle } = await chiffrerLeJeton(fragment);
++    const code = tirerUnCode();
++    await deposer(normalizeSyncBase(cfg.serverUrl), code, depot);
++    const court = construireLeLienCourt(origin, code, cle);
++    enregistrerLeCodeDuLien(entry.id, code);
++    return court;
++  } catch (err) {
++    console.warn("[invite] dépôt du lien court impossible, repli sur le format long", err);
++    return link;
++  }
++}
++
++/** Les codes de dépôt émis pour ce mariage, pour pouvoir les retirer plus tard. */
++export const INVITE_CODES_KEY = "inviteDepotCodes";
++
++function enregistrerLeCodeDuLien(weddingId: string, code: string): void {
++  try {
++    const connus = (readCollection<Record<string, string[]>>(INVITE_CODES_KEY) ?? {}) as Record<string, string[]>;
++    writeCollection(INVITE_CODES_KEY, { ...connus, [weddingId]: [...(connus[weddingId] ?? []), code] });
++  } catch (err) {
++    console.warn("[invite] code de dépôt non mémorisé", err);
++  }
++}
++
++/** Les codes de dépôt encore mémorisés pour ce mariage, du plus ancien au plus récent. */
++export function codesDeDepot(weddingId: string): string[] {
++  try {
++    return (readCollection<Record<string, string[]>>(INVITE_CODES_KEY) ?? {})[weddingId] ?? [];
++  } catch {
++    return [];
++  }
++}
++
++/**
++ * Retire un dépôt avant son terme.
++ *
++ * Le dépôt vidé se lit ensuite comme un dépôt absent, et l'écran de jonction
++ * présente le message d'EXPIRATION — distinct de celui d'une invitation invalide.
++ */
++export async function retirerLeDepot(entry: WeddingRegistryEntry, code: string): Promise<void> {
++  const serverUrl = resolveServerUrl(entry);
++  if (!serverUrl) throw new Error("INVITE_NO_SESSION");
++  await retirer(normalizeSyncBase(serverUrl), code);
++  try {
++    const connus = (readCollection<Record<string, string[]>>(INVITE_CODES_KEY) ?? {}) as Record<string, string[]>;
++    writeCollection(INVITE_CODES_KEY, {
++      ...connus,
++      [entry.id]: (connus[entry.id] ?? []).filter((c) => c !== code),
++    });
++  } catch { /* la mémoire des codes est un confort, pas une garantie */ }
+ }
+diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
+index 07ec918..efd97e0 100644
+--- a/apps/mobile/components/InviteQRSheet.tsx
++++ b/apps/mobile/components/InviteQRSheet.tsx
+@@ -29,6 +51,8 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
+   const [url, setUrl] = useState("");
+   const [detail, setDetail] = useState("");
+   const [name, setName] = useState("");
++  // MODIFICATION LOCALE — l'état du retrait de dépôt (bouton, puis confirmation).
++  const [retrait, setRetrait] = useState<"idle" | "en-cours" | "fait" | "echec">("idle");
+ 
+   const roleLabel = (r: RoleDefinition) => (r.isSystem ? t(r.name) : r.name);
+   const surfaceLabel = (s: FeatureSurface) =>
+diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
+index 07ec918..efd97e0 100644
+--- a/apps/mobile/components/InviteQRSheet.tsx
++++ b/apps/mobile/components/InviteQRSheet.tsx
+@@ -241,6 +273,51 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
+                 {t("shareLink")}
+               </Text>
+             </Pressable>
++
++            {/* MODIFICATION LOCALE — le dépôt est borné dans le temps, et le
++                propriétaire peut le retirer avant son terme. Un lien retiré
++                présente le message d'EXPIRATION, distinct de « non reconnue ». */}
++            {retirer && (
++              <View style={{ marginTop: 14 }}>
++                <Text style={{ fontSize: 12, color: theme.mute, textAlign: "center", marginBottom: 10 }}>
++                  {t("depotDureeDeVie")}
++                </Text>
++                {retrait === "fait" ? (
++                  <Text style={{ fontSize: 13, color: theme.olive, textAlign: "center" }}>
++                    {t("depotRetire")}
++                  </Text>
++                ) : (
++                  <>
++                    <Pressable
++                      disabled={retrait === "en-cours"}
++                      onPress={() => {
++                        setRetrait("en-cours");
++                        retirer(url)
++                          .then(() => setRetrait("fait"))
++                          .catch(() => setRetrait("echec"));
++                      }}
++                      style={({ pressed }) => ({
++                        borderRadius: 16,
++                        paddingVertical: 14,
++                        alignItems: "center",
++                        borderWidth: 1,
++                        borderColor: theme.hair,
++                        opacity: pressed || retrait === "en-cours" ? 0.6 : 1,
++                      })}
++                    >
++                      <Text style={{ color: theme.strawberryInk, fontWeight: "600", fontSize: 15 }}>
++                        {t("retirerLeDepot")}
++                      </Text>
++                    </Pressable>
++                    {retrait === "echec" && (
++                      <Text style={{ fontSize: 12, color: theme.mute, textAlign: "center", marginTop: 8 }}>
++                        {t("depotRetraitEchoue")}
++                      </Text>
++                    )}
++                  </>
++                )}
++              </View>
++            )}
+           </>
+         )}
+ 
+diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
+index 0c9b4af..74077a6 100644
+--- a/apps/mobile/lib/space-sync.ts
++++ b/apps/mobile/lib/space-sync.ts
+@@ -87,8 +94,52 @@ import { useCeremonyStore } from '@/store/useCeremonyStore';
+ import { useSpeechesMusicStore } from '@/store/useSpeechesMusicStore';
+ import { usePermissionsStore } from '@/store/usePermissionsStore';
+ import { getActiveSession, getActiveSpaceId, getActiveWeddingNodeId } from '@/lib/starfish';
+-import { applyRsvpSubmissionsByGuestId, type RsvpSubmission } from '@/lib/rsvp-sync';
++// MODIFICATION LOCALE — un document par FOYER, plus une soumission par invité.
++import { applyHouseholdRsvpDocs, type HouseholdRsvpDoc } from '@/lib/rsvp-sync';
+ import { withIndexLock } from '@/lib/index-lock';
++// MODIFICATION LOCALE — le KV local, seul état de ce fichier qui survive au
++// départ de la page (voir « la demande de poussée survit au départ » plus bas).
++import { readCollection, writeCollection } from '@/lib/kv-storage';
++// MODIFICATION LOCALE — l'instantané local est réécrit par l'hydratation.
++import type { SQLiteStorage } from 'expo-sqlite/kv-store';
++import { getStorage } from '@/lib/kv-storage';
++import {
++  persistWedding,
++  persistGroups,
++  persistGuests,
++  persistTables,
++  persistHouseholds,
++  persistVendors,
++  persistQuotePricings,
++  persistVendorPayments,
++  persistAccommodations,
++  persistGifts,
++  persistInvitationTypes,
++  persistCommunications,
++  persistWeddingRoles,
++  persistWeddingRoleAssignments,
++  persistSeatingConstraints,
++  persistWeddingEvents,
++  persistMealSelections,
++  persistCommunicationTemplates,
++  persistDocuments,
++  persistLegalMilestones,
++  persistHoneymoonPlans,
++  persistTaskCategories,
++  persistTasks,
++  persistAgendaEvents,
++  persistDayOfItems,
++  persistIdeaCollections,
++  persistIdeas,
++  persistCeremonyItems,
++  persistSpeeches,
++  persistPlaylistTracks,
++  persistPermissionRoles,
++  persistPermissionAssignments,
++} from '@/lib/persistence';
++// MODIFICATION LOCALE — un échec de déchiffrement cesse d'être un console.warn.
++import { epoquesDetenuesDeLEspace, signalerLecture } from '@/lib/acces-chiffre';
++import { collectionIllisible } from '@/store/useAccesChiffreStore';
+ 
+ // ---------------------------------------------------------------------------
+ // Debounced push scheduler
+diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
+index 0c9b4af..74077a6 100644
+--- a/apps/mobile/lib/space-sync.ts
++++ b/apps/mobile/lib/space-sync.ts
+@@ -393,6 +817,13 @@ async function pushCollectionDoc(
+   merge: (cur: unknown, doc: CollectionDoc, now: number) => CollectionDoc = (cur, doc, now) =>
+     mergeCollectionDoc(cur, doc, { now }),
+ ): Promise<boolean> {
++  // MODIFICATION LOCALE — un appareil qui ne peut pas LIRE cette collection ne
++  // doit pas l'écrire : sa copie locale est vide, et la poussée écraserait le
++  // contenu scellé qu'il n'a pas su déchiffrer.
++  if (collectionIllisible(node.type)) {
++    console.warn(`[space-sync] poussée refusée : ${node.type} est illisible sur cet appareil`);
++    return false;
++  }
+   try {
+     const handle = await getNodeAccess(spaceId, node.id, node, session, null);
+     await handle.push(
+diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
+index 0c9b4af..74077a6 100644
+--- a/apps/mobile/lib/space-sync.ts
++++ b/apps/mobile/lib/space-sync.ts
+@@ -510,14 +1022,22 @@ async function pullNodeContent(
+   spaceId: string,
+   node: ObjectNode,
+ ): Promise<Record<string, unknown> | null> {
++  // MODIFICATION LOCALE — un nœud en clair n'a pas d'époque : rien à classer.
++  const classer = (lecture: Parameters<typeof signalerLecture>[1]) => {
++    if (node.enc === false) return;
++    try { void signalerLectureDuNoeud(session, spaceId, node, lecture); } catch { /* idem */ }
++  };
++  let result: { hash?: string; data: Record<string, unknown> | null } | null = null;
+   try {
+     const handle = await getNodeAccess(spaceId, node.id, node, session, null);
+-    const result = await handle.client.pull(objDocPull(spaceId, node.id)) as { data: Record<string, unknown> | null };
+-    if (!result?.data) return null;
+-    return handle.encryptor ? await handle.encryptor.decrypt(result.data) : result.data;
++    result = await handle.client.pull(objDocPull(spaceId, node.id)) as { hash?: string; data: Record<string, unknown> | null };
++    if (!result?.data) { classer({ hash: result?.hash, data: result?.data }); return null; }
++    const clair = handle.encryptor ? await handle.encryptor.decrypt(result.data) : result.data;
++    classer(null);
++    return clair;
+   } catch (err) {
+-    // Log once per node so a missing space-access credential is visible in the console
+-    // rather than presenting as a mysteriously empty wedding (silent return null path).
++    // L'échec est REMONTÉ, pas avalé : il porte le bandeau et bloque les écritures.
++    classer({ hash: result?.hash, data: result?.data, erreur: err });
+     console.warn(`[space-sync] pullNodeContent ${node.type}:${node.id} failed:`, err instanceof Error ? err.message : String(err));
+     return null;
+   }
+diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
+index 0c9b4af..74077a6 100644
+--- a/apps/mobile/lib/space-sync.ts
++++ b/apps/mobile/lib/space-sync.ts
+@@ -532,27 +1052,73 @@ async function pullCollectionDocs(
+ ): Promise<Map<string, CollectionDoc>> {
+   const out = new Map<string, CollectionDoc>();
+   if (!sentinels.length) return out;
++  // MODIFICATION LOCALE — signaler est un commentaire sur la lecture, jamais
++  // une condition de celle-ci : son échec ne doit pas remonter.
++  const classer = (type: string, lecture: Parameters<typeof signalerLecture>[1]) => {
++    try { signalerLecture(type, lecture); } catch { /* le diagnostic n'est pas la donnée */ }
++  };
+   try {
+     const handle = await getNodeAccess(spaceId, sentinels[0].id, sentinels[0], session, null);
+     const entries = await handle.client.batchPullMany(
+       'objdoc',
+       sentinels.map((n) => ({ spaceId, objectId: n.id })),
+     );
+-    await Promise.all(entries.map(async (entry: { error?: unknown; data?: unknown }, i: number) => {
++    // MODIFICATION LOCALE — les époques détenues, lues une fois pour tout le lot.
++    //
++    // APRÈS la lecture, et dans son propre garde-fou : ce relevé ne sert qu'à
++    // EXPLIQUER un échec, il ne doit jamais pouvoir en causer un. Placé avant,
++    // la moindre exception emportait `batchPullMany` avec elle — et l'espace
++    // entier devenait illisible faute d'avoir été lu. Constaté en production le
++    // 24 août 2026 : plus aucun `batch/pull`, et la liste des collaborateurs,
++    // qui ne vit que dans les documents de collection, disparue de l'écran.
++    let detenues: Set<number> | null = null;
++    try {
++      detenues = await epoquesDetenuesDeLEspace(session, spaceId, handle.client, getSpaceAccessEntry(spaceId));
++    } catch (err) {
++      console.warn('[space-sync] époques détenues illisibles — rien ne sera avéré :', err);
++    }
++    await Promise.all(entries.map(async (entry: { error?: unknown; data?: unknown; hash?: string }, i: number) => {
++      const type = sentinels[i].type;
+       if (entry.error || !entry.data) {
+-        if (entry.error) console.warn(`[space-sync] pullCollectionDocs ${sentinels[i].type} failed:`, entry.error);
++        classer(type, { hash: entry.hash, data: entry.data, erreur: entry.error, epoquesDetenues: detenues });
++        if (entry.error) console.warn(`[space-sync] pullCollectionDocs ${type} failed:`, entry.error);
+         return;
+       }
+       const data = entry.data as Record<string, unknown>;
+-      const decrypted = handle.encryptor ? await handle.encryptor.decrypt(data) : data;
+-      out.set(sentinels[i].type, asCollectionDoc(decrypted));
++      try {
++        const decrypted = handle.encryptor ? await handle.encryptor.decrypt(data) : data;
++        out.set(type, asCollectionDoc(decrypted));
++        classer(type, null);
++      } catch (err) {
++        classer(type, { hash: entry.hash, data, erreur: err, epoquesDetenues: detenues });
++        console.warn(`[space-sync] pullCollectionDocs ${type} illisible:`, err instanceof Error ? err.message : String(err));
++      }
+     }));
+   } catch (err) {
++    // Un échec du lot entier ne prouve rien sur les clés : réseau, jamais avéré.
++    for (const n of sentinels) classer(n.type, { erreur: err });
+     console.warn('[space-sync] pullCollectionDocs failed:', err);
+   }
+   return out;
+ }
+ 
++/** Classe la lecture d'un nœud isolé, en lisant les époques détenues au passage. */
++async function signalerLectureDuNoeud(
++  session: Session,
++  spaceId: string,
++  node: ObjectNode,
++  lecture: Parameters<typeof signalerLecture>[1],
++): Promise<void> {
++  if (lecture === null) { signalerLecture(node.type, null); return; }
++  try {
++    const handle = await getNodeAccess(spaceId, node.id, node, session, null);
++    const detenues = await epoquesDetenuesDeLEspace(session, spaceId, handle.client, getSpaceAccessEntry(spaceId));
++    signalerLecture(node.type, { ...lecture, epoquesDetenues: detenues });
++  } catch {
++    signalerLecture(node.type, { ...lecture, epoquesDetenues: null });
++  }
++}
++
+ /**
+  * Discovers the owner's wedding root ObjectNode id from the shared space index.
+  * Called once per member device on first boot (before initSync) so the joiner

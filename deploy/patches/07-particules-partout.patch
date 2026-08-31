@@ -1,0 +1,1239 @@
+diff --git a/apps/mobile/__tests__/no-raw-guest-name.test.ts b/apps/mobile/__tests__/no-raw-guest-name.test.ts
+new file mode 100644
+index 0000000..89e1502
+--- /dev/null
++++ b/apps/mobile/__tests__/no-raw-guest-name.test.ts
+@@ -0,0 +1,104 @@
++import { readdirSync, readFileSync, statSync } from "node:fs";
++import { join, relative, sep } from "node:path";
++import { describe, it, expect } from "vitest";
++
++/**
++ * A guest name is composed in ONE place: the SDK.
++ *
++ * A coverage requirement that rests on vigilance decays with every screen added,
++ * so this guard is mechanical: it fails on the mere presence of a hand-rolled
++ * recomposition, without anyone having to show that this particular one is
++ * wrong. It is aimed at the screen that does not exist yet.
++ *
++ * Accepted limit: a recomposition written the other way round would pass. The
++ * guard covers the form that recurs, not every form conceivable.
++ */
++
++const ROOT = join(__dirname, "..", "..", "..");
++const TREES = ["apps", "packages"];
++const IGNORED = new Set(["node_modules", "dist", "dist.new", ".expo", ".git", "build"]);
++const EXTENSIONS = [".ts", ".tsx"];
++
++/**
++ * First name then last name, one space apart, in both spellings: template
++ * interpolation and JSX braces. The free initial also catches the prefixed
++ * variants (`companionFirstName`, `plusOneLastName`). Matching this exact shape
++ * is what leaves sort keys (`lastName firstName`) and the SDK's pipe-separated
++ * dedup key out of reach on their own.
++ */
++const RECOMPOSITION = /\$?\{[^}]*[Ff]irstName[^}]*\} \$?\{[^}]*[Ll]astName[^}]*\}/;
++
++/**
++ * Uses that carry the forbidden idiom and are legitimate anyway. This list is,
++ * in the code, the trace of what stays outside the guarantee: lifting an
++ * exclusion means removing an entry. The second check below refuses an entry
++ * that has outlived its reason.
++ */
++const TOLERATED: Record<string, string> = {
++  "apps/mobile/lib/guest-import.ts":
++    "Import matching keys, not a display. The name particle must stay OUT of " +
++    "them: a source that left it inside the last name and a source that split " +
++    "it off would never match if the particle entered the key.",
++  "packages/fiance-sdk/src/objects/mappers.ts":
++    "Space node title, written to the sync server. Out of scope, same reason.",
++};
++
++/** Strip comments: a note explaining the ban necessarily quotes the banned
++ *  form, and must not be taken for a use. This very file is the first case. */
++function withoutComments(src: string): string {
++  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
++}
++
++function sources(from: string): string[] {
++  const out: string[] = [];
++  for (const entry of readdirSync(from)) {
++    if (IGNORED.has(entry)) continue;
++    const path = join(from, entry);
++    if (statSync(path).isDirectory()) out.push(...sources(path));
++    else if (EXTENSIONS.some((e) => entry.endsWith(e))) out.push(path);
++  }
++  return out;
++}
++
++function offenders(): string[] {
++  const out: string[] = [];
++  for (const tree of TREES) {
++    for (const path of sources(join(ROOT, tree))) {
++      if (RECOMPOSITION.test(withoutComments(readFileSync(path, "utf8")))) {
++        out.push(relative(ROOT, path).split(sep).join("/"));
++      }
++    }
++  }
++  return out.sort();
++}
++
++describe("guest name — one composition only, the SDK's", () => {
++  const found = offenders();
++
++  it("no surface recomposes a guest name by hand", () => {
++    const unexpected = found.filter((f) => !(f in TOLERATED));
++    expect(unexpected, [
++      "These files assemble a guest's first and last name themselves, hence",
++      "without the name particle. Use `formatGuestName` (whole name) or",
++      "`formatGuestLastName` (last name only, when the first name already has a",
++      "slot of its own) from `@fiance/sdk`.",
++      "",
++      "If the use is legitimate, add it to TOLERATED above WITH ITS REASON.",
++    ].join("\n")).toEqual([]);
++  });
++
++  it("no tolerance outlives its reason", () => {
++    const stale = Object.keys(TOLERATED).filter((f) => !found.includes(f)).sort();
++    expect(stale, [
++      "These TOLERATED entries no longer match any recomposition.",
++      "Remove them: an exception list that grows without each entry serving is",
++      "the sign of a guarantee draining away.",
++    ].join("\n")).toEqual([]);
++  });
++
++  it("every tolerance carries a written reason", () => {
++    for (const [file, reason] of Object.entries(TOLERATED)) {
++      expect(reason.trim().length, `${file} has no reason`).toBeGreaterThan(40);
++    }
++  });
++});
+diff --git a/apps/mobile/__tests__/rsvp-sync.test.ts b/apps/mobile/__tests__/rsvp-sync.test.ts
+index 6eca529..c5a5707 100644
+--- a/apps/mobile/__tests__/rsvp-sync.test.ts
++++ b/apps/mobile/__tests__/rsvp-sync.test.ts
+@@ -1,7 +1,7 @@
+ /**
+  * Tests for lib/rsvp-sync.ts — v3 starfish-spaces implementation.
+  *
+- * Tests focus on the pure helpers (rsvpNodeId, applyRsvpSubmissionsByGuestId)
++ * Tests focus on the pure helpers (rsvpNodeId, applyHouseholdRsvpDocs)
+  * that don't require a live session.
+  */
+ import { describe, it, expect, vi, beforeEach } from "vitest";
+@@ -36,11 +36,16 @@ vi.mock("@/store/useGuestsStore", () => ({
+   useGuestsStore: {
+     getState: () => ({
+       guests: mockGuests,
++      households: [],
+       updateGuest: mockUpdateGuest,
+     }),
+   },
+ }));
+ 
++vi.mock("@/store/useInvitationTypesStore", () => ({
++  useInvitationTypesStore: { getState: () => ({ invitationTypes: [] }) },
++}));
++
+ vi.mock("react-native", () => ({
+   Platform: { OS: "ios" },
+ }));
+@@ -51,285 +56,218 @@ vi.mock("@/lib/public-page", () => ({
+   ensurePublicPageNode: vi.fn().mockResolvedValue("pub-w1"),
+ }));
+ 
+-vi.mock("@fiance/sdk", () => ({
+-  updateObjectIndex: vi.fn().mockResolvedValue(undefined),
+-  getNodeAccess: vi.fn(),
+-  objInvPush: vi.fn().mockReturnValue("/objinv/path"),
+-  createNodeInviteLink: vi.fn().mockResolvedValue({ token: {}, link: "" }),
+-  rsvpToNode: vi.fn().mockReturnValue({ id: "rsvp-g1", type: "rsvp", parentId: "pub-w1", title: "", access: "invite", enc: false, contentKind: "merge" }),
+-}));
++// The pure household-document helpers come from the real SDK: stubbing them out
++// would leave these tests asserting nothing.
++vi.mock("@fiance/sdk", async (importOriginal) => {
++  const actual = await importOriginal<typeof import("@fiance/sdk")>();
++  return {
++    ...actual,
++    updateObjectIndex: vi.fn().mockResolvedValue(undefined),
++    getNodeAccess: vi.fn(),
++    objInvPush: vi.fn().mockReturnValue("/objinv/path"),
++    objInvPull: vi.fn().mockReturnValue("/objinv/path"),
++    createNodeInviteLink: vi.fn().mockResolvedValue({ token: {}, link: "" }),
++    rsvpToNode: vi.fn().mockReturnValue({ id: "rsvp-g1", type: "rsvp", parentId: "pub-w1", title: "", access: "invite", enc: false, contentKind: "merge" }),
++  };
++});
+ 
+ vi.mock("@/lib/guest-link", () => ({
+   encodeGuestLink: vi.fn().mockReturnValue("https://example.com/wedding/combined-token"),
+ }));
+ 
+-import { rsvpNodeId, applyRsvpSubmissionsByGuestId, type RsvpSubmission } from "@/lib/rsvp-sync";
++import { rsvpNodeId, applyHouseholdRsvpDocs, type HouseholdRsvpDoc } from "@/lib/rsvp-sync";
++
++const doc = (
++  members: Array<{
++    guestId: string;
++    rsvpStatus: string | null;
++    diet?: string | null;
++    dietNotes?: string | null;
++    respondedAt?: string | null;
++  }>,
++  householdId: string | null = "h1",
++): HouseholdRsvpDoc =>
++  ({
++    version: 2,
++    householdId,
++    members: members.map((m) => ({
++      firstName: "",
++      lastName: "",
++      invitationType: null,
++      diet: null,
++      ...m,
++    })),
++    submittedAt: members.find((m) => m.respondedAt)?.respondedAt ?? null,
++  }) as HouseholdRsvpDoc;
+ 
+ // ─── rsvpNodeId ──────────────────────────────────────────────────────────────
+ 
+ describe("rsvpNodeId", () => {
+-  it("derives node id from guest id", () => {
++  it("prefixes the RECIPIENT id — household or guest alike", () => {
+     expect(rsvpNodeId("g1")).toBe("rsvp-g1");
+     expect(rsvpNodeId("abc-123")).toBe("rsvp-abc-123");
++    expect(rsvpNodeId("h-fontaines")).toBe("rsvp-h-fontaines");
+   });
+ });
+ 
+-// ─── applyRsvpSubmissionsByGuestId ───────────────────────────────────────────
++// ─── applyHouseholdRsvpDocs ──────────────────────────────────────────────────
+ 
+-describe("applyRsvpSubmissionsByGuestId", () => {
++describe("applyHouseholdRsvpDocs", () => {
+   beforeEach(() => {
+     mockUpdateGuest.mockClear();
+-    // Reset rsvpStatus/rsvpDate on guests
+-    mockGuests[0].rsvpStatus = null;
+-    mockGuests[1].rsvpStatus = null;
+-    mockGuests[0].rsvpDate = null;
+-    mockGuests[1].rsvpDate = null;
+-    mockGuests[0].companionId = null;
++    for (const g of mockGuests) {
++      g.rsvpStatus = null;
++      g.rsvpDate = null;
++      g.diet = "STANDARD";
++      g.companionId = null;
++    }
+   });
+ 
+-  it("returns 0 for empty submissions", () => {
+-    expect(applyRsvpSubmissionsByGuestId([])).toBe(0);
++  it("applies nothing without a document", () => {
++    expect(applyHouseholdRsvpDocs([])).toBe(0);
+   });
+ 
+-  it("skips submissions with null rsvpStatus", () => {
+-    const subs: RsvpSubmission[] = [{
+-      guestId: "g1",
+-      rsvpStatus: null,
+-      submittedAt: null,
+-    }];
+-    expect(applyRsvpSubmissionsByGuestId(subs)).toBe(0);
++  it("ignores a member unknown to the guest list", () => {
++    const n = applyHouseholdRsvpDocs([
++      doc([{ guestId: "unknown", rsvpStatus: "ACCEPTED", respondedAt: "2026-09-01T10:00:00Z" }]),
++    ]);
++    expect(n).toBe(0);
+     expect(mockUpdateGuest).not.toHaveBeenCalled();
+   });
+ 
+-  it("applies a matching submission by guestId and returns count", () => {
+-    const subs: RsvpSubmission[] = [{
+-      guestId: "g1",
+-      rsvpStatus: "ACCEPTED",
+-      submittedAt: "2026-04-08T10:00:00.000Z",
+-    }];
+-    const count = applyRsvpSubmissionsByGuestId(subs);
+-    expect(count).toBe(1);
+-    expect(mockUpdateGuest).toHaveBeenCalledWith("g1", expect.objectContaining({
+-      rsvpStatus: "ACCEPTED",
+-      rsvpDate: "2026-04-08T10:00:00.000Z",
+-    }));
++  it("ignores a member with no answer or no timestamp", () => {
++    expect(
++      applyHouseholdRsvpDocs([
++        doc([
++          { guestId: "g1", rsvpStatus: null, respondedAt: "2026-09-01T10:00:00Z" },
++          { guestId: "g2", rsvpStatus: "ACCEPTED", respondedAt: null },
++        ]),
++      ]),
++    ).toBe(0);
++    expect(mockUpdateGuest).not.toHaveBeenCalled();
+   });
+ 
+-  it("applies diet when provided", () => {
+-    const subs: RsvpSubmission[] = [{
+-      guestId: "g1",
++  it("applies a member's answer and diet", () => {
++    const n = applyHouseholdRsvpDocs([
++      doc([
++        {
++          guestId: "g1",
++          rsvpStatus: "ACCEPTED",
++          diet: "VEGETARIAN",
++          dietNotes: "no nuts",
++          respondedAt: "2026-09-01T10:00:00Z",
++        },
++      ]),
++    ]);
++    expect(n).toBe(1);
++    expect(mockUpdateGuest).toHaveBeenCalledWith("g1", {
+       rsvpStatus: "ACCEPTED",
++      rsvpDate: "2026-09-01T10:00:00Z",
+       diet: "VEGETARIAN",
+-      submittedAt: "2026-04-08T10:00:00.000Z",
+-    }];
+-    applyRsvpSubmissionsByGuestId(subs);
+-    expect(mockUpdateGuest).toHaveBeenCalledWith("g1", expect.objectContaining({
+-      diet: "VEGETARIAN",
+-    }));
++      dietNotes: "no nuts",
++    });
+   });
+ 
+-  it("skips unknown guestId", () => {
+-    const subs: RsvpSubmission[] = [{
+-      guestId: "unknown-id",
+-      rsvpStatus: "ACCEPTED",
+-      submittedAt: "2026-04-08T10:00:00.000Z",
+-    }];
+-    const count = applyRsvpSubmissionsByGuestId(subs);
+-    expect(count).toBe(0);
+-    expect(mockUpdateGuest).not.toHaveBeenCalled();
++  it("a household accepts for one and declines for the other, in ONE document", () => {
++    const n = applyHouseholdRsvpDocs([
++      doc([
++        { guestId: "g1", rsvpStatus: "ACCEPTED", respondedAt: "2026-09-01T10:00:00Z" },
++        { guestId: "g2", rsvpStatus: "DECLINED", respondedAt: "2026-09-01T10:00:00Z" },
++      ]),
++    ]);
++    expect(n).toBe(2);
++    expect(mockUpdateGuest).toHaveBeenCalledWith("g1", expect.objectContaining({ rsvpStatus: "ACCEPTED" }));
++    expect(mockUpdateGuest).toHaveBeenCalledWith("g2", expect.objectContaining({ rsvpStatus: "DECLINED" }));
+   });
+ 
+-  it("processes multiple submissions independently", () => {
+-    const subs: RsvpSubmission[] = [
+-      { guestId: "g1", rsvpStatus: "ACCEPTED", submittedAt: "2026-04-08T10:00:00.000Z" },
+-      { guestId: "unknown", rsvpStatus: "DECLINED", submittedAt: "2026-04-08T11:00:00.000Z" },
+-    ];
+-    const count = applyRsvpSubmissionsByGuestId(subs);
+-    expect(count).toBe(1);
++  it("a SILENT member is not updated, hence not treated as having declined", () => {
++    const n = applyHouseholdRsvpDocs([
++      doc([
++        { guestId: "g1", rsvpStatus: "ACCEPTED", respondedAt: "2026-09-01T10:00:00Z" },
++        // Seeded from the guest record — pending, never answered.
++        { guestId: "g2", rsvpStatus: "PENDING", respondedAt: null },
++      ]),
++    ]);
++    expect(n).toBe(1);
+     expect(mockUpdateGuest).toHaveBeenCalledTimes(1);
++    expect(mockUpdateGuest).not.toHaveBeenCalledWith("g2", expect.anything());
+   });
+ 
+-  it("applies plusOneRsvpStatus to companion via plusOneGuestId", () => {
+-    const subs: RsvpSubmission[] = [{
+-      guestId: "g1",
+-      rsvpStatus: "ACCEPTED",
+-      plusOneGuestId: "g2",
+-      plusOneRsvpStatus: "DECLINED",
+-      plusOneDiet: "VEGAN",
+-      submittedAt: "2026-04-08T10:00:00.000Z",
+-    }];
+-    applyRsvpSubmissionsByGuestId(subs);
+-    expect(mockUpdateGuest).toHaveBeenCalledWith("g2", expect.objectContaining({
+-      rsvpStatus: "DECLINED",
+-      diet: "VEGAN",
+-    }));
+-  });
+-
+-  it("falls back to guest.companionId when plusOneGuestId absent", () => {
+-    mockGuests[0].companionId = "g2";
+-    const subs: RsvpSubmission[] = [{
+-      guestId: "g1",
+-      rsvpStatus: "ACCEPTED",
+-      plusOneRsvpStatus: "ACCEPTED",
+-      submittedAt: "2026-04-08T10:00:00.000Z",
+-    }];
+-    applyRsvpSubmissionsByGuestId(subs);
+-    expect(mockUpdateGuest).toHaveBeenCalledWith("g2", expect.objectContaining({
+-      rsvpStatus: "ACCEPTED",
+-    }));
++  it("applies several household documents in a single pass", () => {
++    const n = applyHouseholdRsvpDocs([
++      doc([{ guestId: "g1", rsvpStatus: "ACCEPTED", respondedAt: "2026-09-01T10:00:00Z" }], "h1"),
++      doc([{ guestId: "g2", rsvpStatus: "DECLINED", respondedAt: "2026-09-01T11:00:00Z" }], null),
++    ]);
++    expect(n).toBe(2);
+   });
+ });
+ 
+ // ─── Bug A regression: idempotent re-apply — a manual edit must not be reverted ────
+ //
+-// applyRsvpSubmissionsByGuestId runs on EVERY hydrate and EVERY app foreground
+-// (space-sync.ts's pullAndApplyRsvpNodes / providers.tsx's refreshRsvpInbox), not just
+-// once. Before the fix it unconditionally called updateGuest with the submission's
+-// values, so a manual edit made on another device (or by the couple, overriding a
+-// guest's response) got silently reverted back to the stale public-page submission on
+-// the very next foreground — and updateGuest's notifySync() re-pushed the reverted
+-// value, clobbering the edit on the server too. The fix: only apply a submission when
+-// it is strictly newer (by ISO-8601 string compare) than the guest's stored rsvpDate.
++// applyHouseholdRsvpDocs runs on EVERY hydrate and EVERY app foreground. Without
++// this guard a manual edit made on another device is overwritten by the now-stale
++// public-page submission, then re-pushed to the server by updateGuest's
++// notifySync() — clobbering the edit for everyone.
+ 
+-describe("applyRsvpSubmissionsByGuestId — idempotent re-apply (Bug A regression)", () => {
++describe("applyHouseholdRsvpDocs — idempotent re-apply (Bug A regression)", () => {
+   beforeEach(() => {
+     mockUpdateGuest.mockClear();
+-    mockGuests[0].rsvpStatus = null;
+-    mockGuests[1].rsvpStatus = null;
+-    mockGuests[0].rsvpDate = null;
+-    mockGuests[1].rsvpDate = null;
+-    mockGuests[0].companionId = null;
++    for (const g of mockGuests) {
++      g.rsvpStatus = null;
++      g.rsvpDate = null;
++      g.diet = "STANDARD";
++      g.companionId = null;
++    }
+   });
+ 
+-  it("does NOT revert a guest whose rsvpDate is newer than the incoming submission (manual edit wins)", () => {
+-    // Simulates: guest already responded via the public link (old submission), then the
+-    // couple manually changed the status locally, stamping a fresh rsvpDate.
+-    mockGuests[0].rsvpStatus = "ACCEPTED";
+-    mockGuests[0].rsvpDate = "2026-04-10T12:00:00.000Z"; // newer local edit
+-    const subs: RsvpSubmission[] = [{
+-      guestId: "g1",
+-      rsvpStatus: "DECLINED", // stale public submission
+-      diet: "VEGETARIAN",
+-      submittedAt: "2026-04-08T10:00:00.000Z", // older than guest.rsvpDate
+-    }];
+-
+-    const count = applyRsvpSubmissionsByGuestId(subs);
+-
+-    expect(count).toBe(0);
+-    expect(mockUpdateGuest).not.toHaveBeenCalled();
+-    // Guest state itself is untouched (updateGuest never ran).
+-    expect(mockGuests[0].rsvpStatus).toBe("ACCEPTED");
+-    expect(mockGuests[0].rsvpDate).toBe("2026-04-10T12:00:00.000Z");
++  it("applies an answer to a guest record that carries none", () => {
++    const n = applyHouseholdRsvpDocs([
++      doc([{ guestId: "g1", rsvpStatus: "ACCEPTED", respondedAt: "2026-09-01T10:00:00Z" }]),
++    ]);
++    expect(n).toBe(1);
+   });
+ 
+-  it("does NOT revert on repeated re-apply — calling it again is a true no-op", () => {
+-    mockGuests[0].rsvpStatus = "ACCEPTED";
+-    mockGuests[0].rsvpDate = "2026-04-10T12:00:00.000Z";
+-    const subs: RsvpSubmission[] = [{
+-      guestId: "g1",
+-      rsvpStatus: "DECLINED",
+-      submittedAt: "2026-04-08T10:00:00.000Z",
+-    }];
+-
+-    // Simulate the real bug trigger: this runs on every foreground.
+-    applyRsvpSubmissionsByGuestId(subs);
+-    applyRsvpSubmissionsByGuestId(subs);
+-    applyRsvpSubmissionsByGuestId(subs);
+-
++  it("does NOT apply an answer older than what the guest record carries", () => {
++    mockGuests[0].rsvpStatus = "DECLINED";
++    mockGuests[0].rsvpDate = "2026-09-05T12:00:00Z"; // manual edit, newer
++    const n = applyHouseholdRsvpDocs([
++      doc([{ guestId: "g1", rsvpStatus: "ACCEPTED", respondedAt: "2026-09-01T10:00:00Z" }]),
++    ]);
++    expect(n).toBe(0);
+     expect(mockUpdateGuest).not.toHaveBeenCalled();
+   });
+ 
+-  it("applies a submission strictly newer than the guest's stored rsvpDate", () => {
+-    mockGuests[0].rsvpStatus = "PENDING";
+-    mockGuests[0].rsvpDate = "2026-04-01T00:00:00.000Z"; // stale
+-    const subs: RsvpSubmission[] = [{
+-      guestId: "g1",
+-      rsvpStatus: "ACCEPTED",
+-      submittedAt: "2026-04-08T10:00:00.000Z", // newer — a genuine re-submission
+-    }];
+-
+-    const count = applyRsvpSubmissionsByGuestId(subs);
+-
+-    expect(count).toBe(1);
+-    expect(mockUpdateGuest).toHaveBeenCalledWith("g1", expect.objectContaining({
+-      rsvpStatus: "ACCEPTED",
+-      rsvpDate: "2026-04-08T10:00:00.000Z",
+-    }));
+-  });
+-
+-  it("applies when the guest has no stored rsvpDate yet (first submission ever)", () => {
+-    mockGuests[0].rsvpDate = null;
+-    const subs: RsvpSubmission[] = [{
+-      guestId: "g1",
+-      rsvpStatus: "ACCEPTED",
+-      submittedAt: "2026-04-08T10:00:00.000Z",
+-    }];
+-
+-    const count = applyRsvpSubmissionsByGuestId(subs);
+-
+-    expect(count).toBe(1);
+-    expect(mockUpdateGuest).toHaveBeenCalledWith("g1", expect.objectContaining({
+-      rsvpStatus: "ACCEPTED",
+-    }));
+-  });
+-
+-  it("treats an equal submittedAt/rsvpDate as already-applied (skips, no re-push)", () => {
++  it("does NOT apply the same answer twice", () => {
+     mockGuests[0].rsvpStatus = "ACCEPTED";
+-    mockGuests[0].rsvpDate = "2026-04-08T10:00:00.000Z";
+-    const subs: RsvpSubmission[] = [{
+-      guestId: "g1",
+-      rsvpStatus: "ACCEPTED",
+-      submittedAt: "2026-04-08T10:00:00.000Z", // same instant — already applied
+-    }];
+-
+-    const count = applyRsvpSubmissionsByGuestId(subs);
+-
+-    expect(count).toBe(0);
++    mockGuests[0].rsvpDate = "2026-09-01T10:00:00Z";
++    const d = doc([{ guestId: "g1", rsvpStatus: "ACCEPTED", respondedAt: "2026-09-01T10:00:00Z" }]);
++    applyHouseholdRsvpDocs([d]);
++    applyHouseholdRsvpDocs([d]);
++    applyHouseholdRsvpDocs([d]);
+     expect(mockUpdateGuest).not.toHaveBeenCalled();
+   });
+ 
+-  it("companion guard: skips reverting a companion whose rsvpDate is newer, independent of the primary guest", () => {
+-    // Primary guest g1 has never responded — its own update still applies.
+-    mockGuests[0].rsvpDate = null;
+-    // Companion g2 already has a newer manual edit and must not be reverted.
+-    mockGuests[1].rsvpStatus = "ACCEPTED";
+-    mockGuests[1].rsvpDate = "2026-04-10T12:00:00.000Z";
+-
+-    const subs: RsvpSubmission[] = [{
+-      guestId: "g1",
+-      rsvpStatus: "ACCEPTED",
+-      plusOneGuestId: "g2",
+-      plusOneRsvpStatus: "DECLINED", // stale — must not revert g2
+-      submittedAt: "2026-04-08T10:00:00.000Z", // older than g2.rsvpDate
+-    }];
+-
+-    applyRsvpSubmissionsByGuestId(subs);
+-
+-    // g1 (primary) updated normally.
+-    expect(mockUpdateGuest).toHaveBeenCalledWith("g1", expect.objectContaining({
+-      rsvpStatus: "ACCEPTED",
+-    }));
+-    // g2 (companion) NOT reverted.
+-    expect(mockUpdateGuest).not.toHaveBeenCalledWith("g2", expect.anything());
++  it("applies a STRICTLY newer answer — the household corrected itself", () => {
++    mockGuests[0].rsvpStatus = "ACCEPTED";
++    mockGuests[0].rsvpDate = "2026-09-01T10:00:00Z";
++    const n = applyHouseholdRsvpDocs([
++      doc([{ guestId: "g1", rsvpStatus: "DECLINED", respondedAt: "2026-09-05T18:00:00Z" }]),
++    ]);
++    expect(n).toBe(1);
++    expect(mockUpdateGuest).toHaveBeenCalledWith("g1", expect.objectContaining({ rsvpStatus: "DECLINED" }));
+   });
+ 
+-  it("companion guard: still applies a companion update that is genuinely newer", () => {
+-    mockGuests[0].rsvpDate = null;
+-    mockGuests[1].rsvpStatus = "PENDING";
+-    mockGuests[1].rsvpDate = "2026-04-01T00:00:00.000Z"; // stale
+-
+-    const subs: RsvpSubmission[] = [{
+-      guestId: "g1",
+-      rsvpStatus: "ACCEPTED",
+-      plusOneGuestId: "g2",
+-      plusOneRsvpStatus: "ACCEPTED",
+-      submittedAt: "2026-04-08T10:00:00.000Z", // newer than g2.rsvpDate
+-    }];
+-
+-    applyRsvpSubmissionsByGuestId(subs);
+-
+-    expect(mockUpdateGuest).toHaveBeenCalledWith("g2", expect.objectContaining({
+-      rsvpStatus: "ACCEPTED",
+-    }));
++  it("the guard is per MEMBER: one member's edit does not block another", () => {
++    mockGuests[0].rsvpStatus = "DECLINED";
++    mockGuests[0].rsvpDate = "2026-09-05T12:00:00Z"; // g1 edited by hand
++    const n = applyHouseholdRsvpDocs([
++      doc([
++        { guestId: "g1", rsvpStatus: "ACCEPTED", respondedAt: "2026-09-01T10:00:00Z" },
++        { guestId: "g2", rsvpStatus: "ACCEPTED", respondedAt: "2026-09-01T10:00:00Z" },
++      ]),
++    ]);
++    expect(n).toBe(1);
++    expect(mockUpdateGuest).toHaveBeenCalledTimes(1);
++    expect(mockUpdateGuest).toHaveBeenCalledWith("g2", expect.objectContaining({ rsvpStatus: "ACCEPTED" }));
+   });
+ });
+diff --git a/apps/mobile/app/(tabs)/planning/ceremony-item.tsx b/apps/mobile/app/(tabs)/planning/ceremony-item.tsx
+index b394712..62e9dae 100644
+--- a/apps/mobile/app/(tabs)/planning/ceremony-item.tsx
++++ b/apps/mobile/app/(tabs)/planning/ceremony-item.tsx
+@@ -3,7 +3,7 @@ import { View, Text, ScrollView, TextInput } from "react-native-css/components";
+ import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+ import { useTranslation } from "react-i18next";
+ import * as Crypto from "expo-crypto";
+-import { CEREMONY_ITEM_KIND_LABELS } from "@fiance/sdk";
++import { CEREMONY_ITEM_KIND_LABELS, formatGuestName } from "@fiance/sdk";
+ import type { CeremonyItemKind } from "@fiance/sdk";
+ import { useCeremonyStore } from "@/store/useCeremonyStore";
+ import { useWeddingEventsStore } from "@/store/useWeddingEventsStore";
+@@ -156,7 +156,7 @@ export default function CeremonyItemScreen() {
+             <HorizontalChipSelect
+               options={[
+                 { key: "", label: t("common:none") },
+-                ...guests.map((g) => ({ key: g.id, label: `${g.firstName} ${g.lastName}`.trim() })),
++                ...guests.map((g) => ({ key: g.id, label: formatGuestName(g) })),
+               ]}
+               activeKey={guestId}
+               onSelect={setGuestId}
+diff --git a/apps/mobile/app/(tabs)/planning/speech.tsx b/apps/mobile/app/(tabs)/planning/speech.tsx
+index 9f81f0b..a160747 100644
+--- a/apps/mobile/app/(tabs)/planning/speech.tsx
++++ b/apps/mobile/app/(tabs)/planning/speech.tsx
+@@ -6,6 +6,7 @@ import * as Crypto from "expo-crypto";
+ import { useSpeechesMusicStore } from "@/store/useSpeechesMusicStore";
+ import { usePlanningStore } from "@/store/usePlanningStore";
+ import { useGuestsStore } from "@/store/useGuestsStore";
++import { formatGuestName } from "@fiance/sdk";
+ import { useWeddingPartyStore } from "@/store/useWeddingPartyStore";
+ import { analytics } from "@/lib/analytics";
+ import { ConfirmSheet } from "@/components/ConfirmSheet";
+@@ -110,7 +111,7 @@ export default function SpeechScreen() {
+             <HorizontalChipSelect
+               options={[
+                 { key: "", label: t("common:none") },
+-                ...guests.map((g) => ({ key: g.id, label: `${g.firstName} ${g.lastName}`.trim() })),
++                ...guests.map((g) => ({ key: g.id, label: formatGuestName(g) })),
+               ]}
+               activeKey={guestId}
+               onSelect={setGuestId}
+diff --git a/apps/mobile/lib/rsvp-sync.ts b/apps/mobile/lib/rsvp-sync.ts
+index cddd4dc..64ba078 100644
+--- a/apps/mobile/lib/rsvp-sync.ts
++++ b/apps/mobile/lib/rsvp-sync.ts
+@@ -1,18 +1,23 @@
+ /**
+  * RSVP sync — v3 starfish-spaces implementation.
+  *
+- * Each guest gets a per-node `rsvp` ObjectNode (access:'invite', enc:false)
++ * Each recipient gets a per-node `rsvp` ObjectNode (access:'invite', enc:false)
+  * under the publicPage node. The owner mints a combined guest link that bundles:
+  *  - page-read cap (publicPage node, read-only)
+  *  - rsvp-write cap (rsvp node, write-capable)
+  *
+  * Guest submits via `writeNodeWithLinkCap`. Owner reads submissions via
+  * `objInvPull` (space:member privilege) on boot and foreground.
++ *
++ * The recipient is the HOUSEHOLD when the guest has one, the guest otherwise —
++ * one link, one page, one answer per envelope.
+  */
+ 
+ import { useEffect, useState } from "react";
+ import { Platform } from "react-native";
+ import { useGuestsStore } from "@/store/useGuestsStore";
++import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
++import type { Guest } from "@/db/schema";
+ import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
+ import {
+   updateObjectIndex,
+@@ -21,6 +26,12 @@ import {
+   objInvPull,
+   createNodeInviteLink,
+   rsvpToNode,
++  buildHouseholdRsvpDoc,
++  householdRsvpUpdates,
++  rsvpMemberFromGuest,
++  resolveHousehold,
++  householdName,
++  type HouseholdRsvpDoc,
+   type Session,
+   type ObjectNode,
+ } from "@fiance/sdk";
+@@ -32,23 +43,7 @@ import { encodeGuestLink } from "@/lib/guest-link";
+ // Types
+ // ---------------------------------------------------------------------------
+ 
+-export interface RsvpSubmission {
+-  guestId: string;
+-  firstName?: string | null;
+-  lastName?: string | null;
+-  /** Guest's companion ID, seeded by owner so the form can show companion details. */
+-  companionGuestId?: string | null;
+-  companionFirstName?: string | null;
+-  companionLastName?: string | null;
+-  rsvpStatus: string | null;
+-  diet?: string | null;
+-  dietNotes?: string | null;
+-  plusOneGuestId?: string | null;
+-  plusOneRsvpStatus?: string | null;
+-  plusOneDiet?: string | null;
+-  childrenCount?: number | null;
+-  submittedAt: string | null;
+-}
++export type { HouseholdRsvpDoc, RsvpMember, HouseholdRsvpSubmission } from "@fiance/sdk";
+ 
+ // ---------------------------------------------------------------------------
+ // Hooks
+@@ -76,20 +71,22 @@ export function useGuestRsvpUrl(
+ 
+       if (!session || !spaceId || !weddingNodeId) return;
+ 
+-      const guests = useGuestsStore.getState().guests;
+-      const guest = guests.find((g) => g.id === guestId);
+-      const guestName = guest ? `${guest.firstName} ${guest.lastName}`.trim() : guestId;
+-      const firstName = guest?.firstName ?? null;
+-      const lastName = guest?.lastName ?? null;
+-      const allGuests = useGuestsStore.getState().guests;
+-      const companion = guest?.companionId ? allGuests.find((g) => g.id === guest.companionId) : null;
++      const { guests, households } = useGuestsStore.getState();
++      // Invitation labels are seeded with the members: the public form cannot
++      // resolve an invitation-type id (see RsvpMember.invitationLabel).
++      const invitationLabels = Object.fromEntries(
++        useInvitationTypesStore.getState().invitationTypes.map((it) => [it.id, it.label]),
++      );
++      const { household, members } = resolveHousehold(households, guests, guestId);
++      if (members.length === 0) return;
++      const recipientId = household?.id ?? guestId;
++      const label = householdName(household, members);
+ 
+       (async () => {
+         try {
+-          const link = await getGuestInviteLink(
+-            session, spaceId, weddingNodeId, guestId, guestName,
+-            firstName, lastName,
+-            companion?.id ?? null, companion?.firstName ?? null, companion?.lastName ?? null,
++          const link = await getHouseholdInviteLink(
++            session, spaceId, weddingNodeId, recipientId, label,
++            household?.id ?? null, members, invitationLabels,
+           );
+           if (!cancelled) setUrl(link);
+         } catch {
+@@ -108,24 +105,24 @@ export function useGuestRsvpUrl(
+ // RSVP ObjectNode management (owner-side)
+ // ---------------------------------------------------------------------------
+ 
+-/** Derive the `rsvp` ObjectNode ID from the guest entity ID. */
+-export function rsvpNodeId(guestId: string): string {
+-  return `rsvp-${guestId}`;
++/** Derive the `rsvp` ObjectNode ID from the RECIPIENT id — household or guest. */
++export function rsvpNodeId(recipientId: string): string {
++  return `rsvp-${recipientId}`;
+ }
+ 
+ /**
+- * Ensure the RSVP ObjectNode for a guest exists in the space index.
++ * Ensure the RSVP ObjectNode for a recipient exists in the space index.
+  * Idempotent. Returns the rsvp nodeId.
+  */
+ export async function ensureRsvpNode(
+   session: Session,
+   spaceId: string,
+   weddingNodeId: string,
+-  guestId: string,
++  recipientId: string,
+ ): Promise<string> {
+-  const nodeId = rsvpNodeId(guestId);
++  const nodeId = rsvpNodeId(recipientId);
+   const pageNodeId = publicPageNodeId(weddingNodeId);
+-  const desc = rsvpToNode(nodeId, pageNodeId, guestId);
++  const desc = rsvpToNode(nodeId, pageNodeId, recipientId);
+ 
+   await withIndexLock(spaceId, () => updateObjectIndex(session, spaceId, (nodes, now) => {
+     const exists = nodes.some((n) => n.id === nodeId);
+@@ -149,20 +146,21 @@ export async function ensureRsvpNode(
+ }
+ 
+ /**
+- * Seed the RSVP node with the guest's initial data so guests can see their
+- * name (and companion name) when they open the RSVP form. Names are private —
+- * stored only in the per-guest node, not visible to other guests.
++ * Seed the household document with its members, so the family recognises itself
++ * when it opens the link.
++ *
++ * NOT a seed-if-absent: a household's composition keeps moving, and a document
++ * frozen at first seed would show the family a stale roster with no signal. The
++ * roster comes from the guest records; each member's already-given answer is
++ * carried over from the existing document and never overwritten.
+  */
+ export async function seedRsvpNodeContent(
+   session: Session,
+   spaceId: string,
+   nodeId: string,
+-  guestId: string,
+-  firstName: string | null,
+-  lastName: string | null,
+-  companionGuestId?: string | null,
+-  companionFirstName?: string | null,
+-  companionLastName?: string | null,
++  householdId: string | null,
++  members: Guest[],
++  invitationLabels: Record<string, string>,
+ ): Promise<void> {
+   const handle = await getNodeAccess(
+     spaceId,
+@@ -171,57 +169,59 @@ export async function seedRsvpNodeContent(
+     session,
+     null,
+   );
+-  const initial: RsvpSubmission = {
+-    guestId,
+-    firstName: firstName ?? null,
+-    lastName: lastName ?? null,
+-    companionGuestId: companionGuestId ?? null,
+-    companionFirstName: companionFirstName ?? null,
+-    companionLastName: companionLastName ?? null,
+-    rsvpStatus: null,
+-    submittedAt: null,
+-  };
+-  // Seed-if-absent: never clobber a guest's already-submitted RSVP.
+   const existing = await handle.client
+     .pull(objInvPull(spaceId, nodeId))
+-    .catch(() => null) as { hash?: string } | null;
+-  if (existing?.hash) return;
++    .catch(() => null) as { hash?: string; data?: HouseholdRsvpDoc } | null;
++
++  const alreadyAnswered = new Map(
++    (existing?.data?.members ?? []).map((m) => [m.guestId, m]),
++  );
++  const doc: HouseholdRsvpDoc = {
++    ...buildHouseholdRsvpDoc(householdId, members, invitationLabels),
++    members: members.map((g) => {
++      const fresh = rsvpMemberFromGuest(g, invitationLabels);
++      const previous = alreadyAnswered.get(g.id);
++      if (!previous?.respondedAt) return fresh;
++      return {
++        ...fresh,
++        rsvpStatus: previous.rsvpStatus,
++        diet: previous.diet,
++        dietNotes: previous.dietNotes,
++        respondedAt: previous.respondedAt,
++      };
++    }),
++    submittedAt: existing?.data?.submittedAt ?? null,
++  };
++
+   await handle.client.push(
+     objInvPush(spaceId, nodeId),
+-    initial as unknown as Record<string, unknown>,
+-    "",  // "" not null: creates when absent; heals a degraded stored hash
++    doc as unknown as Record<string, unknown>,
++    existing?.hash ?? "",  // "" not null: creates when absent; heals a degraded stored hash
+   );
+ }
+ 
+ /**
+- * Mint a combined page-read + rsvp-write link for a specific guest.
++ * Mint a combined page-read + rsvp-write link for a recipient.
+  * Ensures the publicPage node and rsvp node both exist, seeds the rsvp node
+- * with the guest's name, and returns a single URL with both caps bundled.
++ * with the household document, and returns a single URL with both caps bundled.
+  */
+-export async function getGuestInviteLink(
++export async function getHouseholdInviteLink(
+   session: Session,
+   spaceId: string,
+   weddingNodeId: string,
+-  guestId: string,
+-  guestName: string,
+-  firstName: string | null,
+-  lastName: string | null,
+-  companionGuestId?: string | null,
+-  companionFirstName?: string | null,
+-  companionLastName?: string | null,
++  recipientId: string,
++  recipientName: string,
++  householdId: string | null,
++  members: Guest[],
++  invitationLabels: Record<string, string>,
+ ): Promise<string> {
+   const origin = getAppOrigin();
+ 
+   // Ensure both nodes exist.
+   const pageNodeId = await ensurePublicPageNode(session, spaceId, weddingNodeId);
+-  const nodeId = await ensureRsvpNode(session, spaceId, weddingNodeId, guestId);
++  const nodeId = await ensureRsvpNode(session, spaceId, weddingNodeId, recipientId);
+ 
+-  // Seed the rsvp node with the guest's initial data (idempotent at server level — last write wins).
+-  await seedRsvpNodeContent(
+-    session, spaceId, nodeId, guestId,
+-    firstName, lastName,
+-    companionGuestId, companionFirstName, companionLastName,
+-  );
++  await seedRsvpNodeContent(session, spaceId, nodeId, householdId, members, invitationLabels);
+ 
+   // Mint page-read token (read-only).
+   const { token: pageToken } = await createNodeInviteLink(
+@@ -239,7 +239,7 @@ export async function getGuestInviteLink(
+     session,
+     spaceId,
+     nodeId,
+-    guestName,
++    recipientName,
+     { enc: false },
+     true, // write-capable
+     origin,
+@@ -249,12 +249,12 @@ export async function getGuestInviteLink(
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// Owner inbox — apply submissions by guestId
++// Owner inbox — apply household RSVP documents
+ // ---------------------------------------------------------------------------
+ 
+ /**
+- * Apply a list of v3 RSVP submissions (keyed by guestId) to the guests store.
+- * Returns the count of applied updates.
++ * Apply household RSVP documents to the guests store — one update per member who
++ * answered. Returns the count of applied updates.
+  *
+  * Idempotent w.r.t. local edits: a submission is only applied when it is strictly newer
+  * than the guest's current `rsvpDate`. Without this guard, this function re-runs on every
+@@ -263,43 +263,20 @@ export async function getGuestInviteLink(
+  * with the (now stale) public-page submission — then re-push the reverted value via
+  * updateGuest's notifySync(), clobbering the edit on the server too.
+  */
+-export function applyRsvpSubmissionsByGuestId(submissions: RsvpSubmission[]): number {
++export function applyHouseholdRsvpDocs(docs: HouseholdRsvpDoc[]): number {
+   const { guests } = useGuestsStore.getState();
+   const updateGuest = useGuestsStore.getState().updateGuest;
+   let applied = 0;
+ 
+-  for (const sub of submissions) {
+-    if (!sub.guestId || !sub.rsvpStatus || !sub.submittedAt) continue;
+-
+-    const guest = guests.find((g) => g.id === sub.guestId);
+-    if (!guest) continue;
+-
+-    // Skip a submission that isn't newer than what's already stored — protects a manual
+-    // edit (which stamps a fresh rsvpDate) from being reverted by a stale re-apply.
+-    if (guest.rsvpDate && sub.submittedAt <= guest.rsvpDate) continue;
+-
+-    const updates: Record<string, unknown> = {
+-      rsvpStatus: sub.rsvpStatus,
+-      rsvpDate: sub.submittedAt,
+-    };
+-    if (sub.diet) updates.diet = sub.diet;
+-    if (sub.dietNotes) updates.dietNotes = sub.dietNotes;
+-    if (sub.childrenCount != null) updates.childrenCount = sub.childrenCount;
+-    updateGuest(guest.id, updates);
+-    applied++;
+-
+-    // Apply companion RSVP (companion ID may come from submission or from the guest's companionId).
+-    const companionId = sub.plusOneGuestId ?? guest.companionId ?? null;
+-    if (sub.plusOneRsvpStatus && companionId) {
+-      const companion = guests.find((g) => g.id === companionId);
+-      if (companion && (!companion.rsvpDate || sub.submittedAt > companion.rsvpDate)) {
+-        const companionUpdates: Record<string, unknown> = {
+-          rsvpStatus: sub.plusOneRsvpStatus,
+-          rsvpDate: sub.submittedAt,
+-        };
+-        if (sub.plusOneDiet) companionUpdates.diet = sub.plusOneDiet;
+-        updateGuest(companionId, companionUpdates);
+-      }
++  for (const doc of docs) {
++    for (const { guestId, updates, respondedAt } of householdRsvpUpdates(doc)) {
++      const guest = guests.find((g) => g.id === guestId);
++      if (!guest) continue;
++      // Skip a submission that isn't newer than what's already stored — protects a manual
++      // edit (which stamps a fresh rsvpDate) from being reverted by a stale re-apply.
++      if (guest.rsvpDate && respondedAt <= guest.rsvpDate) continue;
++      updateGuest(guestId, updates as Record<string, unknown>);
++      applied++;
+     }
+   }
+ 
+diff --git a/packages/fiance-sdk/src/domain/communication-templates.ts b/packages/fiance-sdk/src/domain/communication-templates.ts
+index 46e6987..57c42fa 100644
+--- a/packages/fiance-sdk/src/domain/communication-templates.ts
++++ b/packages/fiance-sdk/src/domain/communication-templates.ts
+@@ -1,4 +1,5 @@
+ import type { CommunicationTemplate, Guest, Wedding } from './schema.js';
++import { formatGuestName } from './guests.js';
+ 
+ export function addCommunicationTemplate(
+   templates: CommunicationTemplate[],
+@@ -28,7 +29,11 @@ const PLACEHOLDER_RE = /\{\{\s*([\w.]+)\s*\}\}/g;
+ function placeholderValues(guest: Guest | null, wedding: Wedding | null): Record<string, string> {
+   return {
+     'guest.firstName': guest?.firstName ?? '',
++    // `guest.lastName` stays the BARE name: templates use it after a civility
++    // title, where a name particle does not belong. Hence `fullName` as an
++    // extra token rather than a change of meaning.
+     'guest.lastName': guest?.lastName ?? '',
++    'guest.fullName': guest ? formatGuestName(guest) : '',
+     'wedding.partner1Name': wedding?.partner1Name ?? '',
+     'wedding.partner2Name': wedding?.partner2Name ?? '',
+     'wedding.weddingDate': wedding?.weddingDate ?? '',
+diff --git a/packages/fiance-sdk/src/sync/rsvp.test.ts b/packages/fiance-sdk/src/sync/rsvp.test.ts
+index 0694ade..3bc1592 100644
+--- a/packages/fiance-sdk/src/sync/rsvp.test.ts
++++ b/packages/fiance-sdk/src/sync/rsvp.test.ts
+@@ -4,7 +4,15 @@
+  */
+ import { describe, it, expect } from "vitest";
+ import type { Guest } from '../domain/schema.js';
+-import { buildRsvpRoster, mergeSubmissions, type RsvpRoster, type RsvpSubmission } from './rsvp.js';
++import {
++  buildRsvpRoster,
++  mergeSubmissions,
++  buildHouseholdRsvpDoc,
++  mergeHouseholdSubmission,
++  householdRsvpUpdates,
++  type RsvpRoster,
++  type RsvpSubmission,
++} from './rsvp.js';
+ 
+ // ─── Fixtures ────────────────────────────────────────────────────────────────
+ 
+@@ -162,3 +170,116 @@ describe("mergeSubmissions", () => {
+     expect(original[0].rsvpStatus).toBe("PENDING"); // original unchanged
+   });
+ });
++
++// ─── Household RSVP document ─────────────────────────────────────────────────
++
++describe("household RSVP document", () => {
++  const m = (id: string, over: Partial<Guest> = {}): Guest =>
++    ({
++      id,
++      firstName: id.toUpperCase(),
++      lastName: "FONTAINES",
++      nameParticle: null,
++      invitationType: "FULL",
++      rsvpStatus: "PENDING",
++      rsvpDate: null,
++      diet: "STANDARD",
++      dietNotes: null,
++      isChild: null,
++      ...over,
++    }) as Guest;
++
++  const five = ["a", "b", "c", "d", "e"].map((id) => m(id));
++
++  it("a household of five carries FIVE members, none of them privileged", () => {
++    const doc = buildHouseholdRsvpDoc("h1", five);
++    expect(doc.members).toHaveLength(5);
++    expect(doc.members.map((x) => x.guestId)).toEqual(["a", "b", "c", "d", "e"]);
++    expect(new Set(doc.members.map((x) => Object.keys(x).sort().join(",")))).toHaveLength(1);
++  });
++
++  it("a household of ONE has the SAME shape, with no empty companion slot", () => {
++    const alone = buildHouseholdRsvpDoc(null, [m("z")]);
++    const household = buildHouseholdRsvpDoc("h1", five);
++    expect(alone.members).toHaveLength(1);
++    expect(Object.keys(alone).sort()).toEqual(Object.keys(household).sort());
++    expect(Object.keys(alone.members[0]).sort()).toEqual(Object.keys(household.members[0]).sort());
++  });
++
++  it("carries EACH member's invitation type — they may differ within a household", () => {
++    const doc = buildHouseholdRsvpDoc("h1", [m("a"), m("b", { invitationType: "COCKTAIL" })]);
++    expect(doc.members.map((x) => x.invitationType)).toEqual(["FULL", "COCKTAIL"]);
++  });
++
++  it("a member flagged as a child appears by name, like the others", () => {
++    const doc = buildHouseholdRsvpDoc("h1", [m("a"), m("kid", { isChild: true })]);
++    const child = doc.members.find((x) => x.guestId === "kid")!;
++    expect(child.isChild).toBe(true);
++    expect(child.firstName).toBe("KID");
++    expect("rsvpStatus" in child && "diet" in child).toBe(true);
++    expect(JSON.stringify(doc)).not.toContain("childrenCount");
++  });
++
++  it("a household accepts for two and declines for the third", () => {
++    const doc = buildHouseholdRsvpDoc("h1", [m("a"), m("b"), m("c")]);
++    const next = mergeHouseholdSubmission(doc, {
++      submittedAt: "2026-09-01T10:00:00.000Z",
++      members: [
++        { guestId: "a", rsvpStatus: "ACCEPTED", diet: "VEGETARIAN" },
++        { guestId: "b", rsvpStatus: "ACCEPTED" },
++        { guestId: "c", rsvpStatus: "DECLINED" },
++      ],
++    });
++    expect(next.members.map((x) => x.rsvpStatus)).toEqual(["ACCEPTED", "ACCEPTED", "DECLINED"]);
++    expect(next.members.map((x) => x.diet)).toEqual(["VEGETARIAN", "STANDARD", "STANDARD"]);
++  });
++
++  it("a PARTIAL submission leaves untouched the members it does not fill in", () => {
++    const doc = buildHouseholdRsvpDoc("h1", [m("a"), m("b"), m("c"), m("d")]);
++    const next = mergeHouseholdSubmission(doc, {
++      submittedAt: "2026-09-01T10:00:00.000Z",
++      members: [
++        { guestId: "a", rsvpStatus: "ACCEPTED" },
++        { guestId: "b", rsvpStatus: "ACCEPTED" },
++      ],
++    });
++    expect(next.members[2].rsvpStatus).toBe("PENDING");
++    expect(next.members[3].rsvpStatus).toBe("PENDING");
++    expect(next.members[2].rsvpStatus).not.toBe("DECLINED");
++    const updates = householdRsvpUpdates(next);
++    expect(updates.map((u) => u.guestId)).toEqual(["a", "b"]);
++  });
++
++  it("a NEW submission replaces the answer of the members it fills in, and only those", () => {
++    const doc = buildHouseholdRsvpDoc("h1", [m("a"), m("b"), m("c")]);
++    const first = mergeHouseholdSubmission(doc, {
++      submittedAt: "2026-09-01T10:00:00.000Z",
++      members: [
++        { guestId: "a", rsvpStatus: "ACCEPTED" },
++        { guestId: "b", rsvpStatus: "ACCEPTED" },
++        { guestId: "c", rsvpStatus: "ACCEPTED" },
++      ],
++    });
++    const second = mergeHouseholdSubmission(first, {
++      submittedAt: "2026-09-05T18:00:00.000Z",
++      members: [{ guestId: "b", rsvpStatus: "DECLINED" }],
++    });
++    expect(second.members.map((x) => x.rsvpStatus)).toEqual(["ACCEPTED", "DECLINED", "ACCEPTED"]);
++    expect(second.members[0].respondedAt).toBe("2026-09-01T10:00:00.000Z");
++    expect(second.members[1].respondedAt).toBe("2026-09-05T18:00:00.000Z");
++  });
++
++  it("reports back only the members who ACTUALLY answered", () => {
++    const doc = buildHouseholdRsvpDoc("h1", [m("a"), m("silent", { rsvpStatus: null })]);
++    const next = mergeHouseholdSubmission(doc, {
++      submittedAt: "2026-09-01T10:00:00.000Z",
++      members: [{ guestId: "a", rsvpStatus: "ACCEPTED", diet: "VEGAN" }],
++    });
++    const updates = householdRsvpUpdates(next);
++    expect(updates).toHaveLength(1);
++    expect(updates[0]).toMatchObject({
++      guestId: "a",
++      updates: { rsvpStatus: "ACCEPTED", rsvpDate: "2026-09-01T10:00:00.000Z", diet: "VEGAN" },
++    });
++  });
++});
+diff --git a/packages/fiance-sdk/src/sync/rsvp.ts b/packages/fiance-sdk/src/sync/rsvp.ts
+index 2bc00d2..ad411b5 100644
+--- a/packages/fiance-sdk/src/sync/rsvp.ts
++++ b/packages/fiance-sdk/src/sync/rsvp.ts
+@@ -104,3 +104,113 @@ export function mergeSubmissions(
+ 
+   return { guests: updatedGuests, applied };
+ }
++
++// ─── Household RSVP document ─────────────────────────────────────────────────
++
++export interface RsvpMember {
++  guestId: string;
++  // Empty STRING, never `null`, for a missing part — that is what lets
++  // `formatGuestName` compose a member's name exactly as it composes a guest's,
++  // particle included, instead of the form recomposing one by hand.
++  firstName: string;
++  lastName: string;
++  nameParticle?: string | null;
++  invitationType: string | null;
++  /**
++   * The invitation label, seeded alongside the rest: the public form has no way
++   * to resolve an invitation-type id — invitation types live in a sealed space
++   * collection an invite-link holder cannot read.
++   */
++  invitationLabel?: string | null;
++  isChild?: boolean | null;
++  rsvpStatus: string | null;
++  diet: string | null;
++  dietNotes?: string | null;
++  respondedAt?: string | null;
++}
++
++/**
++ * `householdId` is null for a guest with no household: the node is then keyed on
++ * the guest id, and the document keeps the exact same shape with a single member.
++ */
++export interface HouseholdRsvpDoc {
++  version: 2;
++  householdId: string | null;
++  members: RsvpMember[];
++  submittedAt: string | null;
++}
++
++/** A submission may carry any subset of the members. */
++export interface HouseholdRsvpSubmission {
++  members: Array<Pick<RsvpMember, 'guestId' | 'rsvpStatus'> & Partial<Pick<RsvpMember, 'diet' | 'dietNotes'>>>;
++  submittedAt: string;
++}
++
++export function rsvpMemberFromGuest(g: Guest, labels?: Record<string, string>): RsvpMember {
++  return {
++    guestId: g.id,
++    firstName: g.firstName ?? '',
++    lastName: g.lastName ?? '',
++    nameParticle: g.nameParticle ?? null,
++    invitationType: g.invitationType ?? null,
++    invitationLabel: (g.invitationType && labels?.[g.invitationType]) || null,
++    isChild: g.isChild ?? null,
++    rsvpStatus: g.rsvpStatus ?? null,
++    diet: g.diet ?? null,
++    dietNotes: g.dietNotes ?? null,
++    respondedAt: g.rsvpDate ?? null,
++  };
++}
++
++export function buildHouseholdRsvpDoc(
++  householdId: string | null,
++  members: Guest[],
++  labels?: Record<string, string>,
++): HouseholdRsvpDoc {
++  return {
++    version: 2,
++    householdId,
++    members: members.map((g) => rsvpMemberFromGuest(g, labels)),
++    submittedAt: null,
++  };
++}
++
++export function mergeHouseholdSubmission(
++  doc: HouseholdRsvpDoc,
++  submission: HouseholdRsvpSubmission,
++): HouseholdRsvpDoc {
++  const byGuest = new Map(submission.members.map((m) => [m.guestId, m]));
++  return {
++    ...doc,
++    members: doc.members.map((m) => {
++      const answer = byGuest.get(m.guestId);
++      if (!answer) return m;
++      return {
++        ...m,
++        rsvpStatus: answer.rsvpStatus,
++        diet: answer.diet !== undefined ? answer.diet : m.diet,
++        dietNotes: answer.dietNotes !== undefined ? answer.dietNotes : m.dietNotes,
++        respondedAt: submission.submittedAt,
++      };
++    }),
++    submittedAt: submission.submittedAt,
++  };
++}
++
++export function householdRsvpUpdates(
++  doc: HouseholdRsvpDoc,
++): Array<{ guestId: string; updates: Partial<Guest>; respondedAt: string }> {
++  const out: Array<{ guestId: string; updates: Partial<Guest>; respondedAt: string }> = [];
++  for (const m of doc.members) {
++    // The MEMBER's timestamp, never the document's. Falling back on
++    // `doc.submittedAt` would report the silent members of a partial submission
++    // as having answered at the others' submission time.
++    const when = m.respondedAt;
++    if (!m.rsvpStatus || !when) continue;
++    const updates: Partial<Guest> = { rsvpStatus: m.rsvpStatus, rsvpDate: when };
++    if (m.diet) updates.diet = m.diet;
++    if (m.dietNotes) updates.dietNotes = m.dietNotes;
++    out.push({ guestId: m.guestId, updates, respondedAt: when });
++  }
++  return out;
++}

@@ -1,0 +1,2493 @@
+diff --git a/apps/mobile/components/UnsavedChangesBanner.tsx b/apps/mobile/components/UnsavedChangesBanner.tsx
+new file mode 100644
+index 0000000..aa55ed7
+--- /dev/null
++++ b/apps/mobile/components/UnsavedChangesBanner.tsx
+@@ -0,0 +1,37 @@
++import React from "react";
++import { StyleSheet, Text, View } from "react-native";
++import { useTranslation } from "react-i18next";
++import { useIsWideScreen } from "@/lib/useIsWideScreen";
++import { useSyncPendingStore } from "@/store/useSyncPendingStore";
++import { theme as GP } from "@/lib/theme";
++
++export function UnsavedChangesBanner() {
++  const { t } = useTranslation("settings");
++  const isWide = useIsWideScreen();
++  const show = useSyncPendingStore((s) => s.unsavedChanges);
++
++  if (!isWide || !show) return null;
++
++  return (
++    <View style={styles.banner}>
++      <Text style={styles.text}>{t("syncStatusUnsaved")}</Text>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  banner: {
++    width: "100%",
++    zIndex: 999,
++    backgroundColor: GP.mustard,
++    alignItems: "center",
++    justifyContent: "center",
++    paddingVertical: 8,
++  },
++  text: {
++    color: GP.card,
++    fontSize: 12,
++    fontFamily: "Inter_500Medium",
++    letterSpacing: 0.2,
++  },
++});
+diff --git a/apps/mobile/lib/providers.tsx b/apps/mobile/lib/providers.tsx
+index f3163cb..b8128d7 100644
+--- a/apps/mobile/lib/providers.tsx
++++ b/apps/mobile/lib/providers.tsx
+@@ -21,7 +21,7 @@ import {
+   getActiveWeddingNodeId,
+ } from "@/lib/starfish";
+ import { registerPull } from "@fiance/sdk";
+-import { hydrateFromSpace, scheduleSyncPush, pushSpaceSnapshot, refreshRsvpInbox, refreshFromSpaceIfIdle, discoverOwnerWeddingRoot, hydrateSawLegacyNodes, resetDirtyPushBaseline } from "@/lib/space-sync";
++import { hydrateFromSpace, scheduleSyncPush, pushSpaceSnapshot, refreshRsvpInbox, refreshFromSpaceIfIdle, discoverOwnerWeddingRoot, hydrateSawLegacyNodes, resetDirtyPushBaseline, rejouerPousséeEnAttente, viderPousséeEnAttente } from "@/lib/space-sync";
+ import { ensureSpaceProvisioned } from "@/lib/space-provision";
+ import { resolveServerUrl, resolveSessionConfig, resolveOwnerUserId, normalizeSyncBase } from "@/lib/server";
+ import { ensurePublicPageNode, pushPublicPageContent, publicPageNodeId } from "@/lib/public-page";
+@@ -68,6 +68,20 @@ export function configureOnBoot(): void {
+  */
+ const _activating = new Map<string, Promise<{ userId: string } | null>>();
+ 
++/**
++ * Resume only once the browser has actually painted. `requestAnimationFrame`
++ * runs BEFORE the paint and the `setTimeout` it arms runs AFTER it — the pair
++ * is what guarantees this, neither one on its own.
++ */
++function yieldToPaint(): Promise<void> {
++  return new Promise<void>((resolve) => {
++    const raf = (globalThis as { requestAnimationFrame?: (cb: () => void) => unknown })
++      .requestAnimationFrame;
++    if (typeof raf === "function") raf(() => setTimeout(resolve, 0));
++    else setTimeout(resolve, 0);
++  });
++}
++
+ /**
+  * Drop any in-flight activation for a wedding id so a subsequent activateSync()
+  * call can't return a stale promise built from a since-changed registry entry
+@@ -162,6 +176,9 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+     let unsubSse: (() => void) | null = null;
+ 
+     (async () => {
++      await yieldToPaint();
++      if (cancelled) return;
++
+       const activated = await activateSync(wedding);
+       if (cancelled || !activated) return;
+       resolvedUserId = activated.userId;
+@@ -171,6 +188,36 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+       const weddingNodeId = getActiveWeddingNodeId();
+       if (!session || !spaceId || !weddingNodeId) return;
+ 
++      // MODIFICATION LOCALE — l'ordre de ces deux gestes est le sujet, pas un détail.
++      //
++      // 1. BRANCHER LE PLANIFICATEUR EN PREMIER. `registerPull("*")` était appelé
++      //    plus bas, APRÈS l'hydratation du démarrage. Entre le boot et lui,
++      //    `notifySync()` ne trouvait aucun écouteur : l'époque n'était pas
++      //    incrémentée, et la garde qui fait ABANDONNER une lecture recouvrant une
++      //    modification locale ne protégeait donc rien — pendant toute la durée de
++      //    l'hydratation initiale, qui est longue (index, puis lecture groupée des
++      //    collections). Une saisie faite devant l'écran de démarrage était
++      //    recouverte en silence. Le remonter ne coûte rien : `scheduleSyncPush`
++      //    n'arme qu'un minuteur, et l'exécution re-vérifie session/espace/nœud.
++      unregisterPush = registerPull("*", () => { scheduleSyncPush(); });
++
++      // 2. REJOUER CE QUI ATTENDAIT. La poussée est débouncée à 2 s ; si la page
++      //    est partie avant l'échéance, la modification n'a jamais quitté
++      //    l'appareil. Elle est toujours dans les magasins persistés — c'est
++      //    l'INTENTION de la pousser qui s'est perdue avec l'état de module. Le
++      //    marqueur durable posé par `scheduleSyncPush` la retrouve, et on la
++      //    pousse AVANT que l'hydratation ci-dessous puisse recouvrir les données
++      //    locales par un état du serveur antérieur à elle.
++      //
++      //    Avant le flux SSE, lui aussi : un événement pourrait déclencher une
++      //    hydratation concurrente pendant ce rattrapage.
++      //
++      //    Le marqueur n'est effacé qu'au succès : un rattrapage qui échoue est
++      //    retenté au démarrage suivant, et le réessai ordinaire s'en charge d'ici là.
++      if (!cancelled) {
++        await rejouerPousséeEnAttente(session, spaceId, weddingNodeId);
++      }
++
+       // Real-time push: subscribe to server-sent events for this space so a peer's
+       // change triggers a pull without waiting for foreground/backgrounding. Opened
+       // before the hydrate/push awaits below (it needs only session/spaceId, already
+@@ -228,8 +275,8 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+         }
+       }
+ 
+-      // B3: wire dispatchDocChange('*') → debounced server push.
+-      unregisterPush = registerPull("*", () => { scheduleSyncPush(); });
++      // (le branchement de dispatchDocChange('*') a été remonté au-dessus de
++      //  l'hydratation — voir la modification locale plus haut)
+ 
+       // B5: ensure the publicPage node exists in the space.
+       // Retried with backoff: pull errors and transient 409s are common on first
+@@ -272,7 +319,37 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+     })().catch((err) => console.warn("[providers] sync init failed:", err));
+ 
+     // Re-pull entitlements on foreground.
++    // MODIFICATION LOCALE — `pagehide`, que `AppState` ne couvre PAS.
++    //
++    // `react-native-web` n'écoute que `visibilitychange` : ni `pagehide`, ni
++    // `unload`, ni `freeze` ne traversent `AppState`. Or `pagehide` est
++    // l'événement qui accompagne un rechargement ou une fermeture d'onglet —
++    // très exactement le geste qui perdait la saisie.
++    //
++    // Ce serait le premier `window.addEventListener` du code applicatif. D'où
++    // la garde DOUBLE employée ailleurs dans ce projet (`public-page.ts`,
++    // `rsvp-sync.ts`) : l'accroche est posée au montage, donc évaluée aussi
++    // sous le rendu web statique d'Expo, où `window` peut manquer.
++    //
++    // Pas `beforeunload` : peu fiable sur mobile, et l'employer pour retenir la
++    // page serait hostile.
++    let retirerPagehide: (() => void) | null = null;
++    if (Platform.OS === "web" && typeof window !== "undefined") {
++      const auDépart = () => { viderPousséeEnAttente(); };
++      window.addEventListener("pagehide", auDépart);
++      retirerPagehide = () => window.removeEventListener("pagehide", auDépart);
++    }
++
+     const foregroundSub = AppState.addEventListener("change", (state) => {
++      // MODIFICATION LOCALE — le départ, et non plus seulement le retour.
++      //
++      // `react-native-web` fait correspondre `AppState` à `visibilitychange`, et
++      // à lui seul : `hidden` rend `"background"`. Cette moitié du vidage ne
++      // demande donc aucun écouteur nouveau — il suffit d'ouvrir une branche
++      // avant le `return` ci-dessous, qui écartait tout ce qui n'était pas
++      // `"active"`. Sur natif, c'est le passage en arrière-plan, qui mérite le
++      // même traitement.
++      if (state === "background") { viderPousséeEnAttente(); return; }
+       if (state !== "active" || !resolvedUserId) return;
+       pullEntitlements(null, resolvedUserId)
+         .then((features) => {
+@@ -310,6 +387,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+     return () => {
+       cancelled = true;
+       foregroundSub.remove();
++      retirerPagehide?.();
+       unregisterPush?.();
+       unsubSse?.();
+     };
+@@ -319,6 +397,20 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+   // Debounced: collapses rapid per-keystroke changes into one network push.
+   useEffect(() => {
+     function pushPublicPageContentIfActive() {
++      // MODIFICATION LOCALE — la garde de rôle qui manquait ici.
++      //
++      // La poussée d'amorçage, cent lignes plus haut, ne s'autorise QUE pour le
++      // propriétaire (« a member's first sync must never push its local
++      // (possibly stale/empty) snapshot over the owner's real content »). Cette
++      // ré-poussée-ci, elle, n'avait aucune garde — un onglet MEMBRE écrivait
++      // donc sa propre vue par-dessus la page publique du propriétaire, à
++      // chaque hydratation. Le même raisonnement vaut ici mot pour mot ; seule
++      // la garde manquait.
++      //
++      // Trouvé en cherchant la boucle de rétroaction du flux d'événements (elle
++      // faisait boucler les onglets membres aussi), mais c'est un défaut de
++      // DROITS, indépendant du flux et antérieur à lui.
++      if (wedding.role === "member") return;
+       const session = getActiveSession();
+       const spaceId = getActiveSpaceId();
+       const weddingNodeId = getActiveWeddingNodeId();
+@@ -357,7 +449,10 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+     });
+ 
+     return () => { unsubPlanning(); unsubWedding(); unsubPermissions(); if (pushTimer) clearTimeout(pushTimer); };
+-  }, []);
++    // `wedding.role` est lu dans `pushPublicPageContentIfActive` : sans lui ici,
++    // l'effet fermerait sur le rôle du premier rendu, et un rôle changé en cours
++    // de session laisserait la garde ci-dessus décider sur une valeur périmée.
++  }, [wedding.role]);
+ 
+   return null;
+ }
+diff --git a/apps/mobile/store/useSyncPendingStore.ts b/apps/mobile/store/useSyncPendingStore.ts
+new file mode 100644
+index 0000000..fd6bab8
+--- /dev/null
++++ b/apps/mobile/store/useSyncPendingStore.ts
+@@ -0,0 +1,18 @@
++import { create } from "zustand";
++
++/**
++ * Session flag, raised once the automatic push retries are exhausted: a write
++ * that never reached the server must not disappear silently.
++ *
++ * MUST NOT call notifySync() — domain stores call it after every mutation, and
++ * here it would loop: push failure → flag → notifySync → push → failure.
++ */
++interface SyncPendingState {
++  unsavedChanges: boolean;
++  setUnsavedChanges: (pending: boolean) => void;
++}
++
++export const useSyncPendingStore = create<SyncPendingState>((set) => ({
++  unsavedChanges: false,
++  setUnsavedChanges: (pending) => set({ unsavedChanges: pending }),
++}));
+diff --git a/apps/mobile/i18n/locales/fr/settings.json b/apps/mobile/i18n/locales/fr/settings.json
+index 3bf7b5b..81980b7 100644
+--- a/apps/mobile/i18n/locales/fr/settings.json
++++ b/apps/mobile/i18n/locales/fr/settings.json
+@@ -19,6 +19,7 @@
+   "syncStatusPending": "Modifications en attente",
+   "syncStatusOffline": "Hors ligne — sauvegarde à la reconnexion",
+   "syncStatusReadOnly": "Accès en lecture seule — vos modifications ne seront pas sauvegardées",
++  "syncStatusUnsaved": "Modifications non enregistrées — elles n'ont pas pu être envoyées au serveur",
+   "syncStatusError": "Erreur de sauvegarde",
+   "tapToEnable": "Appuyez pour activer la sauvegarde",
+   "shareInviteLink": "Partager un lien d'invitation",
+diff --git a/apps/mobile/i18n/locales/en/settings.json b/apps/mobile/i18n/locales/en/settings.json
+index 86026b0..98c264a 100644
+--- a/apps/mobile/i18n/locales/en/settings.json
++++ b/apps/mobile/i18n/locales/en/settings.json
+@@ -19,6 +19,7 @@
+   "syncStatusPending": "Unsaved changes",
+   "syncStatusOffline": "Offline — will back up on reconnect",
+   "syncStatusReadOnly": "View-only access — your changes won't be saved",
++  "syncStatusUnsaved": "Unsaved changes — they could not be sent to the server",
+   "syncStatusError": "Backup error",
+   "tapToEnable": "Tap to enable backup",
+   "shareInviteLink": "Share an invite link",
+diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
+index 0c9b4af..74077a6 100644
+--- a/apps/mobile/lib/space-sync.ts
++++ b/apps/mobile/lib/space-sync.ts
+@@ -62,11 +63,17 @@ import {
+   type Session,
+   type ObjectNode,
+   type NodeDescriptor,
++  // MODIFICATION LOCALE — pour neutraliser les caches avant une poussée (D3).
++  clearNodeAccessCache,
++  getSpaceAccessEntry,
++  getSpacesConfig,
++  getSyncNamespace,
+ } from '@fiance/sdk';
+ import { StarfishHttpError } from '@drakkar.software/starfish-client';
+ import { useWeddingStore } from '@/store/useWeddingStore';
+ import { useWeddingRegistryStore } from '@/store/useWeddingRegistryStore';
+ import { useSyncAccessStore } from '@/store/useSyncAccessStore';
++import { useSyncPendingStore } from '@/store/useSyncPendingStore';
+ import { useGuestsStore } from '@/store/useGuestsStore';
+ import { useVendorsStore } from '@/store/useVendorsStore';
+ import { usePlanningStore } from '@/store/usePlanningStore';
+diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
+index 0c9b4af..74077a6 100644
+--- a/apps/mobile/lib/space-sync.ts
++++ b/apps/mobile/lib/space-sync.ts
+@@ -112,6 +163,47 @@ let _pushing = false;
+  *  apply is about to write — mirrors the _pushing guard's rationale above. */
+ let _rsvpRefreshing = false;
+ 
++// ─── MODIFICATION LOCALE — durabilité des écritures ──────────────────────────
++//
++// Deux gardes de ce fichier écartent une demande de poussée quand une hydratation
++// est en cours (`scheduleSyncPush`, et la re-vérification dans son minuteur). Leur
++// intention est juste — ne pas laisser une poussée écraser ce qu'on vient de lire —
++// mais aucune ne REPRENAIT la demande écartée, et `hydrateFromSpace` remplace
++// ensuite les magasins. Une modification saisie pendant une hydratation était donc
++// d'abord privée de poussée, puis effacée. Sans erreur, sans trace : la poussée
++// n'était même pas tentée.
++//
++// La fenêtre ne demande ni second onglet ni second appareil. Le flux SSE déclenche
++// `refreshFromSpaceIfIdle()` sur TOUT changement de l'espace, y compris l'écho de
++// notre propre poussée : **une poussée réussie ouvre la fenêtre qui avale la
++// suivante.** C'est ainsi qu'un foyer constitué le 21 août 2026 n'est jamais arrivé
++// au serveur, quelques minutes après un autre qui, lui, était passé.
++//
++// Deux pièces le corrigent, et elles ne s'additionnent pas — l'une conditionne
++// l'autre :
++//
++//   1. L'ÉPOQUE. Toute mutation de l'application passe par `scheduleSyncPush`
++//      (`notifySync()` → `registerPull('*')`, 121 appelants). L'incrémenter ici
++//      suffit donc à dater toute modification locale, sans instrumenter les trente
++//      magasins. `hydrateFromSpace` retient l'époque à son début et la relit avant
++//      d'appliquer : si elle a bougé, l'état lu est JETÉ. Abandonner plutôt que
++//      fusionner, parce qu'une modification locale n'a pas encore de `rev` — il ne
++//      lui est attribué qu'à la construction du document de poussée — et qu'un
++//      arbitrage inventé à côté de `mergeCollectionDoc` serait une seconde règle
++//      pour un cas rare. Le prix d'un abandon est une relecture, rien de plus.
++//
++//   2. LA REPRISE. La demande écartée est retenue et rejouée à la fin de
++//      l'hydratation. Seule, elle ne corrigerait RIEN : les magasins auraient déjà
++//      été remplacés, et l'on renverrait au serveur ce qu'il vient d'envoyer. Elle
++//      n'est correcte que parce que (1) garantit que le magasin porte encore la
++//      modification.
++/** Incrémenté par CHAQUE appel à `scheduleSyncPush`, donc par chaque mutation. */
++let _localEditEpoch = 0;
++/** Une demande de poussée a été écartée pendant une hydratation et reste à rejouer. */
++let _pushDeferred = false;
++/** Whether the last hydrate actually applied what it read (false when abandoned). */
++let _lastHydrateApplied = false;
++
+ /**
+  * Dirty-push tracking for the wedding singleton node: node id → stableStringify() of the
+  * content last successfully pushed (or hydrated). Only the `wedding` node flows through
+diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
+index 0c9b4af..74077a6 100644
+--- a/apps/mobile/lib/space-sync.ts
++++ b/apps/mobile/lib/space-sync.ts
+@@ -166,28 +258,333 @@ const MANAGED_TYPES = new Set<string>(
+   Object.values(FIANCE_TYPES).filter((t) => t !== FIANCE_TYPES.publicPage && t !== FIANCE_TYPES.rsvp),
+ );
+ 
++// ─── MODIFICATION LOCALE — la demande de poussée survit au départ de la page ──
++//
++// Tout ce qui protège une saisie dans ce fichier est une variable de MODULE :
++// l'époque, la demande différée, le minuteur d'anti-rebond, les références de
++// poussée. Un rechargement de page les remet toutes à zéro. La poussée étant
++// débouncée à 2 s, une saisie suivie d'un rechargement immédiat n'est donc ni
++// partie, ni protégée : l'hydratation du démarrage suivant applique l'état du
++// serveur, plus ancien, et la saisie disparaît sans le moindre signal.
++// Reproduit en production le 21 août 2026 (« Lilou » → « Liloux »).
++//
++// Accrocher un vidage à `pagehide` ne suffirait PAS : une poussée est un
++// aller-retour réseau, et rien ne garantit qu'il aboutisse pendant que la page
++// s'en va. Ce vidage existe (providers.tsx), mais comme raccourci opportuniste.
++//
++// LA GARANTIE EST ICI : la demande est rendue durable au moment de la MUTATION,
++// dans le KV — le seul état qui survive au rechargement. Le démarrage suivant
++// la relit et pousse avant de laisser quoi que ce soit recouvrir les données
++// locales.
++//
++// La clé est nue : `writeCollection` la préfixe par le mariage actif, donc le
++// marqueur est automatiquement cloisonné par mariage.
++const CLÉ_POUSSÉE_EN_ATTENTE = 'sync.pousseeEnAttente';
++
++/** Note qu'une modification locale n'a pas encore atteint le serveur. */
++function noterPousséeEnAttente(): void {
++  // Entre deux mariages le KV est fermé et l'écriture ne porte que sur son cache
++  // mémoire, sans erreur. Rien à rattraper ici : la mutation suivante repose le
++  // marqueur dans le bon espace de noms.
++  try { writeCollection(CLÉ_POUSSÉE_EN_ATTENTE, true); } catch { /* KV indisponible */ }
++}
++
++/** Efface la note : tout ce qui devait partir est arrivé. */
++function effacerPousséeEnAttente(): void {
++  try { writeCollection(CLÉ_POUSSÉE_EN_ATTENTE, false); } catch { /* KV indisponible */ }
++}
++
++/** Vrai si une modification locale attendait d'être poussée quand la page s'est
++ *  arrêtée. Lu au démarrage. Un marqueur absent — première exécution après
++ *  déploiement, ou version antérieure — rend `false` : l'appareil se comporte
++ *  alors exactement comme avant. */
++export function pousséeEnAttenteAuDémarrage(): boolean {
++  try { return readCollection<boolean>(CLÉ_POUSSÉE_EN_ATTENTE) === true; } catch { return false; }
++}
++
++// ─── MODIFICATION LOCALE — les versions que CET appareil a poussées ───────────
++//
++// À ne pas confondre avec `_collectionState`, qui porte lui aussi des `rev` :
++// celui-là est réamorcé DEPUIS LE SERVEUR à chaque hydratation, donc il dit ce
++// que le serveur détient. Cette table-ci dit ce que cet appareil a écrit, elle
++// n'est alimentée que par une poussée réussie, et elle est DURABLE.
++//
++// Elle sert deux invariants qui n'en font qu'un :
++//   – à la LECTURE, écarter une version antérieure à ce qu'on a poussé (une
++//     réponse tardive, un cache, une lecture partie avant notre écriture) ;
++//   – à l'ÉCRITURE, réamorcer `_collectionState` au démarrage, sans quoi
++//     `buildCollectionDoc` réestampille TOUT et bat les `rev` de tous les pairs.
++//
++// Le magasin persisté ne peut pas la remplacer : il ne porte que des entités
++// nues, sans aucun `rev`.
++const CLÉ_VERSIONS_POUSSÉES = 'sync.versionsPoussees';
++
++/** type de collection → { id d'entité → version poussée }. */
++const _revPoussées = new Map<string, Record<string, number>>();
++let _revPousséesChargées = false;
++
++function chargerRevPoussées(): void {
++  if (_revPousséesChargées) return;
++  _revPousséesChargées = true;
++  try {
++    const lu = readCollection<Record<string, Record<string, number>>>(CLÉ_VERSIONS_POUSSÉES);
++    if (lu) for (const [type, rev] of Object.entries(lu)) _revPoussées.set(type, rev);
++  } catch { /* KV indisponible : on repart d'une table vide, comme avant */ }
++}
++
++/** Les versions poussées pour un type, ou un objet vide. */
++function revPousséesPour(type: string): Record<string, number> {
++  chargerRevPoussées();
++  return _revPoussées.get(type) ?? {};
++}
++
++/** Note les versions qu'une poussée réussie vient de porter au serveur. */
++function noterVersionsPoussées(type: string, rev: Record<string, number>): void {
++  chargerRevPoussées();
++  _revPoussées.set(type, { ...rev });
++  try {
++    writeCollection(CLÉ_VERSIONS_POUSSÉES, Object.fromEntries(_revPoussées));
++  } catch { /* KV indisponible */ }
++}
++
++// ─── MODIFICATION LOCALE — le suivi de ce qui reste à pousser est durable ─────
++//
++// Amorcer les `rev` poussés ne suffit PAS : `buildCollectionDoc` réestampille
++// une entité si son `rev` est inconnu OU si elle figure dans `changedIds`, et
++// `changedIds` se calcule contre `_collectionEntityJson`, vide au démarrage.
++// Toutes les entités y figurent, et la réestampille a lieu quand même.
++//
++// Au fond, au démarrage l'appareil ne sait pas ce qui a changé depuis sa
++// dernière poussée. « Rien n'a changé » perdrait la modification en attente ;
++// « tout a changé » — ce qu'il fait aujourd'hui — bat les `rev` de tous les
++// pairs. Il n'y a pas de troisième voie sans persister ce qu'on a poussé.
++//
++// On persiste donc le document tel qu'il est parti, un par collection, et on en
++// reconstruit au démarrage les trois tables. C'est exactement ce que
++// `_lastPushedCollectionJson` détient déjà en mémoire : le rendre durable ne
++// change pas sa sémantique, il rend le rechargement INVISIBLE au suivi.
++const CLÉ_DERNIÈRES_POUSSÉES = 'sync.dernieresPousseesParCollection';
++
++let _référencesAmorcées = false;
++
++// ─── … et cette référence-là est PAR FENÊTRE ─────────────────────────────────
++//
++// Elle répond à la question « qu'ai-je poussé, MOI ? », et c'est ce point de vue
++// qui distingue les deux seules situations que le démarrage ne savait pas
++// séparer :
++//
++//   – une saisie faite ici et jamais poussée  → à pousser ;
++//   – la saisie d'un pair, pas encore relue   → à laisser.
++//
++// Partagée entre fenêtres (stockage local), la référence dit « le document
++// contient Liloux » — et une fenêtre restée sur « Lilou » en conclut, de son
++// point de vue légitimement, qu'on a modifié g1 ici. Elle réestampille, et
++// écrase le travail de l'autre. Par fenêtre, elle dit « MOI j'ai poussé Lilou »,
++// l'entité apparaît inchangée, garde son ancienne version, et perd la fusion
++// face au pair — ce qui est exactement le résultat voulu.
++//
++// `sessionStorage` est par onglet ET survit au rechargement : les deux
++// propriétés dont on a besoin. Ce qu'il ne survit pas — la fermeture de
++// l'onglet — reste couvert par le marqueur durable, lui partagé et en stockage
++// local : on ne perd donc jamais une saisie, au pire on la repousse.
++//
++// Sur natif il n'existe pas, et il n'y a pas non plus de seconde fenêtre : le
++// repli en mémoire suffit, et un redémarrage de l'app y vaut fermeture.
++const _référencesEnMémoire = new Map<string, string>();
++
++function magasinParFenêtre(): { get(k: string): string | null; set(k: string, v: string): void } {
++  try {
++    const ss = (globalThis as { sessionStorage?: Storage }).sessionStorage;
++    if (ss) return { get: (k) => ss.getItem(k), set: (k, v) => ss.setItem(k, v) };
++  } catch { /* accès refusé (navigation privée) : repli en mémoire */ }
++  return {
++    get: (k) => _référencesEnMémoire.get(k) ?? null,
++    set: (k, v) => { _référencesEnMémoire.set(k, v); },
++  };
++}
++
++function persisterDernièresPoussées(): void {
++  try {
++    magasinParFenêtre().set(CLÉ_DERNIÈRES_POUSSÉES, JSON.stringify(Object.fromEntries(_lastPushedCollectionJson)));
++  } catch { /* quota, ou stockage indisponible */ }
++}
++
++/**
++ * Reconstruit, au démarrage, le suivi de ce qui reste à pousser.
++ *
++ * Idempotente, et sans effet si l'état en mémoire est déjà garni : une
++ * hydratation qui a réamorcé depuis le serveur fait autorité, elle est plus
++ * fraîche que ce qu'on a poussé.
++ */
++export function amorcerRéférencesDePoussée(): void {
++  if (_référencesAmorcées) return;
++  _référencesAmorcées = true;
++  let lu: Record<string, string> | null = null;
++  try {
++    const brut = magasinParFenêtre().get(CLÉ_DERNIÈRES_POUSSÉES);
++    lu = brut ? (JSON.parse(brut) as Record<string, string>) : null;
++  } catch { return; }
++  if (!lu) return;
++
++  const itemsParType = new Map(collectionSources().map((src) => [src.type, src.items]));
++  for (const [nodeId, json] of Object.entries(lu)) {
++    if (_lastPushedCollectionJson.has(nodeId)) continue; // déjà garni, plus frais
++    const type = nodeId.split(':')[1];
++    if (!type) continue;
++    let doc: CollectionDoc;
++    try { doc = JSON.parse(json) as CollectionDoc; } catch { continue; }
++    if (!doc || typeof doc !== 'object' || !doc.items) continue;
++
++    _lastPushedCollectionJson.set(nodeId, json);
++    for (const [id, e] of Object.entries(doc.items)) {
++      _collectionEntityJson.set(id, stableStringify(e as Record<string, unknown>));
++    }
++
++    // GARDE — un magasin local VIDE alors que le document poussé portait des
++    // entités est la signature d'un magasin qui n'a pas fini de charger, pas
++    // d'une suppression en masse. Restaurer les `rev` dans ce cas ferait
++    // tombstoner toute la collection à la poussée suivante — une perte de
++    // données provoquée par le correctif lui-même. On restaure alors les
++    // pierres tombales seules : la suppression réelle, si c'en est une, partira
++    // après l'hydratation, qui aura confirmé l'état.
++    const locaux = itemsParType.get(type) ?? [];
++    const magasinSuspect = locaux.length === 0 && Object.keys(doc.items).length > 0;
++    _collectionState.set(type, {
++      rev: magasinSuspect ? {} : { ...doc.rev },
++      tombstones: { ...doc.tombstones },
++    });
++  }
++}
++
++/**
++ * Fait partir tout de suite la poussée que le débouncement retenait.
++ *
++ * RACCOURCI OPPORTUNISTE, jamais une garantie — et c'est important de ne pas
++ * s'y tromper : une poussée est un aller-retour réseau, et rien ne garantit
++ * qu'il aboutisse pendant que la page s'en va. Ce que ce vidage apporte, c'est
++ * de transformer le cas courant (l'utilisateur recharge) en aller-retour
++ * réussi, plutôt qu'en rattrapage au démarrage suivant. La GARANTIE, elle, est
++ * le marqueur durable et `rejouerPousséeEnAttente`.
++ *
++ * Ne retient pas la page : ne rend rien à attendre, et ne bloque pas.
++ */
++export function viderPousséeEnAttente(): void {
++  if (!_pushTimer) return;
++  clearTimeout(_pushTimer);
++  _pushTimer = null;
++  void exécuterPoussée();
++}
++
++/**
++ * Rejoue, au démarrage, la poussée que le départ de la page a interrompue.
++ *
++ * À appeler AVANT toute hydratation : la modification est toujours dans les
++ * magasins persistés, mais l'hydratation applique l'état du serveur — antérieur
++ * à elle — et l'effacerait.
++ *
++ * La logique vit ici, et non dans le composant qui l'appelle, pour deux
++ * raisons : c'est de la politique de synchronisation, et c'est le seul endroit
++ * où elle est vérifiable sans monter tout l'arbre React.
++ *
++ * Ne rejette jamais : un rattrapage qui échoue laisse le marqueur en place
++ * (il n'est effacé qu'au succès), donc le démarrage suivant réessaiera, et le
++ * réessai ordinaire s'en charge d'ici là.
++ */
++export async function rejouerPousséeEnAttente(
++  session: Session,
++  spaceId: string,
++  weddingNodeId: string,
++): Promise<boolean> {
++  if (!pousséeEnAttenteAuDémarrage()) return false;
++  try {
++    return await pushSpaceSnapshot(session, spaceId, weddingNodeId);
++  } catch (err) {
++    console.warn('[space-sync] rattrapage de la poussée en attente échoué:', err);
++    return false;
++  }
++}
++
+ /** Called from registerPull('*') in providers.tsx after initSync(). Debounced 2s. */
+ export function scheduleSyncPush(): void {
+-  if (_isHydrating) return;
++  // MODIFICATION LOCALE — avant toute garde : c'est le passage obligé de toute
++  // mutation de l'application, donc le seul endroit où dater une modification
++  // locale une bonne fois. Incrémenter APRÈS le `return` ci-dessous laisserait
++  // invisible exactement la modification qu'on cherche à protéger.
++  _localEditEpoch++;
++  // Avant les gardes, pour la même raison que l'époque : trois chemins de sortie
++  // écartent une demande plus bas, et aucun ne doit pouvoir la faire oublier.
++  noterPousséeEnAttente();
++  if (_isHydrating) { _pushDeferred = true; return; }
+   if (_pushTimer) clearTimeout(_pushTimer);
+-  _pushTimer = setTimeout(async () => {
++  _pushTimer = setTimeout(() => {
+     _pushTimer = null;
+-    if (_isHydrating) return; // re-check: hydration may have started after this timer was queued
+-    const session = getActiveSession();
+-    const spaceId = getActiveSpaceId();
+-    const weddingNodeId = getActiveWeddingNodeId();
+-    if (!session || !spaceId || !weddingNodeId) return;
+-    _pushing = true;
+-    try {
+-      await pushSpaceSnapshot(session, spaceId, weddingNodeId);
+-    } catch (err) {
+-      console.warn('[space-sync] push failed:', err);
+-    } finally {
+-      _pushing = false;
+-    }
++    void exécuterPoussée();
+   }, 2000);
+ }
+ 
++// ─── MODIFICATION LOCALE — le réessai ────────────────────────────────────────
++//
++// Une poussée échouée n'était jamais retentée : `_lastPushedCollectionJson`
++// n'était pas mis à jour, donc la collection restait sale — mais rien ne repartait
++// avant la MUTATION SUIVANTE. Une saisie faite juste avant une coupure de réseau
++// attendait donc qu'on tape autre chose, indéfiniment.
++const PUSH_RETRY_BASE_MS = 5_000;
++const PUSH_RETRY_MAX_MS = 5 * 60_000;
++/** Nombre d'échecs consécutifs avant de le DIRE. En deçà, un hoquet de réseau
++ *  rattrapé au coup suivant ne doit rien afficher : un signalement qui clignote
++ *  à chaque hoquet apprend à être ignoré. */
++const PUSH_RETRY_ATTEMPTS_BEFORE_SIGNAL = 3;
++
++let _pushRetryTimer: ReturnType<typeof setTimeout> | null = null;
++let _pushRetryAttempt = 0;
++/** Une poussée du dernier instantané a été refusée faute de droit d'écriture. */
++let _lastPushWriteDenied = false;
++
++/** Exécute la poussée. Partagée par le minuteur d'anti-rebond et par le réessai. */
++async function exécuterPoussée(): Promise<void> {
++  // re-check: hydration may have started after this timer was queued
++  if (_isHydrating) { _pushDeferred = true; return; }
++  const session = getActiveSession();
++  const spaceId = getActiveSpaceId();
++  const weddingNodeId = getActiveWeddingNodeId();
++  if (!session || !spaceId || !weddingNodeId) return;
++  _pushing = true;
++  let toutEstPassé = false;
++  try {
++    toutEstPassé = await pushSpaceSnapshot(session, spaceId, weddingNodeId);
++  } catch (err) {
++    console.warn('[space-sync] push failed:', err);
++  } finally {
++    _pushing = false;
++  }
++  if (toutEstPassé) { pousséeRéussie(); return; }
++  // Un mur ne se franchit pas en le heurtant plus souvent.
++  if (_lastPushWriteDenied) return;
++  planifierRéessaiDePoussée();
++}
++
++function pousséeRéussie(): void {
++  _pushRetryAttempt = 0;
++  if (_pushRetryTimer) { clearTimeout(_pushRetryTimer); _pushRetryTimer = null; }
++  useSyncPendingStore.getState().setUnsavedChanges(false);
++}
++
++function planifierRéessaiDePoussée(): void {
++  _pushRetryAttempt++;
++  if (_pushRetryAttempt >= PUSH_RETRY_ATTEMPTS_BEFORE_SIGNAL) {
++    useSyncPendingStore.getState().setUnsavedChanges(true);
++  }
++  const délai = Math.min(
++    PUSH_RETRY_BASE_MS * 2 ** (_pushRetryAttempt - 1),
++    PUSH_RETRY_MAX_MS,
++  );
++  if (_pushRetryTimer) clearTimeout(_pushRetryTimer);
++  _pushRetryTimer = setTimeout(() => {
++    _pushRetryTimer = null;
++    void exécuterPoussée();
++  }, délai);
++}
++
+ /**
+  * Cancel any pending debounced push and block future scheduling.
+  * Call before a legacy import so a stale timer cannot overwrite freshly pushed nodes.
+diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
+index 0c9b4af..74077a6 100644
+--- a/apps/mobile/lib/space-sync.ts
++++ b/apps/mobile/lib/space-sync.ts
+@@ -196,6 +593,14 @@ export function scheduleSyncPush(): void {
+ export function suppressSyncPush(): void {
+   if (_pushTimer) { clearTimeout(_pushTimer); _pushTimer = null; }
+   _isHydrating = true;
++  // MODIFICATION LOCALE — la suppression est un abandon DÉLIBÉRÉ : elle ne doit
++  // rien laisser à rejouer. L'import qui l'emploie pousse explicitement ensuite.
++  _pushDeferred = false;
++  // La note durable suit le même sort que la demande en mémoire : un abandon
++  // délibéré ne doit rien laisser à rejouer au démarrage suivant.
++  effacerPousséeEnAttente();
++  if (_pushRetryTimer) { clearTimeout(_pushRetryTimer); _pushRetryTimer = null; }
++  _pushRetryAttempt = 0;
+ }
+ 
+ /** Re-enable push scheduling after a legacy import. */
+diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
+index 0c9b4af..74077a6 100644
+--- a/apps/mobile/lib/space-sync.ts
++++ b/apps/mobile/lib/space-sync.ts
+@@ -211,7 +616,24 @@ export function resetDirtyPushBaseline(): void {
+   _lastPushedCollectionJson.clear();
+   _collectionState.clear();
+   _collectionEntityJson.clear();
++  // La table des versions poussées appartient au mariage qu'on quitte. Le KV
++  // étant préfixé par mariage, la vider ici suffit : la relecture paresseuse
++  // ira chercher celle du mariage entrant.
++  _revPoussées.clear();
++  _revPousséesChargées = false;
++  _référencesAmorcées = false;
++  _référencesEnMémoire.clear();
+   _lastHydrateSawLegacy = false;
++  // MODIFICATION LOCALE — l'arriéré de réessai appartient au mariage qu'on quitte.
++  // Le laisser courir ferait retenter la poussée d'un instantané qui n'a plus cours,
++  // et laisserait le signalement allumé sur un mariage qui n'a rien en souffrance.
++  if (_pushRetryTimer) { clearTimeout(_pushRetryTimer); _pushRetryTimer = null; }
++  _pushRetryAttempt = 0;
++  _pushDeferred = false;
++  _lastPushWriteDenied = false;
++  // L'arriéré appartient au mariage qu'on quitte, la note durable aussi.
++  effacerPousséeEnAttente();
++  useSyncPendingStore.getState().setUnsavedChanges(false);
+ }
+ 
+ // ---------------------------------------------------------------------------
+diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
+index 0c9b4af..74077a6 100644
+--- a/apps/mobile/lib/space-sync.ts
++++ b/apps/mobile/lib/space-sync.ts
+@@ -409,27 +840,78 @@ async function pushCollectionDoc(
+     // useSyncAccessStore.ts for how this flag is consumed (ReadOnlyBanner + usePermissions).
+     if (err instanceof StarfishHttpError && err.status === 403) {
+       useSyncAccessStore.getState().setWriteDenied(true);
++      // MODIFICATION LOCALE — un refus de droit d'écriture ne se résout pas en
++      // réessayant : il est déjà dit par le bandeau de `useSyncAccessStore`.
++      // Le noter ici empêche le réessai de tourner en boucle contre un mur.
++      _lastPushWriteDenied = true;
+     }
+     console.warn(`[space-sync] pushCollectionDoc ${node.id}:`, err);
+     return false;
+   }
+ }
+ 
++// ─── MODIFICATION LOCALE — la fusion se décide contre le SERVEUR ─────────────
++//
++// `handle.push` prend un chemin rapide dès qu'un cache lui rend un hash pour ce
++// document : il appelle alors son mutateur avec `null`, et la fusion devient un
++// REMPLACEMENT du document entier par l'instantané local. Le serveur accepte
++// sans conflit — le hash est bon — et le travail d'un pair disparaît.
++//
++// Deux caches le lui fournissent, et il faut les deux :
++//   – une Map de module dans starfish-spaces, PAR FENÊTRE, alimentée par
++//     CHAQUE poussée réussie (rapide comme lente) : dès la deuxième poussée
++//     d'une page, le chemin rapide s'impose ;
++//   – `starfish.pullcache.*` dans le stockage local, PARTAGÉE entre fenêtres et
++//     valable 30 jours, écrite par `client.pull` ET par `client.push`.
++//
++// C'est la seconde qui explique l'écrasement entre fenêtres : l'onglet B pousse
++// et y inscrit le hash réellement courant ; l'onglet A le lit au chargement,
++// part du chemin rapide avec un hash valide, et remplace.
++//
++// `fiance-db` ne vide que la seconde, et cela lui suffit : c'est un CLI, chaque
++// invocation est un processus neuf. Recopier son geste ici ne protégerait que la
++// première poussée de chaque chargement de page.
++//
++// UNE FOIS PAR SALVE, et non par collection : `clearNodeAccessCache` vide aussi
++// les caches d'accès aux nœuds et d'encrypteurs, donc le `getNodeAccess` suivant
++// repaie une lecture du trousseau de l'espace. En tête de `pushSpaceSnapshot`,
++// c'est une réouverture par débouncement — au pire toutes les 2 s — au lieu
++// d'une par collection.
++export function neutraliserCachesDePoussée(spaceId: string, nodeIds: string[]): void {
++  try { clearNodeAccessCache(); } catch { /* rien à vider */ }
++  try {
++    const kv = (getSpacesConfig() as { kvAdapter?: { removeItem?: (k: string) => unknown } }).kvAdapter;
++    if (!kv?.removeItem) return;
++    const ns = getSyncNamespace();
++    for (const nodeId of nodeIds) {
++      kv.removeItem(`starfish.pullcache./v1/${ns}${objDocPull(spaceId, nodeId)}`);
++    }
++  } catch { /* adaptateur absent : le vidage mémoire ci-dessus reste acquis */ }
++}
++
++/** Rend `true` si TOUT ce qui devait partir est arrivé au serveur. */
+ export async function pushSpaceSnapshot(
+   session: Session,
+   spaceId: string,
+   weddingNodeId: string,
+-): Promise<void> {
++): Promise<boolean> {
+   const now = Date.now();
++  _lastPushWriteDenied = false;
++  // Avant de décider ce qui reste à pousser : sans ce réamorçage, un démarrage
++  // considère les 352 invités comme modifiés et bat les `rev` de tous les pairs.
++  amorcerRéférencesDePoussée();
+   // Content is one doc per collection (+ the wedding singleton). No per-entity content docs.
+   const weddingBuilt = buildWeddingNode(weddingNodeId, now);
+   const { nodes: collectionNodes, built } = buildCollectionDocs(weddingNodeId, now);
+   const weddingNode = weddingBuilt?.node ?? null;
+   const allNodes = [...(weddingNode ? [weddingNode] : []), ...collectionNodes];
+-  if (!allNodes.length) return; // truly empty state — nothing to sync
++  if (!allNodes.length) return true; // truly empty state — nothing to sync
+ 
+   const localById = new Map(allNodes.map((n) => [n.id, n]));
+ 
++  // Avant toute poussée : que la fusion parte d'une lecture réelle.
++  neutraliserCachesDePoussée(spaceId, allNodes.map((n) => n.id));
++
+   // ── Push content FIRST, update the index second ──────────────────────────────
+   // Pushing a space+enc content doc is index-independent (access resolves from local caps +
+   // the space keyring, not the object index — see starfish-spaces getNodeAccess/handle.push).
+diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
+index 0c9b4af..74077a6 100644
+--- a/apps/mobile/lib/space-sync.ts
++++ b/apps/mobile/lib/space-sync.ts
+@@ -449,25 +931,53 @@ export async function pushSpaceSnapshot(
+     (b) => stableStringify(b.doc) !== _lastPushedCollectionJson.get(b.node.id),
+   );
+ 
+-  await Promise.allSettled([
++  const résultatsDePoussée = await Promise.allSettled([
+     ...(weddingDirty && weddingBuilt
+       ? [pushCollectionDoc(
+           session, spaceId, weddingBuilt.node, weddingBuilt.doc, now,
+           (cur, doc, now) => mergeSingletonDoc(cur, doc, weddingNodeId, { now }),
+         ).then((ok) => {
+           if (ok) _lastPushedJson.set(weddingBuilt.node.id, stableStringify(weddingBuilt.content));
++          return ok;
+         })]
+       : []),
+     ...dirtyCollections.map((b) =>
+       pushCollectionDoc(session, spaceId, b.node, b.doc, now).then((ok) => {
+-        if (!ok) return;
++        if (!ok) return false;
+         _lastPushedCollectionJson.set(b.node.id, stableStringify(b.doc));
++        persisterDernièresPoussées();
+         _collectionState.set(b.type, b.nextState);
++        // Au succès de CHAQUE collection, pas au succès global : une poussée à
++        // moitié réussie doit laisser la table cohérente avec ce qui est
++        // réellement arrivé au serveur.
++        noterVersionsPoussées(b.type, b.nextState.rev);
+         for (const [id, j] of b.entityJson) _collectionEntityJson.set(id, j);
++        return true;
+       }),
+     ),
+   ]);
+ 
++  // MODIFICATION LOCALE — rendre compte de ce qui n'est PAS passé.
++  //
++  // `pushCollectionDoc` avale son échec en `console.warn` et rend `false`, et
++  // `allSettled` absorbait le reste : une poussée à moitié perdue se terminait
++  // exactement comme une poussée réussie. L'appelant n'avait donc aucun moyen de
++  // réessayer, et rien ne pouvait le signaler. Le booléen ci-dessous est ce qui
++  // rend le réessai (et son signalement) possibles.
++  //
++  // Un tableau vide — rien de sale à pousser — vaut succès : c'est bien le cas où
++  // tout ce qui devait partir est arrivé.
++  const toutEstPassé = résultatsDePoussée.every(
++    (r) => r.status === 'fulfilled' && r.value !== false,
++  );
++
++  // MODIFICATION LOCALE — la note s'efface ICI, et pas dans `pousséeRéussie` :
++  // cinq chemins poussent en contournant le minuteur d'anti-rebond (l'import,
++  // le lien d'invitation, la resynchronisation, la révocation, la migration du
++  // démarrage). Effacer plus haut laisserait le marqueur posé après ces
++  // poussées-là, et le démarrage suivant repousserait pour rien.
++  if (toutEstPassé) effacerPousséeEnAttente();
++
+   // Collections whose current doc is now durably on the server (just pushed, or already clean
+   // from a prior push). ONLY these may have their legacy per-entity nodes pruned below.
+   const durableSentinels = new Set(
+diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
+index 0c9b4af..74077a6 100644
+--- a/apps/mobile/lib/space-sync.ts
++++ b/apps/mobile/lib/space-sync.ts
+@@ -499,6 +1009,8 @@ export async function pushSpaceSnapshot(
+       return merged;
+     }),
+   );
++
++  return toutEstPassé;
+ }
+ 
+ // ---------------------------------------------------------------------------
+diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
+index 0c9b4af..74077a6 100644
+--- a/apps/mobile/lib/space-sync.ts
++++ b/apps/mobile/lib/space-sync.ts
+@@ -595,6 +1220,10 @@ export async function hydrateFromSpace(
+   weddingNodeId: string,
+ ): Promise<number> {
+   _isHydrating = true;
++  // MODIFICATION LOCALE — l'époque retenue à l'entrée. Toute mutation locale
++  // survenue d'ici à l'application la fera diverger, et l'état lu sera jeté.
++  const époqueÀLEntrée = _localEditEpoch;
++  _lastHydrateApplied = false;
+   try {
+     const nodes = await readObjectTree(session, spaceId);
+     if (!nodes.length) {
+diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
+index 0c9b4af..74077a6 100644
+--- a/apps/mobile/lib/space-sync.ts
++++ b/apps/mobile/lib/space-sync.ts
+@@ -662,28 +1291,85 @@ export async function hydrateFromSpace(
+     const collectionDocsByType = await pullCollectionDocs(session, spaceId, sentinelNodes);
+     // Reset to fresh remote truth: a type with no pulled doc gets no carried state, so a
+     // locally-deleted-but-still-legacy entity re-hydrates rather than sticking.
+-    _collectionState.clear();
++    //
++    // MODIFICATION LOCALE — RETENU, pas encore appliqué.
++    //
++    // Ce réamorçage avait lieu ICI, donc AVANT le point d'abandon plus bas. Une
++    // lecture écartée laissait ainsi l'appareil porteur des `rev` DU SERVEUR
++    // pour des valeurs qui, elles, n'avaient pas été appliquées. Sa poussée
++    // suivante présentait donc son ancienne valeur sous la version du serveur —
++    // et l'égalité de version se tranche en faveur du local. Une fenêtre restée
++    // en retard écrasait ainsi le travail d'une autre, sans conflit et sans
++    // trace. C'est le mécanisme constaté le 21 août 2026.
++    //
++    // On retient donc le réamorçage, et on ne l'applique qu'avec le reste, une
++    // fois l'abandon écarté : une lecture qui n'est pas appliquée ne doit RIEN
++    // laisser derrière elle.
++    const réamorçageRetenu = new Map<string, CollectionState>();
+     for (const [type, doc] of collectionDocsByType) {
+-      _collectionState.set(type, { rev: { ...doc.rev }, tombstones: { ...doc.tombstones } });
++      réamorçageRetenu.set(type, { rev: { ...doc.rev }, tombstones: { ...doc.tombstones } });
+     }
+ 
+     // Union a collection's legacy per-entity docs with its collection doc: collection live items
+     // win, tombstoned ids are removed. During the transition an old-build device may write only
+     // a per-entity node, so a legacy-only entity (absent from the collection doc) is preserved.
++    // MODIFICATION LOCALE — les collections effectivement RECOUVERTES.
++    //
++    // Chaque setter plus bas est gardé par `if (xxxDocs.length)`, et chaque
++    // `xxxDocs` est très exactement le résultat de `pullCollection(type)`. Noter
++    // ici les types au résultat non vide donne donc, sans le dupliquer, le même
++    // critère que celui des setters — c'est ce qui permet au réamorçage des
++    // références de ne couvrir que ce qui a réellement été appliqué (voir plus
++    // bas), au lieu de déclarer « déjà poussé » ce que le serveur ignore.
++    const typesRecouverts = new Set<string>();
+     const pullCollection = async (type: string): Promise<Record<string, unknown>[]> => {
+       const legacy = await pullAllBatch(type);
+       const cdoc = collectionDocsByType.get(type);
+-      if (!cdoc) return legacy;
+-      const byId = new Map<string, Record<string, unknown>>();
+-      for (const e of legacy) {
+-        const id = (e as { id?: unknown }).id;
+-        if (typeof id === 'string') byId.set(id, e);
+-      }
+-      for (const [id, entity] of Object.entries(cdoc.items)) {
+-        if (cdoc.tombstones[id] === undefined) byId.set(id, entity); // collection live wins
+-      }
+-      for (const id of Object.keys(cdoc.tombstones)) byId.delete(id); // tombstone removes
+-      return [...byId.values()];
++      const résultat = (() => {
++        if (!cdoc) return legacy;
++        const byId = new Map<string, Record<string, unknown>>();
++        for (const e of legacy) {
++          const id = (e as { id?: unknown }).id;
++          if (typeof id === 'string') byId.set(id, e);
++        }
++        // MODIFICATION LOCALE — l'invariant anti-régression, par ENTITÉ.
++        //
++        // Une lecture peut rapporter du PASSÉ : réponse tardive, lecture partie
++        // avant notre propre écriture, ou — c'est ce qui est arrivé le 21 août
++        // 2026 — servie depuis un cache. Appliquer ce passé efface à l'écran une
++        // modification pourtant enregistrée sur le serveur, puis la fait
++        // repousser périmée. On refuse donc d'appliquer, pour une entité
++        // donnée, une version antérieure à celle que CET appareil a poussée.
++        //
++        // Par entité, jamais par collection : un filigrane par collection
++        // rejetterait la modification légitime d'un pair sur une AUTRE entité,
++        // dès que cet appareil aurait poussé quoi que ce soit.
++        //
++        // On SUBSTITUE l'entité locale, on ne se contente pas de sauter le
++        // `set` : les setters plus bas sont de gros remplacements, et une
++        // entité absente du tableau se ferait tombstoner à la poussée suivante.
++        const versionsPoussées = revPousséesPour(type);
++        const localesParId = new Map<string, Record<string, unknown>>();
++        if (Object.keys(versionsPoussées).length) {
++          for (const src of collectionSources()) {
++            if (src.type !== type) continue;
++            for (const e of src.items) localesParId.set(e.id, e as unknown as Record<string, unknown>);
++          }
++        }
++        for (const [id, entity] of Object.entries(cdoc.items)) {
++          if (cdoc.tombstones[id] !== undefined) continue; // la pierre tombale tranche plus bas
++          const poussée = versionsPoussées[id];
++          if (poussée !== undefined && (cdoc.rev[id] ?? 0) < poussée) {
++            const locale = localesParId.get(id);
++            if (locale) { byId.set(id, locale); continue; }
++          }
++          byId.set(id, entity); // collection live wins
++        }
++        for (const id of Object.keys(cdoc.tombstones)) byId.delete(id); // tombstone removes
++        return [...byId.values()];
++      })();
++      if (résultat.length) typesRecouverts.add(type);
++      return résultat;
+     };
+ 
+     // Select the active wedding node at index level (node ids are available here but
+diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
+index 0c9b4af..74077a6 100644
+--- a/apps/mobile/lib/space-sync.ts
++++ b/apps/mobile/lib/space-sync.ts
+@@ -765,6 +1453,38 @@ export async function hydrateFromSpace(
+       console.warn(`[space-sync] decrypted 0/${totalGuestNodes} guest nodes — check space-access credential`);
+     }
+ 
++    // ─── MODIFICATION LOCALE — l'abandon ────────────────────────────────────
++    //
++    // Dernier instant avant d'écrire dans les magasins. Si une modification
++    // locale est survenue depuis l'entrée, l'appliquer l'effacerait : on sort.
++    //
++    // La vérification tient parce qu'il n'y a AUCUN `await` entre elle et le
++    // bloc de setters ci-dessous — rien ne peut s'y glisser. Toute insertion
++    // d'un `await` dans ce bloc rouvrirait la fenêtre.
++    //
++    // Ce qu'on laisse derrière soi est exactement ce qu'il faut, sans rien
++    // défaire :
++    //   – `_collectionState` n'est PAS réamorcé — le réamorçage est RETENU plus
++    //     haut et n'est appliqué que juste après cette garde. Il l'était avant
++    //     elle, et c'était le défaut : l'appareil se retrouvait porteur des
++    //     `rev` du serveur pour des valeurs qu'il n'avait pas appliquées, et sa
++    //     poussée suivante présentait son ancienne valeur sous la version du
++    //     serveur. À égalité de version, le local l'emporte — une fenêtre en
++    //     retard écrasait donc le travail d'une autre ;
++    //   – `_collectionEntityJson` n'est PAS réamorcé, donc la modification
++    //     locale reste marquée comme changée, son `rev` sera relevé à la
++    //     construction du document, et elle gagnera l'arbitrage ;
++    //   – `_lastPushedCollectionJson` n'est PAS réamorcé, donc la collection
++    //     reste sale et la poussée partira réellement.
++    // L'abandon est un `return` anticipé, pas un défaissage.
++    if (_localEditEpoch !== époqueÀLEntrée) {
++      return nodes.length;
++    }
++
++    // La lecture est appliquée : le réamorçage retenu plus haut l'est aussi.
++    _collectionState.clear();
++    for (const [type, état] of réamorçageRetenu) _collectionState.set(type, état);
++
+     // Feed into stores — setters do NOT call notifySync, so no circular dispatch.
+     // readSingletonEntity unwraps the 1-item CollectionDoc (or tolerates a legacy raw, or
+     // rollout-window hybrid, remote — see its doc comment) before it reaches the store.
+diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
+index 0c9b4af..74077a6 100644
+--- a/apps/mobile/lib/space-sync.ts
++++ b/apps/mobile/lib/space-sync.ts
+@@ -821,19 +1547,59 @@ export async function hydrateFromSpace(
+     // already seeded from the pulled docs above. A collection that gained a legacy-only entity
+     // (rev absent) will show as dirty on the next push — that is the intended one-shot migration
+     // that folds the straggler into the collection doc.
++    //
++    // MODIFICATION LOCALE — ne réamorcer que ce qui a été RECOUVERT.
++    //
++    // Ce réamorçage lisait `collectionSources()`, c'est-à-dire les magasins APRÈS
++    // hydratation, et déclarait tout ce qu'il y trouvait « déjà poussé ». Or les
++    // setters ci-dessus sont gardés par `if (xxxDocs.length)` : une collection que
++    // le serveur ignore n'est pas recouverte, ses données locales survivent — et
++    // se trouvaient donc marquées transmises alors qu'elles ne l'étaient pas.
++    // Elles ne repartaient PLUS JAMAIS, jusqu'à une prochaine modification.
++    //
++    // Laisser une collection non recouverte hors des deux références la garde
++    // sale : ses entités sont absentes de `_collectionEntityJson` donc réputées
++    // changées (leur `rev` sera relevé), et son document est absent de
++    // `_lastPushedCollectionJson` donc la poussée partira.
+     _collectionEntityJson.clear();
+     _lastPushedCollectionJson.clear();
+-    for (const { items } of collectionSources()) {
++    for (const { type, items } of collectionSources()) {
++      if (!typesRecouverts.has(type)) continue;
+       for (const e of items) _collectionEntityJson.set(e.id, stableStringify(e));
+     }
+     const { built: builtCollections } = buildCollectionDocs(weddingNodeId, Date.now());
+     for (const b of builtCollections) {
++      if (!typesRecouverts.has(b.type)) continue;
+       _lastPushedCollectionJson.set(b.node.id, stableStringify(b.doc));
+     }
++    // MODIFICATION LOCALE — et on le rend DURABLE ici aussi, pas seulement au
++    // succès d'une poussée.
++    //
++    // Sans cette ligne, une session qui n'a fait que LIRE ne laisse rien
++    // derrière elle : le démarrage suivant, s'il porte une saisie en attente,
++    // trouve les quatorze collections « sales » et REPOUSSE TOUT — en
++    // réestampillant les `rev` de toutes les entités, ce que la durabilité de
++    // ce suivi existe précisément pour éviter. Constaté en production le 21 août
++    // 2026 à 21:47. Le coût n'est pas visible à l'usage (c'est après la
++    // peinture), mais la réestampille, elle, bat les `rev` de tous les pairs.
++    persisterDernièresPoussées();
+ 
++    _lastHydrateApplied = true;
+     return nodes.length;
+   } finally {
+     _isHydrating = false;
++    // MODIFICATION LOCALE — la reprise. Une demande écartée pendant cette
++    // hydratation est rejouée maintenant, jamais abandonnée. Le drapeau est
++    // booléen : cinq modifications retenues ne donnent qu'une poussée, ce que
++    // le minuteur de 2 s regrouperait de toute façon.
++    //
++    // L'ordre compte : `_isHydrating` doit être retombé AVANT, sinon
++    // `scheduleSyncPush` relèverait simplement le drapeau et l'on tournerait
++    // en rond.
++    if (_pushDeferred) {
++      _pushDeferred = false;
++      scheduleSyncPush();
++    }
+   }
+ }
+ 
+diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
+index 0c9b4af..74077a6 100644
+--- a/apps/mobile/lib/space-sync.ts
++++ b/apps/mobile/lib/space-sync.ts
+@@ -847,13 +1613,31 @@ export async function hydrateFromSpace(
+  * (which a hydrate already pulls) can skip that redundant pull when this returns true.
+  */
+ export async function refreshFromSpaceIfIdle(): Promise<boolean> {
+-  if (_isHydrating || _pushTimer || _pushing || _rsvpRefreshing) return false;
++  // MODIFICATION LOCALE — un réessai en attente compte pour la même raison
++  // exactement que `_pushTimer` : il porte une modification que cet appareil n'a
++  // pas encore réussi à écouler, et une hydratation l'effacerait.
++  //
++  // Mais il ne bloque que TANT QU'ON ESPÈRE ENCORE l'écouler. Passé le seuil de
++  // signalement, l'utilisateur a été prévenu que ses modifications ne sont pas
++  // enregistrées, et c'est très exactement la seconde branche que le contrat
++  // prévoit : « atteindre le serveur, OU BIEN être signalée ». Continuer à
++  // bloquer au-delà rendrait l'appareil définitivement aveugle aux modifications
++  // des autres sur un échec durable qui n'est pas un 403 (un 409 tenace, que ce
++  // serveur ne sait pas résoudre) — on échangerait une perte silencieuse contre
++  // une cécité silencieuse.
++  const réessaiProtègeEncore =
++    _pushRetryTimer !== null && _pushRetryAttempt < PUSH_RETRY_ATTEMPTS_BEFORE_SIGNAL;
++  if (_isHydrating || _pushTimer || réessaiProtègeEncore || _pushing || _rsvpRefreshing) return false;
+   const session = getActiveSession();
+   const spaceId = getActiveSpaceId();
+   const weddingNodeId = getActiveWeddingNodeId();
+   if (!session || !spaceId || !weddingNodeId) return false;
+   return hydrateFromSpace(session, spaceId, weddingNodeId)
+-    .then(() => true)
++    // MODIFICATION LOCALE — rendre compte de ce qui a été APPLIQUÉ, non de ce
++    // qui a été lu. Une hydratation abandonnée (modification locale concurrente)
++    // n'a rien appliqué, donc rien pulled côté RSVP : l'appelant doit pouvoir
++    // retomber sur `refreshRsvpInbox` plutôt que de croire le travail fait.
++    .then(() => _lastHydrateApplied)
+     .catch((err) => {
+       console.warn('[space-sync] refreshFromSpaceIfIdle failed:', err);
+       return false;
+diff --git a/apps/mobile/__tests__/space-sync.test.ts b/apps/mobile/__tests__/space-sync.test.ts
+index 957ca64..69da1c4 100644
+--- a/apps/mobile/__tests__/space-sync.test.ts
++++ b/apps/mobile/__tests__/space-sync.test.ts
+@@ -31,12 +31,42 @@ let mockClientPush: Mock = vi.fn(async () => ({ hash: "H_new" }));
+ // handle.push mirrors the fixed NodeAccessHandle.push: pull → hash-gated decrypt → mutate → push.
+ // baseHash uses `?? ""` (alpha.49 fix): preserves "" so the server's heal path is reachable.
+ // "" is falsy so cur is still null for a missing/hash-less doc (Bug B: no decrypt({}) call).
+-function makeHandlePush(pull: Mock, push: Mock, encryptor: { decrypt: Mock; encrypt: Mock } | null = null) {
++function makeHandlePush(
++  pull: Mock,
++  push: Mock,
++  encryptor: { decrypt: Mock; encrypt: Mock } | null = null,
++  cache?: Map<string, string>,
++  /** Le cache de pull PARTAGÉ entre fenêtres, consulté quand celui de la
++   *  fenêtre est vide — c'est `peekCache` du vrai `handle.push`. */
++  peek?: (cléDeDoc: string) => string | null,
++) {
+   return vi.fn(async (
+     pullPath: string,
+     pushPath: string,
+     mutator: (cur: Record<string, unknown> | null) => Record<string, unknown> | null,
+   ) => {
++    // CHEMIN RAPIDE — la moitié du vrai `handle.push` que ce faux ne modélisait pas.
++    //
++    // Le vrai prend ce chemin dès que son cache lui rend un hash pour ce document
++    // (`cached && !currentHash`), et il appelle alors le mutateur avec `null` :
++    // la fusion devient un REMPLACEMENT. Sans cette branche ici, la suite est
++    // structurellement incapable de voir ce défaut — elle ne modélisait que le
++    // chemin lent, qui fusionne correctement.
++    //
++    // Le cache n'est passé QUE par les tests qui l'exercent : sans lui, ce faux
++    // se comporte exactement comme avant.
++    const cléDeDoc = docKey(pushPath);
++    const hashConnu = cache?.get(cléDeDoc) ?? peek?.(cléDeDoc) ?? null;
++    if (hashConnu) {
++      const remplacement = mutator(null);
++      if (remplacement === null) return;
++      const charge = encryptor ? await encryptor.encrypt(remplacement) : remplacement;
++      const rép = await push(pushPath, charge, hashConnu) as { hash?: string } | undefined;
++      // Le vrai ré-inscrit le hash rendu : le chemin rapide s'auto-entretient.
++      if (rép?.hash) cache?.set(cléDeDoc, rép.hash);
++      return;
++    }
++
+     const res = await pull(pullPath).catch(() => null) as
+       | { data: Record<string, unknown>; hash: string }
+       | null;
+diff --git a/apps/mobile/__tests__/space-sync.test.ts b/apps/mobile/__tests__/space-sync.test.ts
+index 957ca64..69da1c4 100644
+--- a/apps/mobile/__tests__/space-sync.test.ts
++++ b/apps/mobile/__tests__/space-sync.test.ts
+@@ -47,11 +77,67 @@ function makeHandlePush(pull: Mock, push: Mock, encryptor: { decrypt: Mock; encr
+     const next = mutator(cur);
+     if (next !== null) {
+       const payload = encryptor ? await encryptor.encrypt(next) : next;
+-      await push(pushPath, payload, baseHash);
++      const rép = await push(pushPath, payload, baseHash) as { hash?: string } | undefined;
++      // Le vrai inscrit AUSSI le hash après une poussée par le chemin lent —
++      // c'est pourquoi, dès la deuxième poussée d'une même page, le chemin
++      // rapide s'impose.
++      if (cache && rép?.hash) cache.set(cléDeDoc, rép.hash);
+     }
+   });
+ }
+ 
++/** Clé de document : le vrai cache efface le préfixe `/pull/` ou `/push/`, de
++ *  sorte que les deux chemins désignent la même entrée. La barre de tête est
++ *  optionnelle — les vrais `objDocPull`/`objDocPush` la portent, les faux de ce
++ *  fichier non. */
++function docKey(path: string): string {
++  return path.replace(/^\/?(pull|push)\//, "");
++}
++
++/**
++ * Faux serveur AVEC ÉTAT — un magasin par clé de document.
++ *
++ * `makeHandlePush` ci-dessus modélise la FORME d'une CAS, pas un serveur : son
++ * `pull` et son `push` sont deux espions sans mémoire commune. Deux fenêtres
++ * branchées dessus n'écriraient donc pas au même endroit, et une reproduction
++ * multi-fenêtres n'y voudrait rien dire.
++ *
++ * Le `baseHash` n'est PAS vérifié : ces reproductions portent sur l'arbitrage
++ * des versions, pas sur la gestion des conflits. Un serveur qui refuserait sur
++ * hash périmé ferait échouer les tests pour une raison étrangère au défaut visé
++ * — et le défaut observé en production passait justement SANS conflit.
++ */
++function makeStatefulServer() {
++  const docs = new Map<string, { data: Record<string, unknown>; hash: string }>();
++  let n = 0;
++  const pull = vi.fn(async (path: string) => docs.get(docKey(path)) ?? { data: null, hash: null });
++  const push = vi.fn(async (path: string, payload: Record<string, unknown>, _baseHash: string) => {
++    const hash = `H${++n}`;
++    docs.set(docKey(path), { data: payload, hash });
++    return { hash };
++  });
++  /** Ce que le serveur détient pour un nœud, tel que le verrait un pair.
++   *  Recherché par suffixe : la clé porte le chemin de stockage complet
++   *  (`spaces/{spaceId}/objects/docs/{nodeId}`), que le test n'a pas à connaître. */
++  const collection = (_spaceId: string, nodeId: string) => {
++    for (const [clé, doc] of docs) {
++      if (clé.endsWith(`/${nodeId}`)) {
++        return doc.data as {
++          items: Record<string, { id: string; name?: string }>;
++          rev: Record<string, number>;
++          tombstones: Record<string, number>;
++        };
++      }
++    }
++    return undefined;
++  };
++  /** Pose l'état initial d'un document, tel que le serveur le détiendrait. */
++  const seed = (spaceId: string, nodeId: string, data: Record<string, unknown>) => {
++    docs.set(`spaces/${spaceId}/objects/docs/${nodeId}`, { data, hash: "H0" });
++  };
++  return { pull, push, docs, collection, seed };
++}
++
+ let mockHandlePush: Mock = makeHandlePush(mockClientPull, mockClientPush);
+ 
+ let mockGetNodeAccessImpl: () => Promise<{
+diff --git a/apps/mobile/__tests__/space-sync.test.ts b/apps/mobile/__tests__/space-sync.test.ts
+index 957ca64..69da1c4 100644
+--- a/apps/mobile/__tests__/space-sync.test.ts
++++ b/apps/mobile/__tests__/space-sync.test.ts
+@@ -67,6 +153,17 @@ let mockGetNodeAccessImpl: () => Promise<{
+ });
+ 
+ const mockUpdateObjectIndex = vi.fn();
++/** Vidage du cache de documents en mémoire (par fenêtre) de starfish-spaces. */
++/** Le cache de documents en mémoire, PAR FENÊTRE — vidé par clearNodeAccessCache. */
++const mockCacheDeDocs = new Map<string, string>();
++const mockClearNodeAccessCache = vi.fn(() => { mockCacheDeDocs.clear(); });
++/** Cache de pull en stockage local, PARTAGÉ entre fenêtres. */
++const mockPullCacheKv = new Map<string, string>();
++const mockKvAdapter = {
++  getItem: (k: string) => mockPullCacheKv.get(k) ?? null,
++  setItem: (k: string, v: string) => { mockPullCacheKv.set(k, v); },
++  removeItem: (k: string) => { mockPullCacheKv.delete(k); },
++};
+ let mockReadObjectTreeImpl: () => Promise<unknown[]> = async () => [];
+ 
+ vi.mock("@drakkar.software/starfish-spaces", () => ({
+diff --git a/apps/mobile/__tests__/space-sync.test.ts b/apps/mobile/__tests__/space-sync.test.ts
+index 957ca64..69da1c4 100644
+--- a/apps/mobile/__tests__/space-sync.test.ts
++++ b/apps/mobile/__tests__/space-sync.test.ts
+@@ -144,6 +241,11 @@ const mockGetActiveWeddingNodeId = vi.fn(() => "wedding-node-1");
+ // below always installs, so tests can assert what hydrateFromSpace fed setWedding.
+ let mockSetWedding: Mock = vi.fn();
+ 
++// Same reason as mockSetWedding above, for the guest store: the durability tests need to
++// assert whether hydrateFromSpace applied the pulled guests to the store at all, which a
++// fresh-per-getState() spy cannot answer.
++let mockSetGuests: Mock = vi.fn();
++
+ vi.mock("@/lib/starfish", () => ({
+   getActiveSession: () => mockGetActiveSession(),
+   getActiveSpaceId: () => mockGetActiveSpaceId(),
+diff --git a/apps/mobile/__tests__/space-sync.test.ts b/apps/mobile/__tests__/space-sync.test.ts
+index 957ca64..69da1c4 100644
+--- a/apps/mobile/__tests__/space-sync.test.ts
++++ b/apps/mobile/__tests__/space-sync.test.ts
+@@ -195,7 +297,9 @@ vi.mock("@/store/useWeddingRegistryStore", () => ({
+   },
+ }));
+ vi.mock("@/store/useGuestsStore", () => ({
+-  useGuestsStore: { getState: () => ({ ...emptyStore.getState(), guests: mockGuestsData }) },
++  useGuestsStore: {
++    getState: () => ({ ...emptyStore.getState(), guests: mockGuestsData, setGuests: mockSetGuests }),
++  },
+ }));
+ vi.mock("@/store/useVendorsStore", () => ({ useVendorsStore: emptyStore }));
+ vi.mock("@/store/usePlanningStore", () => ({ usePlanningStore: emptyStore }));
+diff --git a/apps/mobile/__tests__/space-sync.test.ts b/apps/mobile/__tests__/space-sync.test.ts
+index 957ca64..69da1c4 100644
+--- a/apps/mobile/__tests__/space-sync.test.ts
++++ b/apps/mobile/__tests__/space-sync.test.ts
+@@ -217,11 +321,62 @@ vi.mock("@/store/useSpeechesMusicStore", () => ({ useSpeechesMusicStore: emptySt
+ vi.mock("@/store/usePermissionsStore", () => ({ usePermissionsStore: emptyStore }));
+ 
+ vi.mock("@/lib/rsvp-sync", () => ({
+-  applyRsvpSubmissionsByGuestId: vi.fn(),
++  applyHouseholdRsvpDocs: vi.fn(),
++}));
++
++// `space-sync.ts` importe ses primitives de sync depuis `@fiance/sdk`, PAS depuis
++// `@drakkar.software/starfish-spaces` : c'est là qu'il faut intercepter le
++// vidage des caches. Mock partiel — le reste du SDK (fusion, construction des
++// documents, chemins) doit rester le vrai, sans quoi les tests ne prouveraient
++// plus rien sur l'arbitrage.
++vi.mock("@fiance/sdk", async (importOriginal) => ({
++  ...(await importOriginal<Record<string, unknown>>()),
++  clearNodeAccessCache: () => mockClearNodeAccessCache(),
++  getSpacesConfig: () => ({ kvAdapter: mockKvAdapter }),
++  getSyncNamespace: () => "dk",
++}));
++
++// Le KV local, où se rangent le marqueur de poussée en attente et la table des
++// versions poussées. Le vrai module tire `react-native` et `expo-sqlite`, qui
++// n'existent pas sous l'environnement `node` de vitest — d'où ce faux, sur une
++// Map que les tests peuvent inspecter.
++//
++// Il SURVIT volontairement à `vi.resetModules()` : c'est une variable de ce
++// fichier de test, pas du module. C'est exactement ce qu'on veut modéliser —
++// le KV survit au rechargement d'une page, l'état de module non.
++const mockKvStore = new Map<string, unknown>();
++
++// `sessionStorage` n'existe pas sous l'environnement `node` de vitest. Il porte
++// la référence de dernière poussée PAR FENÊTRE : une Map par fenêtre, et
++// `nouvelleFenêtre()` modélise l'ouverture d'un onglet distinct. Comme le vrai,
++// elle survit à `vi.resetModules()` — un rechargement conserve sa session.
++let sessionActive = new Map<string, string>();
++const nouvelleFenêtre = () => { sessionActive = new Map<string, string>(); };
++vi.stubGlobal("sessionStorage", {
++  getItem: (k: string) => sessionActive.get(k) ?? null,
++  setItem: (k: string, v: string) => { sessionActive.set(k, v); },
++  removeItem: (k: string) => { sessionActive.delete(k); },
++  clear: () => { sessionActive.clear(); },
++});
++vi.mock("@/lib/kv-storage", () => ({
++  readCollection: (clé: string) => (mockKvStore.has(clé) ? mockKvStore.get(clé) : null),
++  writeCollection: (clé: string, données: unknown) => { mockKvStore.set(clé, données); },
++  // KV fermé : la persistance de l'hydratation ne s'exerce pas ici, elle a son
++  // propre fichier (`hydratation-instantane.test.ts`).
++  getStorage: () => null,
+ }));
+ 
+ // ─── Tests ────────────────────────────────────────────────────────────────────
+ 
++// Le KV est une variable de CE FICHIER : il survit volontairement à
++// `vi.resetModules()`, puisqu'il modélise un stockage qui survit au
++// rechargement d'une page. Il doit donc être remis à zéro entre deux TESTS,
++// sans quoi le suivi durable de ce qui reste à pousser fuit de l'un à l'autre.
++beforeEach(() => {
++  mockKvStore.clear();
++  nouvelleFenêtre();
++});
++
+ describe("scheduleSyncPush / _isHydrating timer guard", () => {
+   beforeEach(() => {
+     vi.useFakeTimers();
+diff --git a/apps/mobile/__tests__/space-sync.test.ts b/apps/mobile/__tests__/space-sync.test.ts
+index 957ca64..69da1c4 100644
+--- a/apps/mobile/__tests__/space-sync.test.ts
++++ b/apps/mobile/__tests__/space-sync.test.ts
+@@ -371,9 +526,25 @@ describe("_pushing guard — no concurrent hydrate while a push awaits the netwo
+   });
+ 
+   it("a second concurrent scheduleSyncPush push still resolves _pushing to false even if the network push fails", async () => {
++    // MODIFICATION LOCALE — l'intention de ce test est inchangée : un échec ne doit
++    // pas COINCER la synchronisation pour toujours. Ce qui a changé est le moment
++    // où elle repart. Un échec programme désormais un réessai, et ce réessai
++    // protège la modification non écoulée d'une hydratation qui l'effacerait —
++    // exactement ce que `_pushTimer` fait déjà quelques lignes plus haut. Cette
++    // protection s'arrête au seuil de signalement : une fois l'utilisateur prévenu
++    // que ses modifications ne sont pas enregistrées, l'appareil se remet à lire,
++    // faute de quoi un échec durable le rendrait aveugle pour toujours.
+     mockClientPull = vi.fn(async () => ({ data: null, hash: null }));
+     let rejectPush!: (err: Error) => void;
+-    mockClientPush = vi.fn(() => new Promise<{ hash: string }>((_res, rej) => { rejectPush = rej; }));
++    let premièrePoussée = true;
++    mockClientPush = vi.fn(() => {
++      if (premièrePoussée) {
++        premièrePoussée = false;
++        return new Promise<{ hash: string }>((_res, rej) => { rejectPush = rej; });
++      }
++      // Les réessais échouent aussitôt : la panne dure.
++      return Promise.reject(new Error("network down"));
++    });
+     mockHandlePush = makeHandlePush(mockClientPull, mockClientPush);
+     mockGetNodeAccessImpl = async () => ({
+       encryptor: null,
+diff --git a/apps/mobile/__tests__/space-sync.test.ts b/apps/mobile/__tests__/space-sync.test.ts
+index 957ca64..69da1c4 100644
+--- a/apps/mobile/__tests__/space-sync.test.ts
++++ b/apps/mobile/__tests__/space-sync.test.ts
+@@ -396,7 +567,16 @@ describe("_pushing guard — no concurrent hydrate while a push awaits the netwo
+     rejectPush(new Error("network down"));
+     await vi.advanceTimersByTimeAsync(0);
+ 
+-    // _pushing must be released even on failure — otherwise sync would wedge permanently.
++    // _pushing EST relâché — mais le réessai protège encore la modification.
++    await refreshFromSpaceIfIdle();
++    expect(readTreeCalls).toBe(0);
++
++    // La panne dure : les tentatives s'épuisent, le défaut est signalé…
++    await vi.advanceTimersByTimeAsync(60_000);
++    const { useSyncPendingStore } = await import("@/store/useSyncPendingStore");
++    expect(useSyncPendingStore.getState().unsavedChanges).toBe(true);
++
++    // …et la lecture repart : rien n'est coincé pour toujours.
+     await refreshFromSpaceIfIdle();
+     expect(readTreeCalls).toBe(1);
+   });
+diff --git a/apps/mobile/__tests__/space-sync.test.ts b/apps/mobile/__tests__/space-sync.test.ts
+index 957ca64..69da1c4 100644
+--- a/apps/mobile/__tests__/space-sync.test.ts
++++ b/apps/mobile/__tests__/space-sync.test.ts
+@@ -1408,3 +1599,1034 @@ describe("hydrateFromSpace — per-collection read + migration detection", () =>
+     expect(hydrateSawLegacyNodes()).toBe(false);
+   });
+ });
++
++// ─── MODIFICATION LOCALE — durabilité des écritures ──────────────────────────
++//
++// Ces trois tests reproduisent trois façons dont une modification acceptée par
++// l'interface disparaît sans le moindre signal. Ils sont écrits AVANT la
++// correction et doivent échouer sur l'arbre non corrigé : sur un défaut
++// d'entrelacement, sans échec constaté, rien ne distingue « corrigé » de « la
++// fenêtre ne s'est pas présentée ».
++//
++// La séquence reproduite est celle qui a réellement perdu un foyer le 21 août
++// 2026 : une poussée réussie fait émettre au serveur un frame de changement, le
++// flux SSE déclenche une hydratation, et la modification suivante tombe dans sa
++// fenêtre.
++
++/** Espace minimal contenant une collection d'invités côté serveur. */
++function treeWithGuestCollection() {
++  return [
++    { id: "w1", type: "wedding", parentId: null, updatedAt: 1000, contentKind: "merge", access: "space", enc: false },
++    { id: "col:guest:w1", type: "guest", parentId: "w1", updatedAt: 1000, contentKind: "merge", access: "space", enc: false },
++  ];
++}
++
++describe("durabilité des écritures — une modification acceptée ne disparaît pas", () => {
++  beforeEach(async () => {
++    vi.useFakeTimers();
++    mockUpdateObjectIndex.mockReset();
++    mockSetGuests = vi.fn();
++    mockWeddingData = { id: "w1", name: "Test Wedding" };
++    mockGuestsData = [];
++    const { resetDirtyPushBaseline } = await import("@/lib/space-sync");
++    resetDirtyPushBaseline();
++    mockClientPull = vi.fn(async () => ({ data: null, hash: null }));
++    mockClientPush = vi.fn(async () => ({ hash: "H2" }));
++    mockHandlePush = makeHandlePush(mockClientPull, mockClientPush);
++    mockGetNodeAccessImpl = async () => ({
++      encryptor: null,
++      client: {
++        pull: mockClientPull,
++        push: mockClientPush,
++        batchPullMany: vi.fn(async (_c: string, params: { objectId: string }[]) =>
++          params.map((p) =>
++            p.objectId === "col:guest:w1"
++              ? { data: { fmt: 2, items: { "g-serveur": { id: "g-serveur" } }, rev: { "g-serveur": 5 }, tombstones: {} } }
++              : { data: null },
++          ),
++        ),
++      } as never,
++      isOwnerOpen: false,
++      push: mockHandlePush,
++    });
++  });
++
++  afterEach(() => {
++    vi.useRealTimers();
++    mockReadObjectTreeImpl = async () => [];
++    mockWeddingData = null;
++    mockGuestsData = [];
++  });
++
++  it("1.1 — une modification faite pendant une hydratation n'est pas écrasée par l'état lu", async () => {
++    let libérerLecture!: () => void;
++    mockReadObjectTreeImpl = () =>
++      new Promise<unknown[]>((res) => { libérerLecture = () => res(treeWithGuestCollection()); });
++
++    const { hydrateFromSpace, scheduleSyncPush } = await import("@/lib/space-sync");
++    const hydratation = hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
++
++    // La modification locale survient pendant que la lecture est en vol : le
++    // magasin change, et notifySync() aboutit à scheduleSyncPush().
++    mockGuestsData = [{ id: "g-local" }];
++    scheduleSyncPush();
++
++    libérerLecture();
++    await hydratation;
++
++    // L'état lu ne doit PAS avoir été appliqué : l'appliquer effacerait g-local.
++    expect(mockSetGuests).not.toHaveBeenCalled();
++  });
++
++  it("1.2 — une collection que le serveur ignore reste à pousser après une hydratation", async () => {
++    // Le serveur ne connaît aucun invité ; le magasin local en détient un.
++    mockReadObjectTreeImpl = async () => [
++      { id: "w1", type: "wedding", parentId: null, updatedAt: 1000, contentKind: "merge", access: "space", enc: false },
++    ];
++    mockGuestsData = [{ id: "g-local" }];
++
++    const { hydrateFromSpace, pushSpaceSnapshot } = await import("@/lib/space-sync");
++    await hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
++
++    // L'hydratation n'a rien recouvert (aucun invité distant) : g-local est
++    // toujours là, et reste donc à pousser.
++    await pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
++
++    expect(collectionPushes(mockClientPush, "guest")).toHaveLength(1);
++  });
++
++  it("1.3 — une demande de poussée écartée pendant une hydratation part après elle", async () => {
++    let libérerLecture!: () => void;
++    mockReadObjectTreeImpl = () =>
++      new Promise<unknown[]>((res) => { libérerLecture = () => res(treeWithGuestCollection()); });
++
++    const { hydrateFromSpace, scheduleSyncPush } = await import("@/lib/space-sync");
++    const hydratation = hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
++
++    mockGuestsData = [{ id: "g-local" }];
++    scheduleSyncPush();
++
++    libérerLecture();
++    await hydratation;
++
++    // La demande a été retenue, pas abandonnée : elle part une fois la lecture finie.
++    await vi.advanceTimersByTimeAsync(2500);
++
++    expect(collectionPushes(mockClientPush, "guest")).toHaveLength(1);
++  });
++
++  it("2.4 — sans modification concurrente, l'hydratation applique normalement", async () => {
++    // Le cas courant ne doit rien perdre à la correction : sans mutation dans la
++    // fenêtre, l'état lu s'applique comme avant.
++    mockReadObjectTreeImpl = async () => treeWithGuestCollection();
++
++    const { hydrateFromSpace } = await import("@/lib/space-sync");
++    await hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
++
++    expect(mockSetGuests).toHaveBeenCalledTimes(1);
++    expect(mockSetGuests.mock.calls[0][0]).toEqual([{ id: "g-serveur" }]);
++  });
++
++  it("2.5 — après un abandon, une hydratation ultérieure aboutit", async () => {
++    let libérerLecture!: () => void;
++    mockReadObjectTreeImpl = () =>
++      new Promise<unknown[]>((res) => { libérerLecture = () => res(treeWithGuestCollection()); });
++
++    const { hydrateFromSpace, scheduleSyncPush } = await import("@/lib/space-sync");
++    const abandonnée = hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
++    mockGuestsData = [{ id: "g-local" }];
++    scheduleSyncPush();
++    libérerLecture();
++    await abandonnée;
++    expect(mockSetGuests).not.toHaveBeenCalled();
++
++    // La saisie s'interrompt : la lecture suivante n'est plus écartée.
++    mockReadObjectTreeImpl = async () => treeWithGuestCollection();
++    await hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
++
++    expect(mockSetGuests).toHaveBeenCalledTimes(1);
++  });
++
++  it("3.1 — une demande dont le MINUTEUR échoit pendant une hydratation part aussi après elle", async () => {
++    // Second point d'abandon : la demande est formulée AVANT l'hydratation, et
++    // c'est son minuteur qui échoit pendant. C'est le scénario du garde G1, dont
++    // la moitié manquante était la reprise.
++    let libérerLecture!: () => void;
++    mockReadObjectTreeImpl = () =>
++      new Promise<unknown[]>((res) => { libérerLecture = () => res(treeWithGuestCollection()); });
++
++    const { hydrateFromSpace, scheduleSyncPush } = await import("@/lib/space-sync");
++    mockGuestsData = [{ id: "g-local" }];
++    scheduleSyncPush();
++
++    const hydratation = hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
++    // Le minuteur échoit pendant l'hydratation : la demande est retenue (G1).
++    await vi.advanceTimersByTimeAsync(2500);
++    expect(collectionPushes(mockClientPush, "guest")).toHaveLength(0);
++
++    libérerLecture();
++    await hydratation;
++    await vi.advanceTimersByTimeAsync(2500);
++
++    expect(collectionPushes(mockClientPush, "guest")).toHaveLength(1);
++  });
++
++  it("3.3 — cinq modifications pendant une hydratation ne donnent qu'une poussée", async () => {
++    let libérerLecture!: () => void;
++    mockReadObjectTreeImpl = () =>
++      new Promise<unknown[]>((res) => { libérerLecture = () => res(treeWithGuestCollection()); });
++
++    const { hydrateFromSpace, scheduleSyncPush } = await import("@/lib/space-sync");
++    const hydratation = hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
++
++    for (let i = 0; i < 5; i++) {
++      mockGuestsData = [...mockGuestsData, { id: `g-local-${i}` }];
++      scheduleSyncPush();
++    }
++
++    libérerLecture();
++    await hydratation;
++    await vi.advanceTimersByTimeAsync(2500);
++
++    const pushes = collectionPushes(mockClientPush, "guest");
++    expect(pushes).toHaveLength(1);
++    // Et elle porte bien les cinq.
++    expect(Object.keys(pushes[0].payload.items as Record<string, unknown>)).toHaveLength(5);
++  });
++
++  it("4.2 — une collection réellement recouverte cesse d'être à pousser", async () => {
++    // Le pendant du test 1.2 : la correction ne doit pas rendre TOUT sale. Ici le
++    // serveur connaît l'invité, l'hydratation le recouvre, donc plus rien à pousser.
++    mockGuestsData = [{ id: "g-serveur" }];
++    mockReadObjectTreeImpl = async () => treeWithGuestCollection();
++
++    const { hydrateFromSpace, pushSpaceSnapshot } = await import("@/lib/space-sync");
++    await hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
++    await pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
++
++    expect(collectionPushes(mockClientPush, "guest")).toHaveLength(0);
++  });
++});
++
++// ─── MODIFICATION LOCALE — réessai et signalement ────────────────────────────
++
++describe("réessai d'une poussée échouée, et son signalement", () => {
++  /** Chemins effectivement poussés SANS erreur. */
++  let réussites: string[];
++
++  /** Installe un client dont les `n` premières poussées de la collection guest échouent. */
++  function clientQuiÉchoue(n: number) {
++    let restant = n;
++    mockClientPush = vi.fn(async (path: string) => {
++      if (typeof path === "string" && path.includes("col:guest:") && restant > 0) {
++        restant--;
++        throw new Error("réseau coupé");
++      }
++      réussites.push(path as string);
++      return { hash: "H2" };
++    });
++    mockHandlePush = makeHandlePush(mockClientPull, mockClientPush);
++    mockGetNodeAccessImpl = async () => ({
++      encryptor: null,
++      client: { pull: mockClientPull, push: mockClientPush },
++      isOwnerOpen: false,
++      push: mockHandlePush,
++    });
++  }
++
++  const pousséesGuest = () => réussites.filter((p) => p.includes("col:guest:"));
++
++  beforeEach(async () => {
++    vi.useFakeTimers();
++    mockUpdateObjectIndex.mockReset();
++    réussites = [];
++    mockWeddingData = { id: "w1", name: "Test Wedding" };
++    mockGuestsData = [{ id: "g1" }];
++    mockClientPull = vi.fn(async () => ({ data: null, hash: null }));
++    const { resetDirtyPushBaseline } = await import("@/lib/space-sync");
++    resetDirtyPushBaseline();
++    const { useSyncAccessStore } = await import("@/store/useSyncAccessStore");
++    useSyncAccessStore.getState().setWriteDenied(false);
++  });
++
++  afterEach(async () => {
++    const { resetDirtyPushBaseline } = await import("@/lib/space-sync");
++    resetDirtyPushBaseline();
++    vi.useRealTimers();
++    mockWeddingData = null;
++    mockGuestsData = [];
++  });
++
++  it("5.1 — une poussée qui échoue puis réussit ne demande AUCUN geste", async () => {
++    clientQuiÉchoue(1);
++    const { scheduleSyncPush } = await import("@/lib/space-sync");
++
++    scheduleSyncPush();
++    await vi.advanceTimersByTimeAsync(2500);
++    expect(pousséesGuest()).toHaveLength(0); // première tentative : échec
++
++    // Personne ne retouche quoi que ce soit — le réessai part tout seul.
++    await vi.advanceTimersByTimeAsync(6000);
++
++    expect(pousséesGuest()).toHaveLength(1);
++  });
++
++  it("5.2 — un refus de droit d'écriture (403) n'est PAS réessayé en boucle", async () => {
++    const { StarfishHttpError } = await import("@drakkar.software/starfish-client");
++    let tentatives = 0;
++    mockHandlePush = vi.fn(async () => {
++      tentatives++;
++      throw new StarfishHttpError(403, "forbidden");
++    });
++    mockGetNodeAccessImpl = async () => ({
++      encryptor: null,
++      client: { pull: mockClientPull, push: mockClientPush },
++      isOwnerOpen: false,
++      push: mockHandlePush,
++    });
++
++    const { scheduleSyncPush } = await import("@/lib/space-sync");
++    scheduleSyncPush();
++    await vi.advanceTimersByTimeAsync(2500);
++    const aprèsPremière = tentatives;
++    expect(aprèsPremière).toBeGreaterThan(0);
++
++    // Longue attente : rien ne doit être retenté contre un mur.
++    await vi.advanceTimersByTimeAsync(120_000);
++
++    expect(tentatives).toBe(aprèsPremière);
++    const { useSyncAccessStore } = await import("@/store/useSyncAccessStore");
++    expect(useSyncAccessStore.getState().writeDenied).toBe(true);
++  });
++
++  it("5.3 — les tentatives cessent dès la première réussite", async () => {
++    clientQuiÉchoue(2);
++    const { scheduleSyncPush } = await import("@/lib/space-sync");
++
++    scheduleSyncPush();
++    await vi.advanceTimersByTimeAsync(2500);   // échec 1
++    await vi.advanceTimersByTimeAsync(6000);   // échec 2 (réessai à 5 s)
++    await vi.advanceTimersByTimeAsync(11_000); // réussite (réessai à 10 s)
++    expect(pousséesGuest()).toHaveLength(1);
++
++    // Plus rien ne repart : la collection est propre et le réessai est éteint.
++    await vi.advanceTimersByTimeAsync(600_000);
++    expect(pousséesGuest()).toHaveLength(1);
++  });
++
++  it("6.1 — le drapeau se lève après épuisement des tentatives et retombe à la réussite", async () => {
++    clientQuiÉchoue(3);
++    const { scheduleSyncPush } = await import("@/lib/space-sync");
++    const { useSyncPendingStore } = await import("@/store/useSyncPendingStore");
++
++    scheduleSyncPush();
++    await vi.advanceTimersByTimeAsync(2500);   // échec 1
++    await vi.advanceTimersByTimeAsync(6000);   // échec 2
++    expect(useSyncPendingStore.getState().unsavedChanges).toBe(false);
++
++    await vi.advanceTimersByTimeAsync(11_000); // échec 3 → on le dit
++    expect(useSyncPendingStore.getState().unsavedChanges).toBe(true);
++
++    await vi.advanceTimersByTimeAsync(21_000); // réussite
++    expect(useSyncPendingStore.getState().unsavedChanges).toBe(false);
++  });
++
++  it("6.3 — un échec rattrapé à la tentative suivante ne signale RIEN", async () => {
++    clientQuiÉchoue(1);
++    const { scheduleSyncPush } = await import("@/lib/space-sync");
++    const { useSyncPendingStore } = await import("@/store/useSyncPendingStore");
++
++    const vues: boolean[] = [];
++    const désabonner = useSyncPendingStore.subscribe((s) => vues.push(s.unsavedChanges));
++
++    scheduleSyncPush();
++    await vi.advanceTimersByTimeAsync(2500);
++    await vi.advanceTimersByTimeAsync(6000);
++    désabonner();
++
++    expect(pousséesGuest()).toHaveLength(1);
++    // Le drapeau n'a jamais été levé, pas même le temps d'un clignotement.
++    expect(vues).not.toContain(true);
++    expect(useSyncPendingStore.getState().unsavedChanges).toBe(false);
++  });
++});
++
++// ─── Perte au départ de la page — reproduction du 21 août 2026 ────────────────
++//
++// Constaté en production : l'utilisateur renomme un invité, recharge dans la
++// seconde, et retrouve l'ancienne valeur. La saisie n'était pas écrasée — elle
++// n'avait JAMAIS quitté le navigateur. La poussée est débouncée à 2 s, et rien
++// ne la vide quand la page s'en va ; l'hydratation du démarrage suivant applique
++// alors l'état du serveur, plus ancien, par-dessus.
++//
++// Ce que ce bloc modélise et que la suite ne savait pas modéliser : un onglet
++// MEURT. Ses minuteurs meurent avec lui (`vi.clearAllTimers()` — sans quoi le
++// minuteur de l'instance morte tire quand même et pousse, ce qui ferait passer
++// le test en modélisant un rechargement qui n'existe pas), son état de module
++// repart de zéro (`vi.resetModules()`), mais le KV et les magasins persistés,
++// eux, survivent.
++describe("perte au départ de la page", () => {
++  let serveur: ReturnType<typeof makeStatefulServer>;
++
++  beforeEach(() => {
++    vi.resetModules();
++    vi.useFakeTimers();
++    mockUpdateObjectIndex.mockReset();
++    mockSetGuests = vi.fn();
++    mockWeddingData = { id: "w1", name: "Test Wedding" };
++    mockGuestsData = [];
++    mockKvStore.clear();
++    // Le chemin débouncé lit `getActiveWeddingNodeId()`, les appels directs
++    // reçoivent l'identifiant en paramètre : sans cette ligne, les deux visent
++    // des nœuds DIFFÉRENTS et les assertions portent sur deux documents.
++    mockGetActiveWeddingNodeId.mockReturnValue("w1");
++    mockReadObjectTreeImpl = async () => treeWithGuestCollection();
++
++    serveur = makeStatefulServer();
++    // L'état d'avant la saisie : le serveur ne connaît que « g-serveur ».
++    serveur.seed("space-1", "col:guest:w1", {
++      fmt: 2, items: { "g-serveur": { id: "g-serveur" } }, rev: { "g-serveur": 5 }, tombstones: {},
++    });
++    mockClientPull = serveur.pull;
++    mockClientPush = serveur.push;
++    mockHandlePush = makeHandlePush(mockClientPull, mockClientPush);
++    mockGetNodeAccessImpl = async () => ({
++      encryptor: null,
++      client: {
++        pull: mockClientPull,
++        push: mockClientPush,
++        // Lit le SERVEUR, pas une fixture figée : ce que l'hydratation rapporte
++        // doit refléter ce qui vient d'y être poussé, sinon la reproduction
++        // testerait un serveur qui n'écoute pas ses propres écritures.
++        batchPullMany: vi.fn(async (_c: string, params: { objectId: string }[]) =>
++          params.map((p) => ({ data: serveur.collection("space-1", p.objectId) ?? null })),
++        ),
++      } as never,
++      isOwnerOpen: false,
++      push: mockHandlePush,
++    });
++  });
++
++  afterEach(() => {
++    vi.useRealTimers();
++    vi.resetModules();
++    mockGetActiveWeddingNodeId.mockReturnValue("wedding-node-1");
++    mockReadObjectTreeImpl = async () => [];
++    mockWeddingData = null;
++    mockGuestsData = [];
++  });
++
++  it("2.1 — la demande de poussée est notée dans le KV à la mutation, et effacée à la poussée", async () => {
++    const sync = await import("@/lib/space-sync");
++    expect(sync.pousséeEnAttenteAuDémarrage()).toBe(false);
++
++    mockGuestsData = [{ id: "g-local", name: "Liloux" }];
++    sync.scheduleSyncPush();
++    expect(
++      sync.pousséeEnAttenteAuDémarrage(),
++      "la mutation n'a laissé aucune trace durable : un rechargement l'oublierait",
++    ).toBe(true);
++
++    await sync.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
++    expect(
++      sync.pousséeEnAttenteAuDémarrage(),
++      "la note a survécu à une poussée réussie : le démarrage suivant repousserait pour rien",
++    ).toBe(false);
++  });
++
++  it("2.1b — la note survit au rechargement, contrairement à l'état de module", async () => {
++    const avant = await import("@/lib/space-sync");
++    mockGuestsData = [{ id: "g-local", name: "Liloux" }];
++    avant.scheduleSyncPush();
++
++    vi.clearAllTimers();
++    vi.resetModules();
++    const après = await import("@/lib/space-sync");
++
++    expect(après, "resetModules n'a pas rendu une instance neuve").not.toBe(avant);
++    expect(
++      après.pousséeEnAttenteAuDémarrage(),
++      "la note ne survit pas au rechargement — c'est tout ce qu'on lui demande",
++    ).toBe(true);
++  });
++
++  it("2.3 — un marqueur absent (version antérieure, première exécution) ne fait rien d'anormal", async () => {
++    mockKvStore.clear(); // aucun marqueur : l'appareil vient de recevoir la mise à jour
++    const sync = await import("@/lib/space-sync");
++
++    const rejoué = await sync.rejouerPousséeEnAttente({ userId: "u1" } as never, "space-1", "w1");
++
++    expect(rejoué).toBe(false);
++    expect(collectionPushes(serveur.push, "guest")).toHaveLength(0);
++    // et le démarrage se poursuit normalement
++    await expect(
++      sync.hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1"),
++    ).resolves.not.toThrow();
++  });
++
++  it("2.4 — un départ sans rien en attente ne produit aucune poussée", async () => {
++    mockGuestsData = [{ id: "g-local", name: "Liloux" }];
++    const avantLeDépart = await import("@/lib/space-sync");
++    avantLeDépart.scheduleSyncPush();
++    await vi.advanceTimersByTimeAsync(2500); // la poussée part et aboutit
++    expect(collectionPushes(serveur.push, "guest")).not.toHaveLength(0);
++    const pousséesAvant = collectionPushes(serveur.push, "guest").length;
++
++    vi.clearAllTimers();
++    vi.resetModules();
++    const aprèsLeRetour = await import("@/lib/space-sync");
++
++    await aprèsLeRetour.rejouerPousséeEnAttente({ userId: "u1" } as never, "space-1", "w1");
++
++    expect(
++      collectionPushes(serveur.push, "guest"),
++      "le démarrage a repoussé alors que tout était déjà arrivé",
++    ).toHaveLength(pousséesAvant);
++  });
++
++  it("3.1 — le vidage fait partir la poussée sans attendre le débouncement", async () => {
++    mockGuestsData = [{ id: "g-local", name: "Liloux" }];
++    const sync = await import("@/lib/space-sync");
++    sync.scheduleSyncPush();
++    expect(collectionPushes(serveur.push, "guest")).toHaveLength(0);
++
++    sync.viderPousséeEnAttente();
++    await vi.advanceTimersByTimeAsync(0); // laisser la poussée s'exécuter, sans avancer de 2 s
++
++    expect(
++      collectionPushes(serveur.push, "guest"),
++      "le vidage n'a pas fait partir la poussée retenue",
++    ).not.toHaveLength(0);
++  });
++
++  it("3.3 — le vidage ne retient pas la page : il ne rend rien à attendre", async () => {
++    mockGuestsData = [{ id: "g-local", name: "Liloux" }];
++    const sync = await import("@/lib/space-sync");
++    sync.scheduleSyncPush();
++
++    // Rend la main AVANT que la poussée soit partie : c'est ce qui garantit
++    // qu'un onglet qui se ferme n'est pas retenu par le réseau.
++    const rendu = sync.viderPousséeEnAttente();
++    expect(rendu).toBeUndefined();
++    expect(collectionPushes(serveur.push, "guest")).toHaveLength(0);
++
++    await vi.advanceTimersByTimeAsync(0);
++    expect(collectionPushes(serveur.push, "guest")).not.toHaveLength(0);
++  });
++
++  // 3.2 — RIEN NE REPOSE SUR LE VIDAGE. La reproduction 1.1 ci-dessous ne
++  // l'appelle jamais : elle modélise un onglet qui meurt sans que l'événement
++  // parte (coupure brutale, `pagehide` non émis, poussée coupée en vol). Elle
++  // doit passer quand même — la garantie est le marqueur durable, pas le vidage.
++  it("1.1 — une saisie suivie d'un rechargement immédiat est poussée, et survit à l'hydratation", async () => {
++    // ── L'onglet vit : la saisie arme le débouncement ───────────────────────
++    mockGuestsData = [{ id: "g-local", name: "Liloux" }];
++    const avantLeDépart = await import("@/lib/space-sync");
++    avantLeDépart.scheduleSyncPush();
++
++    await vi.advanceTimersByTimeAsync(1000); // moins de 2 s : rien n'est encore parti
++    expect(collectionPushes(serveur.push, "guest")).toHaveLength(0);
++
++    // ── L'onglet s'en va, et emporte ses minuteurs ──────────────────────────
++    vi.clearAllTimers();
++    vi.resetModules();
++
++    // ── L'onglet revient : état de module neuf, KV et magasins intacts ──────
++    const aprèsLeRetour = await import("@/lib/space-sync");
++    await vi.advanceTimersByTimeAsync(10_000);
++
++    // Le démarrage : rejouer ce qui attendait, PUIS hydrater. C'est l'ordre que
++    // `providers.tsx` applique.
++    await aprèsLeRetour.rejouerPousséeEnAttente({ userId: "u1" } as never, "space-1", "w1");
++
++    expect(
++      collectionPushes(serveur.push, "guest"),
++      "la poussée en attente n'a jamais été rejouée après le rechargement",
++    ).not.toHaveLength(0);
++
++    // ── Et l'hydratation ne doit pas recouvrir la saisie ────────────────────
++    await aprèsLeRetour.hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
++
++    const appliqué = mockSetGuests.mock.calls.at(-1)?.[0] as Array<{ id: string }> | undefined;
++    expect(appliqué, "l'hydratation n'a rien appliqué au magasin").toBeDefined();
++    expect(
++      appliqué?.map((g) => g.id),
++      "la saisie « g-local » a disparu de l'écran : l'hydratation a appliqué l'état du serveur, antérieur à elle",
++    ).toContain("g-local");
++  });
++});
++
++// ─── Écrasement entre deux fenêtres — reproduction du 21 août 2026 ────────────
++//
++// Deux fenêtres ouvertes sur le même espace. L'une renomme un invité et sa
++// poussée aboutit ; l'autre, restée en retard, pousse ensuite et REMET son
++// ancienne valeur — le serveur régresse, sans le moindre conflit.
++//
++// Le mécanisme n'est pas la fusion, qui arbitre correctement par `rev`. Il est
++// en amont : quand l'hydratation d'une fenêtre est ABANDONNÉE (une modification
++// locale est survenue pendant qu'elle lisait), la fonction sort avant de
++// réamorcer ses références de poussée. Celles-ci restent vides, et
++// `buildCollectionDoc` réestampille alors TOUTES les entités avec son `now` —
++// qui bat le `rev` de la fenêtre à jour. La fenêtre en retard gagne parce
++// qu'elle est en retard.
++//
++// Deux instances réellement indépendantes du module : `vi.resetModules()` +
++// import dynamique. Les fabriques `vi.mock` ferment sur les variables de ce
++// fichier, donc les deux fenêtres partagent bien UN seul serveur.
++describe("écrasement entre deux fenêtres", () => {
++  let serveur: ReturnType<typeof makeStatefulServer>;
++
++  beforeEach(() => {
++    vi.resetModules();
++    vi.useFakeTimers();
++    mockUpdateObjectIndex.mockReset();
++    mockSetGuests = vi.fn();
++    mockWeddingData = { id: "w1", name: "Test Wedding" };
++    mockKvStore.clear();
++    // Le chemin débouncé lit `getActiveWeddingNodeId()`, les appels directs
++    // reçoivent l'identifiant en paramètre : sans cette ligne, les deux visent
++    // des nœuds DIFFÉRENTS et les assertions portent sur deux documents.
++    mockGetActiveWeddingNodeId.mockReturnValue("w1");
++    mockReadObjectTreeImpl = async () => treeWithGuestCollection();
++
++    serveur = makeStatefulServer();
++    // Les deux fenêtres partent du même état : g1 s'appelle « Lilou ».
++    serveur.seed("space-1", "col:guest:w1", {
++      fmt: 2, items: { g1: { id: "g1", name: "Lilou" } }, rev: { g1: 1000 }, tombstones: {},
++    });
++    mockClientPull = serveur.pull;
++    mockClientPush = serveur.push;
++    mockHandlePush = makeHandlePush(mockClientPull, mockClientPush);
++    mockGetNodeAccessImpl = async () => ({
++      encryptor: null,
++      client: {
++        pull: mockClientPull,
++        push: mockClientPush,
++        batchPullMany: vi.fn(async (_c: string, params: { objectId: string }[]) =>
++          params.map((p) => ({ data: serveur.collection("space-1", p.objectId) ?? null })),
++        ),
++      } as never,
++      isOwnerOpen: false,
++      push: mockHandlePush,
++    });
++  });
++
++  afterEach(() => {
++    vi.useRealTimers();
++    vi.resetModules();
++    mockGetActiveWeddingNodeId.mockReturnValue("wedding-node-1");
++    mockReadObjectTreeImpl = async () => [];
++    mockWeddingData = null;
++    mockGuestsData = [];
++  });
++
++  /** Ce que le serveur détient pour l'invité g1, vu comme le verrait un pair. */
++  const nomAuServeur = () => {
++    const doc = serveur.collection("space-1", "col:guest:w1");
++    return doc?.items?.g1?.name;
++  };
++
++  it("1.2 — la fenêtre en retard ne remet pas son ancienne valeur par-dessus celle de l'autre", async () => {
++    // ── La fenêtre B ouvre d'abord, et pousse l'état initial ────────────────
++    //    Sa référence de dernière poussée à elle dit donc « g1 = Lilou ».
++    nouvelleFenêtre();
++    const sessionB = sessionActive;
++    const fenêtreB = await import("@/lib/space-sync");
++    mockGuestsData = [{ id: "g1", name: "Lilou" }];
++    await fenêtreB.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
++
++    await vi.advanceTimersByTimeAsync(1000);
++
++    // ── La fenêtre A renomme, et pousse ─────────────────────────────────────
++    nouvelleFenêtre();
++    vi.resetModules();
++    const fenêtreA = await import("@/lib/space-sync");
++    mockGuestsData = [{ id: "g1", name: "Liloux" }];
++    await fenêtreA.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
++
++    expect(nomAuServeur(), "la fenêtre A n'a pas réussi sa poussée").toBe("Liloux");
++
++    // ── Retour à la fenêtre B : son état de module et sa session à elle ─────
++    //    Elle est restée sur « Lilou » et n'a pas relu.
++    sessionActive = sessionB;
++    await vi.advanceTimersByTimeAsync(1000);
++
++    // Son hydratation est abandonnée par une saisie survenue pendant la lecture
++    // — c'est ce qui laissait ses références vides, et la faisait tout
++    // réestampiller.
++    let libérerLecture!: () => void;
++    mockReadObjectTreeImpl = () =>
++      new Promise<unknown[]>((res) => { libérerLecture = () => res(treeWithGuestCollection()); });
++
++    mockGuestsData = [{ id: "g1", name: "Lilou" }];
++    const hydratation = fenêtreB.hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
++    fenêtreB.scheduleSyncPush();
++    libérerLecture();
++    await hydratation;
++
++    await vi.advanceTimersByTimeAsync(2500);
++
++    expect(
++      nomAuServeur(),
++      "la fenêtre en retard a remis « Lilou » par-dessus le « Liloux » de l'autre : le serveur a reculé",
++    ).toBe("Liloux");
++  });
++});
++
++// ─── L'invariant anti-régression à la lecture ────────────────────────────────
++//
++// Une lecture peut rapporter du passé — réponse tardive, lecture partie avant
++// notre écriture, ou servie depuis un cache (c'est ce qui est arrivé le 21 août
++// 2026, cinq minutes durant). L'appliquer efface à l'écran une modification
++// pourtant enregistrée, puis la fait repousser périmée. L'appareil retient donc
++// ce qu'il a poussé, et refuse d'appliquer plus ancien.
++describe("l'hydratation n'applique pas une version antérieure à ce que cet appareil a poussé", () => {
++  let serveur: ReturnType<typeof makeStatefulServer>;
++
++  const docServeur = (nom: string, rev: number, autres: Record<string, unknown> = {}) => ({
++    fmt: 2,
++    items: { g1: { id: "g1", name: nom }, ...autres },
++    rev: { g1: rev, ...Object.fromEntries(Object.keys(autres).map((k) => [k, rev])) },
++    tombstones: {},
++  });
++
++  beforeEach(() => {
++    vi.resetModules();
++    vi.useFakeTimers();
++    mockUpdateObjectIndex.mockReset();
++    mockSetGuests = vi.fn();
++    mockWeddingData = { id: "w1", name: "Test Wedding" };
++    mockKvStore.clear();
++    // Le chemin débouncé lit `getActiveWeddingNodeId()`, les appels directs
++    // reçoivent l'identifiant en paramètre : sans cette ligne, les deux visent
++    // des nœuds DIFFÉRENTS et les assertions portent sur deux documents.
++    mockGetActiveWeddingNodeId.mockReturnValue("w1");
++    mockReadObjectTreeImpl = async () => treeWithGuestCollection();
++
++    serveur = makeStatefulServer();
++    serveur.seed("space-1", "col:guest:w1", docServeur("Lilou", 1000));
++    mockClientPull = serveur.pull;
++    mockClientPush = serveur.push;
++    mockHandlePush = makeHandlePush(mockClientPull, mockClientPush);
++    mockGetNodeAccessImpl = async () => ({
++      encryptor: null,
++      client: {
++        pull: mockClientPull,
++        push: mockClientPush,
++        batchPullMany: vi.fn(async (_c: string, params: { objectId: string }[]) =>
++          params.map((p) => ({ data: serveur.collection("space-1", p.objectId) ?? null })),
++        ),
++      } as never,
++      isOwnerOpen: false,
++      push: mockHandlePush,
++    });
++  });
++
++  afterEach(() => {
++    vi.useRealTimers();
++    vi.resetModules();
++    mockGetActiveWeddingNodeId.mockReturnValue("wedding-node-1");
++    mockReadObjectTreeImpl = async () => [];
++    mockWeddingData = null;
++    mockGuestsData = [];
++  });
++
++  const nomAppliqué = () => {
++    const appliqué = mockSetGuests.mock.calls.at(-1)?.[0] as Array<{ id: string; name?: string }> | undefined;
++    return appliqué?.find((g) => g.id === "g1")?.name;
++  };
++
++  it("4.2 — une lecture ANTÉRIEURE à notre poussée n'est pas appliquée", async () => {
++    const sync = await import("@/lib/space-sync");
++    mockGuestsData = [{ id: "g1", name: "Liloux" }];
++    await sync.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
++
++    // Le serveur rapporte du passé (cache, réponse tardive, lecture antérieure).
++    serveur.seed("space-1", "col:guest:w1", docServeur("Lilou", 1000));
++    await sync.hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
++
++    expect(
++      nomAppliqué(),
++      "l'hydratation a appliqué une version antérieure à ce que cet appareil avait poussé",
++    ).toBe("Liloux");
++  });
++
++  it("4.2b — une lecture POSTÉRIEURE, elle, est appliquée normalement", async () => {
++    const sync = await import("@/lib/space-sync");
++    mockGuestsData = [{ id: "g1", name: "Liloux" }];
++    await sync.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
++
++    // Un pair a écrit après nous.
++    serveur.seed("space-1", "col:guest:w1", docServeur("Lilouxxx", Date.now() + 10_000));
++    await sync.hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
++
++    expect(nomAppliqué(), "l'invariant bloque aussi ce qui vient légitimement d'un pair").toBe("Lilouxxx");
++  });
++
++  it("4.3 — l'invariant survit au rechargement de la page", async () => {
++    const avant = await import("@/lib/space-sync");
++    mockGuestsData = [{ id: "g1", name: "Liloux" }];
++    await avant.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
++
++    vi.clearAllTimers();
++    vi.resetModules();
++    const après = await import("@/lib/space-sync");
++
++    serveur.seed("space-1", "col:guest:w1", docServeur("Lilou", 1000));
++    await après.hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
++
++    expect(
++      nomAppliqué(),
++      "ce que l'appareil avait poussé avant de s'arrêter n'est plus connu de lui après",
++    ).toBe("Liloux");
++  });
++
++  // 4.5 / 4.6 — LE RISQUE CRÉÉ PAR LE CORRECTIF LUI-MÊME.
++  //
++  // `buildCollectionDoc` tombstone tout identifiant présent dans les `rev`
++  // précédents et absent du magasin : la table des `rev` est donc à la fois le
++  // registre des versions ET celui de ce qui est réputé vivre. Réamorcer
++  // `_collectionState` depuis la table durable (tâche 6.1) réveille donc le
++  // tombstoneur — et ferait SUPPRIMER des entités que cet appareil ne détient
++  // plus localement mais qui vivent chez ses pairs.
++  //
++  // Un correctif contre la perte de données qui en provoque serait pire que le
++  // défaut. Ces deux tests posent le contrat AVANT que la ligne qui amorce soit
++  // écrite, et doivent tenir après elle.
++  it("4.5 — un magasin local VIDE ne fait pas tombstoner toute la collection", async () => {
++    const avant = await import("@/lib/space-sync");
++    mockGuestsData = [{ id: "g1", name: "Liloux" }, { id: "g2", name: "Pia" }];
++    await avant.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
++
++    // La page repart, et le magasin n'a pas fini de charger. Le rattrapage de
++    // poussée du démarrage a lieu AVANT l'hydratation : sans garde, le suivi
++    // restauré ferait tombstoner les 352 invités d'un coup.
++    vi.clearAllTimers();
++    vi.resetModules();
++    const après = await import("@/lib/space-sync");
++    mockGuestsData = [];
++
++    après.scheduleSyncPush();
++    await vi.advanceTimersByTimeAsync(2500);
++
++    const doc = serveur.collection("space-1", "col:guest:w1");
++    expect(
++      doc?.tombstones ?? {},
++      "un magasin non chargé a été pris pour une suppression en masse",
++    ).toEqual({});
++    expect(Object.keys(doc?.items ?? {}).sort()).toEqual(["g1", "g2"]);
++  });
++
++  it("4.5b — après un rechargement, une poussée ne porte que ce qui a RÉELLEMENT changé", async () => {
++    const avant = await import("@/lib/space-sync");
++    mockGuestsData = [{ id: "g1", name: "Liloux" }, { id: "g2", name: "Pia" }];
++    await avant.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
++    const revAprèsPremièrePoussée = { ...(serveur.collection("space-1", "col:guest:w1")?.rev ?? {}) };
++
++    vi.clearAllTimers();
++    vi.resetModules();
++    const après = await import("@/lib/space-sync");
++
++    // Une seule modification : g1. g2 n'a pas bougé.
++    mockGuestsData = [{ id: "g1", name: "Lilouxxx" }, { id: "g2", name: "Pia" }];
++    après.scheduleSyncPush();
++    await vi.advanceTimersByTimeAsync(2500);
++
++    const rev = serveur.collection("space-1", "col:guest:w1")?.rev ?? {};
++    expect(rev.g1, "g1 a changé : sa version doit avancer").toBeGreaterThan(revAprèsPremièrePoussée.g1);
++    expect(
++      rev.g2,
++      "g2 n'a pas changé, et sa version a pourtant été réestampillée : la poussée bat les `rev` de tous les pairs",
++    ).toBe(revAprèsPremièrePoussée.g2);
++  });
++
++  it("4.6 — une entité réellement supprimée continue d'être tombstonée", async () => {
++    const sync = await import("@/lib/space-sync");
++    mockGuestsData = [{ id: "g1", name: "Liloux" }, { id: "g2", name: "Pia" }];
++    await sync.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
++
++    // Suppression VRAIE, dans la même session : l'appareil sait que g2 vivait.
++    mockGuestsData = [{ id: "g1", name: "Liloux" }];
++    sync.scheduleSyncPush();
++    await vi.advanceTimersByTimeAsync(2500);
++
++    const doc = serveur.collection("space-1", "col:guest:w1");
++    expect(
++      doc?.tombstones?.g2,
++      "une suppression réelle n'est plus propagée : 4.5 a éteint le mécanisme au lieu de l'empêcher de se déclencher à faux",
++    ).toBeDefined();
++  });
++
++  it("9.1 — une session qui n'a fait que LIRE laisse un suivi utilisable au démarrage suivant", async () => {
++    serveur.seed("space-1", "col:guest:w1", docServeur("Liloux", 1000, { g2: { id: "g2", name: "Pia" } }));
++
++    // Session de lecture seule : on hydrate, on ne pousse rien.
++    const lectureSeule = await import("@/lib/space-sync");
++    mockGuestsData = [{ id: "g1", name: "Liloux" }, { id: "g2", name: "Pia" }];
++    await lectureSeule.hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
++    expect(collectionPushes(serveur.push, "guest")).toHaveLength(0);
++
++    // La page repart, et une seule entité est modifiée.
++    vi.clearAllTimers();
++    vi.resetModules();
++    const après = await import("@/lib/space-sync");
++    mockGuestsData = [{ id: "g1", name: "Lilouxxx" }, { id: "g2", name: "Pia" }];
++    après.scheduleSyncPush();
++    await vi.advanceTimersByTimeAsync(2500);
++
++    const rev = serveur.collection("space-1", "col:guest:w1")?.rev ?? {};
++    expect(rev.g1, "g1 a changé : sa version doit avancer").toBeGreaterThan(1000);
++    expect(
++      rev.g2,
++      "une session de lecture seule n'a rien laissé derrière elle : le démarrage suivant a tout repoussé et réestampillé les `rev` de tous les pairs",
++    ).toBe(1000);
++  });
++
++  it("4.4 — l'invariant est par ENTITÉ : la modification d'un pair sur une autre entité passe", async () => {
++    const sync = await import("@/lib/space-sync");
++    mockGuestsData = [{ id: "g1", name: "Liloux" }];
++    await sync.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
++
++    // Le pair ajoute g2, et laisse g1 dans un état antérieur au nôtre.
++    serveur.seed("space-1", "col:guest:w1", docServeur("Lilou", 1000, { g2: { id: "g2", name: "Pia" } }));
++    await sync.hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
++
++    const appliqué = mockSetGuests.mock.calls.at(-1)?.[0] as Array<{ id: string; name?: string }> | undefined;
++    expect(appliqué?.find((g) => g.id === "g1")?.name, "notre version de g1 a été recouverte").toBe("Liloux");
++    expect(
++      appliqué?.find((g) => g.id === "g2")?.name,
++      "l'invariant a rejeté la modification légitime d'un pair sur une AUTRE entité",
++    ).toBe("Pia");
++  });
++});
++
++// ─── La fusion se décide contre le serveur, pas contre un souvenir ───────────
++//
++// `handle.push` remplace au lieu de fusionner dès qu'un cache lui rend un hash.
++// Deux caches peuvent le lui rendre — celui de la fenêtre, et celui du stockage
++// local, partagé entre fenêtres et écrit par toute poussée. C'est le second qui
++// explique l'écrasement sans conflit : l'onglet B pousse et y inscrit le hash
++// courant, l'onglet A le lit et remplace avec un hash pourtant valide.
++describe("la fusion se décide contre l'état réel du serveur", () => {
++  let serveur: ReturnType<typeof makeStatefulServer>;
++
++  beforeEach(() => {
++    vi.resetModules();
++    vi.useFakeTimers();
++    mockUpdateObjectIndex.mockReset();
++    mockClearNodeAccessCache.mockClear();
++    mockSetGuests = vi.fn();
++    mockWeddingData = { id: "w1", name: "Test Wedding" };
++    mockKvStore.clear();
++    mockPullCacheKv.clear();
++    mockCacheDeDocs.clear();
++    mockGetActiveWeddingNodeId.mockReturnValue("w1");
++    mockReadObjectTreeImpl = async () => treeWithGuestCollection();
++
++    serveur = makeStatefulServer();
++    // g1 est à nous, g2 vient d'un pair que cette fenêtre n'a jamais lu.
++    serveur.seed("space-1", "col:guest:w1", {
++      fmt: 2,
++      items: { g1: { id: "g1", name: "Liloux" }, g2: { id: "g2", name: "Pia" } },
++      rev: { g1: 1000, g2: 2000 },
++      tombstones: {},
++    });
++    mockClientPull = serveur.pull;
++    mockClientPush = serveur.push;
++    mockHandlePush = makeHandlePush(
++      mockClientPull,
++      mockClientPush,
++      null,
++      mockCacheDeDocs,
++      (clé) => mockPullCacheKv.get(`starfish.pullcache./v1/dk/pull/${clé}`) ?? null,
++    );
++    mockGetNodeAccessImpl = async () => ({
++      encryptor: null,
++      client: {
++        pull: mockClientPull,
++        push: mockClientPush,
++        batchPullMany: vi.fn(async (_c: string, params: { objectId: string }[]) =>
++          params.map((p) => ({ data: serveur.collection("space-1", p.objectId) ?? null })),
++        ),
++      } as never,
++      isOwnerOpen: false,
++      push: mockHandlePush,
++    });
++  });
++
++  afterEach(() => {
++    vi.useRealTimers();
++    vi.resetModules();
++    mockGetActiveWeddingNodeId.mockReturnValue("wedding-node-1");
++    mockReadObjectTreeImpl = async () => [];
++    mockWeddingData = null;
++    mockGuestsData = [];
++  });
++
++  it("5.1 — un cache chaud ne fait plus partir la poussée du chemin qui remplace", async () => {
++    // Une autre fenêtre vient de pousser : elle a inscrit dans le cache PARTAGÉ
++    // le hash réellement courant du serveur.
++    mockPullCacheKv.set(
++      "starfish.pullcache./v1/dk/pull/spaces/space-1/objects/docs/col:guest:w1",
++      "H0",
++    );
++
++    const sync = await import("@/lib/space-sync");
++    mockGuestsData = [{ id: "g1", name: "Liloux" }]; // g2 nous est inconnu
++    await sync.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
++
++    const doc = serveur.collection("space-1", "col:guest:w1");
++    expect(
++      Object.keys(doc?.items ?? {}).sort(),
++      "la poussée est partie du chemin qui remplace : l'invité d'un pair a disparu du serveur, sans conflit",
++    ).toEqual(["g1", "g2"]);
++  });
++
++  it("5.2 — une écriture après une écriture réussie ne remplace pas le travail d'un pair", async () => {
++    const sync = await import("@/lib/space-sync");
++    mockGuestsData = [{ id: "g1", name: "Liloux" }];
++    await sync.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
++
++    // Un pair écrit entre nos deux poussées.
++    const actuel = serveur.collection("space-1", "col:guest:w1");
++    serveur.seed("space-1", "col:guest:w1", {
++      ...actuel,
++      items: { ...(actuel?.items ?? {}), g3: { id: "g3", name: "Mathieu" } },
++      rev: { ...(actuel?.rev ?? {}), g3: Date.now() + 5000 },
++    } as never);
++
++    mockGuestsData = [{ id: "g1", name: "Liloux !" }];
++    sync.scheduleSyncPush();
++    await vi.advanceTimersByTimeAsync(2500);
++
++    const doc = serveur.collection("space-1", "col:guest:w1");
++    expect(
++      Object.keys(doc?.items ?? {}),
++      "notre seconde poussée a remplacé l'espace par l'état que nous avions retenu",
++    ).toContain("g3");
++  });
++
++  it("5.3 — une entité supprimée par un pair ne réapparaît pas du fait d'une poussée", async () => {
++    const sync = await import("@/lib/space-sync");
++    mockGuestsData = [{ id: "g1", name: "Liloux" }, { id: "g2", name: "Pia" }];
++    await sync.hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
++
++    // Le pair supprime g2 : le serveur porte une pierre tombale postérieure.
++    serveur.seed("space-1", "col:guest:w1", {
++      fmt: 2,
++      items: { g1: { id: "g1", name: "Liloux" } },
++      rev: { g1: 1000 },
++      tombstones: { g2: Date.now() + 5000 },
++    });
++
++    mockGuestsData = [{ id: "g1", name: "Liloux !" }, { id: "g2", name: "Pia" }];
++    sync.scheduleSyncPush();
++    await vi.advanceTimersByTimeAsync(2500);
++
++    const doc = serveur.collection("space-1", "col:guest:w1");
++    expect(
++      Object.keys(doc?.items ?? {}),
++      "une entité supprimée par un pair a été ressuscitée par notre poussée",
++    ).not.toContain("g2");
++  });
++});

@@ -1,0 +1,323 @@
+diff --git a/apps/mobile/db/provider.tsx b/apps/mobile/db/provider.tsx
+index 2e99f35..c631b21 100644
+--- a/apps/mobile/db/provider.tsx
++++ b/apps/mobile/db/provider.tsx
+@@ -3,6 +3,8 @@ import type { SQLiteStorage } from "expo-sqlite/kv-store";
+ import { View, Text, ActivityIndicator } from "react-native-css/components";
+ import { initStorage, getStorage, closeStorage } from "@/lib/kv-storage";
+ import { hydrateAllStores, clearAllStores } from "@/lib/persistence";
++// MODIFICATION LOCALE — marques de temps du démarrage.
++import { marquer } from "@/lib/demarrage-marques";
+ import { WeddingSwitchOverlay } from "@/components/WeddingSwitchOverlay";
+ // ─── Global storage singleton (accessible outside React) ─────────────────────
+ 
+@@ -77,6 +79,9 @@ export function DatabaseProvider({ children, dbFileName }: DatabaseProviderProps
+         if (!kv) throw new Error(`Failed to open storage: ${dbFileName}`);
+ 
+         hydrateAllStores(kv);
++        // MODIFICATION LOCALE — les magasins sont remplis ; tout ce qui suit
++        // n'est plus de la donnée mais du rendu.
++        if (!isSwitch) marquer("magasins hydratés");
+ 
+         // Keep the switch screen up for a short floor so the enter/exit
+         // animation has room to play instead of flashing for a single frame.
+diff --git a/apps/mobile/lib/demarrage-marques.ts b/apps/mobile/lib/demarrage-marques.ts
+new file mode 100644
+index 0000000..91a3527
+--- /dev/null
++++ b/apps/mobile/lib/demarrage-marques.ts
+@@ -0,0 +1,136 @@
++/**
++ * MODIFICATION LOCALE — marques de temps du démarrage.
++ *
++ * On ne sait pas ce qui, des 5 à 10 s avant l'apparition de la liste, revient
++ * au transfert du bundle, à son évaluation, au montage de React ou aux
++ * `Argon2id` de `deriveSession`. Le journal nginx ne descend pas sous la
++ * seconde et ne dit rien de ce que fait le fil principal entre deux requêtes ;
++ * aucun navigateur n'est joignable depuis la VM. Ces marques sont donc le seul
++ * endroit où le temps est réel : elles se relèvent dans la console du
++ * navigateur de l'utilisateur.
++ *
++ * Toutes les valeurs sont des `performance.now()`, c'est-à-dire des
++ * millisecondes depuis le début de la navigation — aucune arithmétique de t0
++ * n'est nécessaire, et une marque posée par le prérendu se compare directement
++ * à une marque posée par l'application.
++ *
++ * Le registre vit sur `globalThis` et non dans l'état de ce module : la
++ * première marque est posée par un script en clair du prérendu
++ * (`app/+html.tsx`), donc AVANT que le bundle n'existe. Le module la rejoint,
++ * il ne la remplace pas.
++ *
++ * Coût à l'exécution : un `push` par marque. Rien n'est envoyé nulle part.
++ */
++
++export type MarqueDémarrage = {
++  /** Nom de l'étape. */
++  nom: string;
++  /** Millisecondes depuis le début de la navigation. */
++  t: number;
++  /** Durée de l'étape, pour les marques chronométrées (`chronométrer`). */
++  durée?: number;
++};
++
++type Registre = {
++  entrées: MarqueDémarrage[];
++  rapport?: () => void;
++};
++
++const CLÉ = "__fianceMarques";
++
++function maintenant(): number {
++  const p = (globalThis as any).performance;
++  return typeof p?.now === "function" ? p.now() : Date.now();
++}
++
++function registre(): Registre {
++  const g = globalThis as any;
++  if (!g[CLÉ]) g[CLÉ] = { entrées: [] } satisfies Registre;
++  // Le script du prérendu crée le registre sans `rapport` — on l'y branche au
++  // premier passage par ce module, pour que `__fianceMarques.rapport()` soit
++  // appelable à la main depuis la console.
++  if (!g[CLÉ].rapport) g[CLÉ].rapport = rapportDémarrage;
++  return g[CLÉ] as Registre;
++}
++
++/** Pose une marque de temps nommée. Idempotent par nom : la PREMIÈRE gagne. */
++export function marquer(nom: string): void {
++  const r = registre();
++  if (r.entrées.some((e) => e.nom === nom)) return;
++  r.entrées.push({ nom, t: maintenant() });
++}
++
++/**
++ * Pose une marque à CHAQUE appel, avec sa durée — pour ce qui se produit
++ * plusieurs fois par démarrage. `deriveSession` est appelée au moins deux
++ * fois ; savoir laquelle coûte, et combien, est précisément la question
++ * ouverte de ce changement.
++ */
++export async function chronométrer<T>(nom: string, faire: () => Promise<T>): Promise<T> {
++  const r = registre();
++  const début = maintenant();
++  try {
++    return await faire();
++  } finally {
++    r.entrées.push({ nom, t: maintenant(), durée: maintenant() - début });
++  }
++}
++
++/**
++ * Imprime les marques dans la console, dans l'ordre où elles sont survenues,
++ * avec l'écart à la marque précédente — c'est cet écart qui désigne le coupable.
++ * Ajoute la chronologie de transfert du bundle, que le navigateur détient déjà.
++ */
++export function rapportDémarrage(): void {
++  const r = registre();
++  const triées = [...r.entrées].sort((a, b) => a.t - b.t);
++
++  const lignes = triées.map((e, i) => ({
++    étape: e.nom,
++    "t (ms)": Math.round(e.t),
++    "depuis la précédente (ms)": i === 0 ? 0 : Math.round(e.t - triées[i - 1].t),
++    "durée (ms)": e.durée === undefined ? "" : Math.round(e.durée),
++  }));
++
++  console.log("[démarrage] marques (ms depuis le début de la navigation)");
++  (console.table ?? console.log)(lignes);
++
++  const p = (globalThis as any).performance;
++  const scripts: any[] = typeof p?.getEntriesByType === "function"
++    ? p.getEntriesByType("resource").filter((e: any) => e.initiatorType === "script")
++    : [];
++  if (scripts.length) {
++    console.log("[démarrage] scripts");
++    (console.table ?? console.log)(
++      scripts.map((e) => ({
++        script: String(e.name).replace(/^.*\//, ""),
++        "début (ms)": Math.round(e.startTime),
++        "fin (ms)": Math.round(e.responseEnd),
++        "transfert (ms)": Math.round(e.responseEnd - e.startTime),
++        "octets transmis": e.transferSize,
++        "octets décodés": e.decodedBodySize,
++      })),
++    );
++  }
++}
++
++/**
++ * Programme UN rapport, une fois la peinture suivante passée — appelé par
++ * l'écran des invités quand il a rendu. Deux `requestAnimationFrame` : le
++ * premier rend la main avant la peinture, le second après elle, de sorte que
++ * le rapport ne s'intercale pas dans le temps qu'il mesure.
++ */
++let rapportProgrammé = false;
++export function programmerRapportDémarrage(): void {
++  if (rapportProgrammé) return;
++  rapportProgrammé = true;
++  const raf = (globalThis as any).requestAnimationFrame;
++  const plusTard = (f: () => void) => (typeof raf === "function" ? raf(f) : setTimeout(f, 0));
++  plusTard(() => plusTard(() => rapportDémarrage()));
++}
++
++// Première marque du bundle : ce module est le PREMIER import de
++// `app/_layout.tsx`, donc son évaluation date le moment où le premier module
++// applicatif s'exécute — après le téléchargement du bundle ET après la phase
++// où Metro déclare ses 4 856 modules.
++marquer("premier module applicatif");
+diff --git a/apps/mobile/lib/identity.ts b/apps/mobile/lib/identity.ts
+index 91ac3d5..2bb5ed6 100644
+--- a/apps/mobile/lib/identity.ts
++++ b/apps/mobile/lib/identity.ts
+@@ -7,6 +7,8 @@ import { getRandomBytes } from "expo-crypto";
+ import { entropyToMnemonic } from "@scure/bip39";
+ import { wordlist } from "@scure/bip39/wordlists/english";
+ import { createResilientFetch } from "@drakkar.software/starfish-client/fetch";
++// MODIFICATION LOCALE — marques de temps du démarrage.
++import { chronométrer } from "@/lib/demarrage-marques";
+ import {
+   isValidSeed as _isValidSeed,
+   deriveSession as _deriveSession,
+@@ -84,11 +86,12 @@ export async function deriveSessionFromPhrase(
+   // owner's content/account/index clients. Collaborator node-push clients are rebuilt
+   // without this fetch.
+   const { fetch: resilientFetch } = createResilientFetch();
+-  const session = await _deriveSession(
++  // MODIFICATION LOCALE — marque de temps du démarrage (Argon2id).
++  const session = await chronométrer("deriveSession (deriveSessionFromPhrase)", () => _deriveSession(
+     words,
+     { baseUrl: normalizeSyncBase(serverUrl), namespace: syncNamespace(), fetch: resilientFetch },
+     { sharedNamespace: syncNamespace(), autoProfile: false },
+-  );
++  ));
+   return { session, userId: session.userId };
+ }
+ 
+diff --git a/apps/mobile/lib/indicateur-de-chargement.ts b/apps/mobile/lib/indicateur-de-chargement.ts
+new file mode 100644
+index 0000000..22da5a5
+--- /dev/null
++++ b/apps/mobile/lib/indicateur-de-chargement.ts
+@@ -0,0 +1,20 @@
++/**
++ * MODIFICATION LOCALE — l'indicateur de chargement du prérendu cède la place.
++ *
++ * L'indicateur lui-même est écrit en HTML et CSS dans `app/+html.tsx` : il doit
++ * apparaître AVANT le bundle, sinon il arriverait en même temps que ce qu'il
++ * annonce. Il ne peut donc pas être un composant React — mais c'est React qui
++ * sait quand il n'a plus lieu d'être.
++ *
++ * D'où cette fonction, seul lien entre les deux : posée sur `<html>`, la
++ * marque `data-app-montee` fait disparaître l'indicateur par la seule feuille
++ * de style du prérendu. Aucun nœud n'est retiré du document : le laisser en
++ * place et le masquer évite de courir après un élément qu'un rendu concurrent
++ * pourrait être en train de lire.
++ */
++
++/** Fait céder la place à l'application. Sans effet hors du web, et idempotent. */
++export function masquerIndicateurDeChargement(): void {
++  if (typeof document === "undefined") return;
++  document.documentElement.setAttribute("data-app-montee", "");
++}
+diff --git a/apps/mobile/lib/server.ts b/apps/mobile/lib/server.ts
+index 682a2de..d3aa7e6 100644
+--- a/apps/mobile/lib/server.ts
++++ b/apps/mobile/lib/server.ts
+@@ -8,6 +8,10 @@
+  */
+ 
+ import { deriveSession, getSyncNamespace, DEFAULT_SYNC_NAMESPACE, readSpaceAccess, type Session } from "@fiance/sdk";
++// MODIFICATION LOCALE — marques de temps du démarrage. `deriveSession` fait un
++// Argon2id et est appelée plusieurs fois par démarrage : savoir laquelle coûte,
++// et combien, est la question ouverte de ce changement.
++import { chronométrer } from "@/lib/demarrage-marques";
+ import { normalizePhrase } from "@/lib/identity";
+ import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
+ 
+@@ -85,11 +89,11 @@ export async function deriveUserId(
+   serverUrl?: string,
+ ): Promise<string> {
+   const baseUrl = serverUrl ? normalizeSyncBase(serverUrl) : "http://localhost";
+-  const session = await deriveSession(
++  const session = await chronométrer("deriveSession (deriveUserId)", () => deriveSession(
+     normalizePhrase(seedPhrase).split(" "),
+     { baseUrl, namespace: syncNamespace() },
+     { sharedNamespace: syncNamespace(), autoProfile: false },
+-  );
++  ));
+   return session.userId;
+ }
+ 
+@@ -103,11 +107,11 @@ export async function resolveSessionConfig(
+   const seedPhrase = entry?.seedPhrase;
+   const serverUrl = resolveServerUrl(entry);
+   if (!seedPhrase || !serverUrl) return null;
+-  const session = await deriveSession(
++  const session = await chronométrer("deriveSession (resolveSessionConfig)", () => deriveSession(
+     normalizePhrase(seedPhrase).split(" "),
+     makeClientOpts(serverUrl),
+     { sharedNamespace: syncNamespace(), autoProfile: false },
+-  );
++  ));
+   return { serverUrl, session, userId: session.userId };
+ }
+ 
+@@ -159,11 +163,11 @@ export async function resolveServerConfig(
+   const seedPhrase = entry?.seedPhrase;
+   const serverUrl = resolveServerUrl(entry);
+   if (!seedPhrase || !serverUrl) return null;
+-  const session = await deriveSession(
++  const session = await chronométrer("deriveSession (resolveServerConfig)", () => deriveSession(
+     normalizePhrase(seedPhrase).split(" "),
+     makeClientOpts(serverUrl),
+     { sharedNamespace: syncNamespace(), autoProfile: false },
+-  );
++  ));
+   return {
+     serverUrl,
+     userId: session.userId,
+diff --git a/apps/mobile/metro.config.js b/apps/mobile/metro.config.js
+index 8bb81d9..6eb8e7d 100644
+--- a/apps/mobile/metro.config.js
++++ b/apps/mobile/metro.config.js
+@@ -39,13 +39,37 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
+   // hash-wasm (Argon2id in starfish-identities) requires a WebAssembly global —
+   // absent on Hermes ("WebAssembly is not supported in this environment"). On native
+   // (iOS/Android) redirect to a shim that delegates to react-native-quick-crypto's
+-  // native Argon2id binding (OpenSSL, ~150 ms vs ~15–45 s pure JS). On web keep the
+-  // original @noble/hashes shim. A package exports map can't remap a third-party
+-  // specifier imported deep inside a dependency, so the alias must live here.
++  // native Argon2id binding (OpenSSL, ~150 ms vs ~15–45 s pure JS).
++  // A package exports map can't remap a third-party specifier imported deep inside
++  // a dependency, so the alias must live here.
++  //
++  // MODIFICATION LOCALE — LE WEB NE PASSE PLUS PAR UN SHIM.
++  //
++  // Le détournement valait pour TOUTES les plateformes, et le web tombait donc
++  // sur `lib/hash-wasm-shim.ts` — l'Argon2id de `@noble/hashes`, en JavaScript
++  // pur. Or le motif du détournement est l'absence de `WebAssembly` sur
++  // Hermes : un navigateur en a depuis toujours. Le web payait un repli posé
++  // pour une contrainte qui ne le concerne pas, et que le CLAUDE.md de ce
++  // dépôt décrit lui-même comme la voie lente écartée pour le natif.
++  //
++  // Ce que cela coûtait, mesuré aux paramètres de production
++  // (m=47104 KiB, t=3, p=1, dkLen=32) :
++  //
++  //     hash-wasm (WebAssembly)   283 ms
++  //     @noble/hashes (JS pur)  2 904 ms      10,3x
++  //
++  // Au démarrage, cette seule dérivation tenait le fil principal 3 187 ms —
++  // la liste des invités était peinte à 700 ms puis l'interface restait morte
++  // trois secondes. C'est la cause, et non le poids du bundle.
++  //
++  // LES DEUX PRODUISENT LE MÊME CONDENSAT (vérifié aux paramètres ci-dessus).
++  // Aucune identité n'est recalculée, aucun `userId` ne change, rien de ce qui
++  // est stocké ou synchronisé ne bouge : c'est la même fonction, autrement
++  // implémentée. `lib/hash-wasm-shim.ts` reste en place, sans appelant.
+   if (moduleName === 'hash-wasm') {
+     const isNative = platform === 'ios' || platform === 'android'
+-    const shimFile = isNative ? 'lib/hash-wasm-shim.native.ts' : 'lib/hash-wasm-shim.ts'
+-    return { type: 'sourceFile', filePath: path.resolve(projectRoot, shimFile) }
++    if (!isNative) return resolve(context, moduleName, platform)
++    return { type: 'sourceFile', filePath: path.resolve(projectRoot, 'lib/hash-wasm-shim.native.ts') }
+   }
+ 
+   // Workspace SDK packages (packages/*) use NodeNext-style .js extensions in
