@@ -14,6 +14,7 @@ import type {
   Guest,
   Table,
   GuestGroup,
+  Household,
   Vendor,
   QuotePricing,
   Task,
@@ -70,6 +71,9 @@ export interface WeddingSnapshot {
   guests: Guest[];
   tables: Table[];
   guestGroups: GuestGroup[];
+  // Additive collection — BACKUP_VERSION is NOT bumped: an older backup restores
+  // without households, which is a mailing list of one envelope per guest.
+  households: Household[];
   vendors: Vendor[];
   quotePricings: QuotePricing[];
   tasks: Task[];
@@ -109,6 +113,7 @@ export interface BackupData {
   guests: unknown[];
   tables: unknown[];
   guestGroups: unknown[];
+  households?: unknown[];
   vendors: unknown[];
   quotePricings: unknown[];
   tasks: unknown[];
@@ -150,6 +155,7 @@ export function createBackupDocument(snapshot: WeddingSnapshot): BackupData {
     guests: snapshot.guests,
     tables: snapshot.tables,
     guestGroups: snapshot.guestGroups,
+    households: snapshot.households,
     vendors: snapshot.vendors,
     quotePricings: snapshot.quotePricings,
     tasks: snapshot.tasks,
@@ -351,6 +357,7 @@ export function restoreFromBackup(doc: BackupData): WeddingSnapshot {
     })) as unknown as Guest[],
     tables: (doc.tables || []) as unknown as Table[],
     guestGroups: (doc.guestGroups || []) as unknown as GuestGroup[],
+    households: (doc.households || []) as unknown as Household[],
     vendors: ((doc.vendors || []) as unknown[] as Record<string, unknown>[]).map((v) => ({
       ...v,
       pppSource: migratePppSource(
