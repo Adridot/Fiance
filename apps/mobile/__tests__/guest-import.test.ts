@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { zipSync, strToU8 } from "fflate";
-import { base64ToBytes, parseSpreadsheet, mapRowsToGuests, type ParsedSheet } from "@/lib/guest-import";
-import type { GuestGroup, Table } from "@fiance/sdk";
+import { base64ToBytes, parseSpreadsheet, mapRowsToGuests, reconcileGuests, type ParsedSheet } from "@/lib/guest-import";
+import type { Guest, GuestGroup, Table } from "@fiance/sdk";
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -123,7 +123,8 @@ describe("mapRowsToGuests", () => {
     expect(paul.phone).toBe("0612345678"); // mobile preferred over landline
     expect(paul.address).toBe("1 rue de la Paix, 75001, Paris");
     expect(paul.email).toBe("paul@example.com");
-    expect(paul.invitationType).toBe("FULL");
+    // These headers carry no invitation-type column, so every row lands undetermined.
+    expect(paul.invitationType).toBe("IMPORT_UNDETERMINED");
 
     const catherine = result.guests[1];
     expect(catherine.rsvpStatus).toBe("PENDING");
@@ -213,5 +214,189 @@ describe("base64ToBytes", () => {
   it("handles unpadded input", () => {
     const b64 = Buffer.from("hello!").toString("base64").replace(/=+$/, "");
     expect(Buffer.from(base64ToBytes(b64)).toString("utf8")).toBe("hello!");
+  });
+});
+
+// ─── mapRowsToGuests — invitation types ──────────────────────────────────────
+
+describe("mapRowsToGuests — invitation types", () => {
+  const sheetWith = (header: string, values: string[]) => ({
+    headers: ["Prénom", "Nom", header],
+    rows: values.map((v, i) => [`Prenom${i}`, `Nom${i}`, v]),
+  });
+  const ids = () => {
+    let n = 0;
+    return () => `id-${n++}`;
+  };
+
+  it("recognises the usual column headers, whatever the accents and case", () => {
+    for (const header of ["Cadre", "CADRE", "Type d'invitation", "invitation", "Cadre d'invitation"]) {
+      const r = mapRowsToGuests(sheetWith(header, ["Vin d'honneur"]), { groups: [], tables: [] }, { makeId: ids() });
+      expect(r.withoutInvitationType, `header "${header}" not recognised`).toBe(0);
+      expect(r.invitationTypes[0].label).toBe("Vin d'honneur");
+    }
+  });
+
+  it("reuses an existing type, by id or by label, without duplicating it", () => {
+    const existing = [
+      { id: "FULL", label: "Journée complète", isDefault: true, needsSleeping: false, createdAt: null, updatedAt: null },
+    ];
+    const r = mapRowsToGuests(
+      sheetWith("Cadre", ["FULL", "Journée complète", "journee complete"]),
+      { groups: [], tables: [], invitationTypes: existing },
+      { makeId: ids() },
+    );
+    expect(r.invitationTypes).toHaveLength(0);
+    expect(r.guests.map((g) => g.invitationType)).toEqual(["FULL", "FULL", "FULL"]);
+  });
+
+  it("creates a new type only once when several rows repeat it", () => {
+    const r = mapRowsToGuests(
+      sheetWith("Cadre", ["Brunch", "Brunch", "Brunch"]),
+      { groups: [], tables: [] },
+      { makeId: ids() },
+    );
+    expect(r.invitationTypes).toHaveLength(1);
+    expect(new Set(r.guests.map((g) => g.invitationType)).size).toBe(1);
+  });
+
+  it("reports rows without an invitation type instead of forcing FULL on them", () => {
+    const r = mapRowsToGuests(
+      sheetWith("Cadre", ["Cérémonie", "", "  "]),
+      { groups: [], tables: [] },
+      { makeId: ids() },
+    );
+    expect(r.withoutInvitationType).toBe(2);
+    expect(r.guests[1].invitationType).toBe("IMPORT_UNDETERMINED");
+    expect(r.guests[1].invitationType).not.toBe("FULL");
+    expect(r.invitationTypes.some((t) => t.id === "IMPORT_UNDETERMINED")).toBe(true);
+  });
+
+  it("reports namesakes found in the source", () => {
+    const r = mapRowsToGuests(
+      { headers: ["Prénom", "Nom", "Cadre"], rows: [["Jean", "Dupont", "Cérémonie"], ["Jean", "Dupont", "Cérémonie"], ["Marie", "Curie", "Cérémonie"]] },
+      { groups: [], tables: [] },
+      { makeId: ids() },
+    );
+    expect(r.duplicateNames).toEqual(["jean dupont"]);
+    expect(r.guests).toHaveLength(3); // imported all the same: a real namesake is plausible
+  });
+});
+
+// ─── reconcileGuests ─────────────────────────────────────────────────────────
+
+const guest = (over: Partial<Guest> & { firstName: string; lastName: string }): Guest => ({
+  id: `g-${over.firstName}-${over.lastName}`,
+  side: null, invitationType: "FULL", rsvpStatus: "PENDING", rsvpDate: null,
+  isSleeping: null, childrenCount: 0, diet: "STANDARD", dietNotes: null,
+  groupId: null, tableId: null, companionId: null, noTableNeeded: null,
+  giftDescription: null, thankYouSent: null, thankYouSentDate: null,
+  accommodationId: null, roomNumber: null, rsvpToken: null,
+  email: null, phone: null, address: null, notes: null,
+  shuttleVendorId: null, shuttlePickupLocation: null, shuttlePickupTime: null,
+  parkingNeeded: null, parkingNotes: null, arrivalNotes: null, transportMode: null,
+  createdAt: null, updatedAt: null,
+  ...over,
+});
+
+describe("reconcileGuests", () => {
+  it("does not add a guest already present: the import is replayable", () => {
+    const existing = [guest({ firstName: "Jean", lastName: "Dupont" })];
+    const incoming = [guest({ id: "new", firstName: "Jean", lastName: "Dupont" })];
+
+    const r = reconcileGuests(existing, incoming);
+
+    expect(r.toAdd).toHaveLength(0);
+    expect(r.matched).toBe(1);
+  });
+
+  it("matches across accents and case", () => {
+    const existing = [guest({ firstName: "Cécile", lastName: "MARTIN" })];
+    const incoming = [guest({ id: "new", firstName: "cecile", lastName: "martin" })];
+
+    expect(reconcileGuests(existing, incoming).toAdd).toHaveLength(0);
+  });
+
+  it("adds the guests that are genuinely unknown", () => {
+    const existing = [guest({ firstName: "Jean", lastName: "Dupont" })];
+    const incoming = [
+      guest({ id: "a", firstName: "Jean", lastName: "Dupont" }),
+      guest({ id: "b", firstName: "Marie", lastName: "Curie" }),
+    ];
+
+    const r = reconcileGuests(existing, incoming);
+
+    expect(r.toAdd.map((g) => g.lastName)).toEqual(["Curie"]);
+  });
+
+  it("fills an empty field without overwriting one already entered in the app", () => {
+    const existing = [guest({ firstName: "Jean", lastName: "Dupont", email: null, notes: "Allergique aux fruits de mer" })];
+    const incoming = [guest({ id: "new", firstName: "Jean", lastName: "Dupont", email: "jean@example.com", notes: "" })];
+
+    const r = reconcileGuests(existing, incoming);
+
+    expect(r.toUpdate).toHaveLength(1);
+    expect(r.toUpdate[0].updates.email).toBe("jean@example.com");
+    expect(r.toUpdate[0].updates).not.toHaveProperty("notes");
+  });
+
+  it("replaces the undetermined type when the source finally brings a real one", () => {
+    const existing = [guest({ firstName: "Jean", lastName: "Dupont", invitationType: "IMPORT_UNDETERMINED" })];
+    const incoming = [guest({ id: "new", firstName: "Jean", lastName: "Dupont", invitationType: "CEREMONY" })];
+
+    expect(reconcileGuests(existing, incoming).toUpdate[0].updates.invitationType).toBe("CEREMONY");
+  });
+
+  it("does not overwrite an invitation type already chosen in the app", () => {
+    const existing = [guest({ firstName: "Jean", lastName: "Dupont", invitationType: "CEREMONY" })];
+    const incoming = [guest({ id: "new", firstName: "Jean", lastName: "Dupont", invitationType: "FULL" })];
+
+    const r = reconcileGuests(existing, incoming);
+    expect(r.toUpdate).toHaveLength(0);
+  });
+
+  it("lets two existing namesakes absorb two namesake source rows", () => {
+    const existing = [
+      guest({ id: "x1", firstName: "Jean", lastName: "Dupont" }),
+      guest({ id: "x2", firstName: "Jean", lastName: "Dupont" }),
+    ];
+    const incoming = [
+      guest({ id: "a", firstName: "Jean", lastName: "Dupont" }),
+      guest({ id: "b", firstName: "Jean", lastName: "Dupont" }),
+    ];
+
+    const r = reconcileGuests(existing, incoming);
+
+    expect(r.toAdd).toHaveLength(0);
+    expect(r.matched).toBe(2);
+  });
+});
+
+// ─── reconcileGuests — first names ───────────────────────────────────────────
+
+describe("reconcileGuests — the first name is never filled in", () => {
+  it("a guest without a first name keeps none, even when the source offers one", () => {
+    const existing = [guest({ firstName: "", lastName: "ARDOUIN", groupId: "g1" })];
+    const incoming = [guest({ firstName: "", lastName: "ARDOUIN", email: "a@b.c" })];
+
+    const { toAdd, toUpdate, matched } = reconcileGuests(existing, incoming);
+
+    expect(matched).toBe(1);
+    expect(toAdd).toHaveLength(0);
+    expect(toUpdate[0].updates).not.toHaveProperty("firstName");
+    expect(toUpdate[0].updates.email).toBe("a@b.c");
+  });
+
+  it("a source lending a spouse's first name adds a person rather than overwriting one", () => {
+    // Reconciliation is no safety net here: a borrowed first name changes the match
+    // key, so the row is ADDED. The guarantee rests on the source normalizer.
+    const existing = [guest({ firstName: "", lastName: "ARDOUIN" })];
+    const incoming = [guest({ firstName: "Luc 2", lastName: "ARDOUIN" })];
+
+    const { toAdd, toUpdate } = reconcileGuests(existing, incoming);
+
+    expect(toUpdate).toHaveLength(0);
+    expect(toAdd).toHaveLength(1);
+    expect(existing[0].firstName).toBe("");
   });
 });
