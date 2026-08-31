@@ -30,7 +30,7 @@ module.exports = {
           800: "#683525",
           900: "#4f271b",
         },
-        // Garden Press accent palette
+        // Accents de rôle
         accent: {
           clay:          "#b96a4a",
           "clay-soft":   "#efd9cd",

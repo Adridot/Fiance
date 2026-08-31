@@ -1,19 +1,6 @@
-/**
- * Tests for importLegacyBackup — v6 WeddingSnapshot → ObjectNode tree.
- *
- * Tests FK integrity, idempotency (skip already-imported nodes), and the
- * E2EE contract: all content docs must be encrypted before upload
- * (encryptor.encrypt called for every push).
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { WeddingSnapshot } from './backup.js';
 import type { ImportResult } from './import-legacy.js';
-
-// ─── Mock octospaces-sdk ─────────────────────────────────────────────────────
-//
-// We mock at the import path used inside import-legacy.ts to control
-// updateObjectIndex, readObjectTree, getNodeAccess, objDocPush, buildTree.
 
 interface FakeNode {
   id: string;
@@ -23,16 +10,12 @@ interface FakeNode {
   [k: string]: unknown;
 }
 
-// Shared in-memory state for the fake space (reset between tests).
 let fakeIndex: FakeNode[] = [];
 let fakeContentStore: Record<string, unknown> = {};
 
-// Capture pushes for assertions.
 const pushedPaths: string[] = [];
 const pushedPayloads: Record<string, unknown>[] = [];
 
-// Mock the modules that import-legacy.ts imports from.
-// starfish-spaces provides updateObjectIndex/readObjectTree/buildTree/getNodeAccess.
 vi.mock('@drakkar.software/starfish-spaces', () => {
   return {
     updateObjectIndex: vi.fn(
@@ -72,8 +55,6 @@ vi.mock('@drakkar.software/starfish-spaces', () => {
 vi.mock('@drakkar.software/dk-spaces-sdk', () => ({
   objDocPush: vi.fn((spaceId: string, nodeId: string) => `push/${spaceId}/objdoc/${nodeId}`),
 }));
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function makeSnapshot(overrides: Partial<WeddingSnapshot> = {}): WeddingSnapshot {
   return {
@@ -119,10 +100,7 @@ function makeSnapshot(overrides: Partial<WeddingSnapshot> = {}): WeddingSnapshot
 
 const fakeSession = { userId: 'user-test', keys: {} } as never;
 const fakeSpaceId = 'space-test';
-/** Registry UUID — the weddingNodeId that buildAllNodes uses as the wedding root. */
 const fakeWeddingNodeId = 'wedding-registry-uuid';
-
-// ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('importLegacyBackup', () => {
   beforeEach(() => {
@@ -145,14 +123,12 @@ describe('importLegacyBackup', () => {
     await importLegacyBackup(fakeSession, fakeSpaceId, makeSnapshot(), fakeWeddingNodeId);
     const wedding = fakeIndex.find((n) => n.type === 'wedding');
     expect(wedding).toBeDefined();
-    // Wedding node id must match the registry UUID (buildAllNodes invariant).
     expect(wedding?.id).toBe(fakeWeddingNodeId);
   });
 
   it('uses entity id as node id for non-wedding entities', async () => {
     const { importLegacyBackup } = await import('./import-legacy.js');
     await importLegacyBackup(fakeSession, fakeSpaceId, makeSnapshot(), fakeWeddingNodeId);
-    // Every non-wedding node id must equal its entity id.
     const guestGroup = fakeIndex.find((n) => n.type === 'guestGroup');
     expect(guestGroup?.id).toBe('gg1');
     const guest = fakeIndex.find((n) => n.type === 'guest' && n.meta?.legacyId === 'g1');
@@ -193,11 +169,6 @@ describe('importLegacyBackup', () => {
     expect(pushedPaths.length).toBe(result.nodeCount);
   });
 
-  // ── C5: children of already-imported parents ───────────────────────────
-  // When a parent node (vendor, taskCategory, ideaCollection) is already in the
-  // live-sync index (node.id = entity.id), its children must still be imported
-  // from the legacy backup. The old code skipped children via `continue`.
-
   it('imports tasks whose taskCategory is already in the live-sync index', async () => {
     fakeIndex = [{ id: 'tc1', type: 'taskCategory', parentId: fakeWeddingNodeId, meta: {} } as FakeNode];
     const { importLegacyBackup } = await import('./import-legacy.js');
@@ -234,19 +205,14 @@ describe('importLegacyBackup', () => {
     expect(vp?.parentId).toBe('v1');
   });
 
-  // ── D6: descriptor flags passed to getNodeAccess ────────────────────────
-  // pushDoc must forward the full NodeDescriptor to getNodeAccess so that
-  // invite-access nodes (access:'invite', enc:false) use the right key material.
-  // The old code hardcoded { access:'space', enc:true } for every node.
-
   it('passes the full NodeDescriptor (not hardcoded flags) to getNodeAccess', async () => {
     const { getNodeAccess } = await import('@drakkar.software/starfish-spaces');
     const { importLegacyBackup } = await import('./import-legacy.js');
     await importLegacyBackup(fakeSession, fakeSpaceId, makeSnapshot(), fakeWeddingNodeId);
     const calls = (getNodeAccess as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls.length).toBeGreaterThan(0);
-    // When passing the full descriptor, nodeFlags.id === nodeId (arg 1).
-    // When hardcoding { access, enc }, nodeFlags.id would be undefined.
+    // A full descriptor carries id; a hardcoded { access, enc } would not — and
+    // invite-access nodes need their own key material.
     for (const [, nodeId, nodeFlags] of calls) {
       expect((nodeFlags as { id?: string }).id).toBe(nodeId as string);
     }
@@ -256,11 +222,9 @@ describe('importLegacyBackup', () => {
     const { importLegacyBackup } = await import('./import-legacy.js');
     const snapshot = makeSnapshot();
 
-    // First import: creates all nodes (entity.id = node.id; all get meta.legacyId).
     await importLegacyBackup(fakeSession, fakeSpaceId, snapshot, fakeWeddingNodeId);
     const countAfterFirst = fakeIndex.length;
 
-    // Second import: all nodes detected via meta.legacyId OR node.id → skipped.
     const r2 = await importLegacyBackup(fakeSession, fakeSpaceId, snapshot, fakeWeddingNodeId);
 
     expect(r2.nodeCount).toBe(0);
@@ -270,7 +234,6 @@ describe('importLegacyBackup', () => {
   it('returns an idMap with all expected keys', async () => {
     const { importLegacyBackup } = await import('./import-legacy.js');
     const result = await importLegacyBackup(fakeSession, fakeSpaceId, makeSnapshot(), fakeWeddingNodeId);
-    // Wedding key maps to the registry UUID.
     expect(result.idMap['wedding']).toBe(fakeWeddingNodeId);
     expect(result.idMap['guestGroup:gg1']).toBeDefined();
     expect(result.idMap['guest:g1']).toBeDefined();
@@ -293,25 +256,17 @@ describe('importLegacyBackup', () => {
     }
   });
 
-  // ── M5: Encryption contract ─────────────────────────────────────────────
-  // Every content push MUST go through encryptor.encrypt before hitting the wire.
-  // This test would FAIL on the old code (which pushed plaintext) and PASS after
-  // the B1 fix (encrypt in pushDoc). The mock encryptor wraps as { _enc: '...' }.
+  // Every content push must go through encryptor.encrypt before it hits the wire.
   it('all pushed payloads are encrypted (not raw entity objects)', async () => {
     const { importLegacyBackup } = await import('./import-legacy.js');
     await importLegacyBackup(fakeSession, fakeSpaceId, makeSnapshot(), fakeWeddingNodeId);
     expect(pushedPayloads.length).toBeGreaterThan(0);
     for (const payload of pushedPayloads) {
-      // encryptor.encrypt wraps as { _enc: JSON.stringify(entity) }
-      // If encrypt was skipped, the payload would have entity fields (e.g. 'name', 'id')
-      // instead of '_enc' — and this assertion would fail, proving the B1 bug.
       expect(payload).toHaveProperty('_enc');
       expect(typeof (payload as { _enc: unknown })._enc).toBe('string');
     }
   });
 });
-
-// ─── E2EE round-trip ─────────────────────────────────────────────────────────
 
 describe('E2EE round-trip (ownerEnsureSpaceKeyring → write objdoc → read objdoc)', () => {
   beforeEach(() => {
@@ -334,11 +289,9 @@ describe('E2EE round-trip (ownerEnsureSpaceKeyring → write objdoc → read obj
       fakeSession,
     );
 
-    // Write
     const encrypted = await handle.encryptor.encrypt(original);
     await handle.client.push(`push/${fakeSpaceId}/objdoc/node-roundtrip`, encrypted);
 
-    // Read
     const pulled = await handle.client.pull(`pull/${fakeSpaceId}/objdoc/node-roundtrip`);
     const decrypted = await handle.encryptor.decrypt(pulled.data as { _enc: string });
 
@@ -358,7 +311,6 @@ describe('E2EE round-trip (ownerEnsureSpaceKeyring → write objdoc → read obj
     );
 
     const encrypted = await handle.encryptor.encrypt(secret);
-    // The encrypted form should not directly contain the secret values as top-level keys
     expect(encrypted).not.toHaveProperty('secretKey');
     expect(encrypted).not.toHaveProperty('userId');
   });

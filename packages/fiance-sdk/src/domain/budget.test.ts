@@ -1,7 +1,3 @@
-/**
- * Tests for lib/budget.ts — vendor cost calculations, caterer totals,
- * guest count resolution, and caterer scoring.
- */
 import { describe, it, expect } from "vitest";
 
 import {
@@ -17,7 +13,7 @@ import {
 import type { GuestCounts } from './guests.js';
 import type { Contributor } from './schema.js';
 
-// A custom (user-created) invitation type carries a UUID id — the exact BOTH_DAYS-class case.
+// A user-created invitation type carries a UUID id, never an enum literal.
 const TWO_DAYS = "uuid-2days";
 
 const baseCounts: GuestCounts = {
@@ -97,7 +93,6 @@ describe("calculateVendorTotal", () => {
       pppSource: "FULL",
       type: "DJ",
     } as any;
-    // 500 + 10 * 60 = 1100
     expect(calculateVendorTotal(vendor, baseCounts)).toBe(1100);
   });
 
@@ -113,7 +108,6 @@ describe("calculateCatererTotal", () => {
       { pricingKey: "dinner", pricePerPerson: 50, guestCountOverride: null, staffFee: 0, travelFee: 0 },
       { pricingKey: "drinks", pricePerPerson: 20, guestCountOverride: null, staffFee: 0, travelFee: 0 },
     ] as any[];
-    // dinner: 50 * 60 = 3000, drinks: 20 * 60 = 1200
     expect(calculateCatererTotal(pricings, baseCounts)).toBe(4200);
   });
 
@@ -128,7 +122,6 @@ describe("calculateCatererTotal", () => {
     const pricings = [
       { pricingKey: "dinner", pricePerPerson: 50, guestCountOverride: null, staffFee: 200, travelFee: 150 },
     ] as any[];
-    // 50 * 60 + 200 + 150 = 3350
     expect(calculateCatererTotal(pricings, baseCounts)).toBe(3350);
   });
 
@@ -137,7 +130,6 @@ describe("calculateCatererTotal", () => {
   });
 });
 
-// Helper: build a per-invitation-type pricing line.
 const line = (pricingKey: string, pricePerPerson: number, extra: Partial<any> = {}) =>
   ({ pricingKey, pricePerPerson, guestCountOverride: null, staffFee: 0, travelFee: 0, ...extra }) as any;
 
@@ -163,14 +155,12 @@ describe("calculateVendorTotal — dynamic per-invitation-type pricing", () => {
   it("sums each line's price by that invitation type's all-invited count (default)", () => {
     const vendor = { type: "VENUE", basePrice: null, dynamicPricing: true } as any;
     const pricings = [line("COCKTAIL", 30), line("FULL", 50)];
-    // default countAll → all pool: 30 * 35 + 50 * 30 = 1050 + 1500
     expect(calculateVendorTotal(vendor, baseCounts, pricings)).toBe(2550);
   });
 
   it("uses the confirmed-only pool when countAllGuests === false", () => {
     const vendor = { type: "VENUE", basePrice: null, dynamicPricing: true, countAllGuests: false } as any;
     const pricings = [line("COCKTAIL", 30), line("FULL", 50)];
-    // confirmed pool: 30 * 30 + 50 * 25 = 900 + 1250
     expect(calculateVendorTotal(vendor, baseCounts, pricings)).toBe(2150);
   });
 
@@ -187,7 +177,6 @@ describe("calculateVendorTotal — dynamic per-invitation-type pricing", () => {
   });
 
   it("resolves each invitation-type id to its all-invited count (default countAll)", () => {
-    // price 1/guest → subtotal equals the resolved count
     expect(calculateCatererTotal([line("CEREMONY", 1)], baseCounts)).toBe(25);
     expect(calculateCatererTotal([line("COCKTAIL", 1)], baseCounts)).toBe(35);
     expect(calculateCatererTotal([line("FULL", 1)], baseCounts)).toBe(30);
@@ -195,8 +184,6 @@ describe("calculateVendorTotal — dynamic per-invitation-type pricing", () => {
   });
 
   it("resolves a CUSTOM (UUID) invitation type — the BOTH_DAYS-class regression", () => {
-    // A user-created "2 days" type has a UUID id, not the literal "BOTH_DAYS". It must still
-    // resolve to that type's count (was silently 0 with the old hardcoded enum).
     expect(calculateCatererTotal([line(TWO_DAYS, 1)], baseCounts)).toBe(12);           // all-invited
     expect(calculateCatererTotal([line(TWO_DAYS, 1)], baseCounts, false)).toBe(8);     // confirmed only
   });
@@ -212,7 +199,7 @@ describe("calculateVendorTotal — dynamic per-invitation-type pricing", () => {
 
   it("adds a vendor-level fixed fee on top of the dynamic total", () => {
     const vendor = { type: "CATERER", basePrice: null, dynamicPricing: true, fixedFee: 500 } as any;
-    const pricings = [line("FULL", 50)]; // 50 * FULL all-invited(30) = 1500
+    const pricings = [line("FULL", 50)];
     expect(calculateVendorTotal(vendor, baseCounts, pricings)).toBe(2000);
   });
 
@@ -237,14 +224,12 @@ describe("calculateVendorTotal — dynamic per-invitation-type pricing", () => {
   });
 
   it("still resolves legacy lowercase caterer keys (backward compat)", () => {
-    // dinner → dinner_count(60)
     expect(calculateCatererTotal([line("dinner", 10)], baseCounts)).toBe(600);
   });
 
   it("legacy caterer with lines and no flag stays dynamic", () => {
     const vendor = { type: "CATERER", basePrice: 8000, dynamicPricing: null } as any;
     const pricings = [line("dinner", 50)];
-    // dynamic → 50 * 60, basePrice ignored
     expect(calculateVendorTotal(vendor, baseCounts, pricings)).toBe(3000);
   });
 });
@@ -293,7 +278,6 @@ describe("parseContributorAllocations", () => {
 
 describe("resolveAllocationAmount", () => {
   it("resolves a global allocation against the budget target", () => {
-    // Regression: 50% of a 30000 target must be 15000, not 0.
     expect(resolveAllocationAmount({ scope: "global", share: 50 }, 30_000, {})).toBe(15_000);
   });
 
@@ -337,7 +321,6 @@ describe("calculateContributorTotal", () => {
         { scope: "catering", share: 50 },
       ]),
     };
-    // 50% of 30000 (global) + 50% of 12000 (catering) = 15000 + 6000
     expect(calculateContributorTotal(contributor, 30_000, { catering: 12_000 })).toBe(21_000);
   });
 });
