@@ -77,7 +77,6 @@
   "deleteGroup": "Supprimer ce groupe ?",
   "deleteGroupMsg": "Les invités de ce groupe seront désassignés.",
   "groupNameRequired": "Le nom du groupe est obligatoire",
-  "noGroupMembers": "Aucun invité dans ce groupe",
   "none": "Aucun",
   "invitation": "Invitation",
   "invitationType": "Type d'invitation",
