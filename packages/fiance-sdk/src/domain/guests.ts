@@ -185,3 +185,36 @@ export function countDuplicateGuests(guests: Guest[]): number {
   for (const n of seen.values()) if (n > 1) dup += n;
   return dup;
 }
+
+// ─── Displayed name ──────────────────────────────────────────────────────────
+//
+// The particle is displayed but stays OUT of the sort key — that is the whole
+// point of storing it apart: the existing sort code becomes right untouched.
+
+/** Uppercased surname, particle included: « DE LA PRESLE ». */
+export function formatGuestLastName(g: NamedGuest): string {
+  const particle = (g.nameParticle ?? "").trim().toUpperCase();
+  const last = (g.lastName ?? "").trim();
+  if (!particle) return last;
+  // « D' » sticks to the name, « DE LA » is separated by a space.
+  const glue = /['’]$/.test(particle) ? "" : " ";
+  return last ? `${particle}${glue}${last}` : particle;
+}
+
+export function formatGuestName(g: NamedGuest): string {
+  return [formatGuestLastName(g), (g.firstName ?? "").trim()].filter(Boolean).join(" ");
+}
+
+// A name read on screen but not found when typed back is a trap: matching
+// `firstName` and `lastName` separately misses the particle and any two parts
+// in a row. Search therefore matches the COMPOSED name, from one place.
+export function guestNameMatches(g: NamedGuest, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    (g.firstName ?? "").toLowerCase().includes(q) ||
+    (g.lastName ?? "").toLowerCase().includes(q) ||
+    formatGuestName(g).toLowerCase().includes(q)
+  );
+}
+
