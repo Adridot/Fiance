@@ -34,6 +34,8 @@
   "tapToSwitch": "Appuyez pour basculer",
   "createNewWedding": "Créer un nouveau mariage",
   "newWeddingConfirm": "Vous avez déjà {{count}} mariage(s). Créer un nouveau mariage ? Vous pourrez basculer entre vos mariages à tout moment.",
+  "singleWeddingInstance": "Instance à mariage unique",
+  "singleWeddingInstanceHint": "Ce serveur n'héberge qu'un seul mariage. Rejoindre un mariage par lien d'invitation reste possible ci-dessous.",
   "myWedding": "Mon mariage",
   "security": "Sécurité",
   "appLock": "Verrouillage de l'app",
