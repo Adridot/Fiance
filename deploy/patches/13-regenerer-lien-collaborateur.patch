@@ -1,0 +1,1032 @@
+diff --git a/apps/mobile/__tests__/collaborateurs.test.ts b/apps/mobile/__tests__/collaborateurs.test.ts
+new file mode 100644
+index 0000000..8152065
+--- /dev/null
++++ b/apps/mobile/__tests__/collaborateurs.test.ts
+@@ -0,0 +1,278 @@
++/**
++ * Le regroupement d'une personne et de ses liens.
++ *
++ * Deux liens pour la même personne = deux affectations, et c'est délibéré :
++ * réaffecter l'existante casserait l'accès de l'appareil déjà appairé. Le
++ * regroupement est donc un calcul de vue, et il doit rester honnête sur ses
++ * deux limites — un lien sans libellé reste seul, deux homonymes fusionnent.
++ */
++import { describe, expect, it } from "vitest";
++
++import {
++  affectationsARereferencer,
++  estUnCollaborateurConnu,
++  nombreDeCollaborateursDistincts,
++  normaliserLeLibelle,
++  ouvertureDeLaFeuille,
++  regrouperLesCollaborateurs,
++  type AffectationDeLien,
++} from "@/lib/collaborateurs";
++
++const lien = (
++  id: string,
++  label: string | null,
++  createdAt: string,
++  roleId = "role-editor",
++): AffectationDeLien => ({ id, subjectUserId: `sujet-${id}`, roleId, label, createdAt });
++
++describe("normaliserLeLibelle", () => {
++  it("ignore la casse, les bords et les espaces multiples", () => {
++    expect(normaliserLeLibelle("  Emma   Didot ")).toBe("emma didot");
++    expect(normaliserLeLibelle("EMMA")).toBe(normaliserLeLibelle("emma"));
++  });
++
++  it("rend une chaîne vide pour un libellé absent", () => {
++    expect(normaliserLeLibelle(null)).toBe("");
++    expect(normaliserLeLibelle(undefined)).toBe("");
++    expect(normaliserLeLibelle("   ")).toBe("");
++  });
++});
++
++describe("regrouperLesCollaborateurs", () => {
++  it("fusionne deux affectations de même libellé en une seule fiche", () => {
++    const groupes = regrouperLesCollaborateurs([
++      lien("a", "Emma", "2026-08-24T14:28:27Z"),
++      lien("b", "emma", "2026-08-24T16:29:15Z"),
++    ]);
++
++    expect(groupes).toHaveLength(1);
++    expect(groupes[0].nom).toBe("emma");
++    expect(groupes[0].liens.map((l) => l.id)).toEqual(["a", "b"]);
++  });
++
++  it("sépare deux libellés différents", () => {
++    const groupes = regrouperLesCollaborateurs([
++      lien("a", "Emma", "2026-08-24T14:00:00Z"),
++      lien("b", "Parents DIDOT", "2026-08-24T11:14:17Z"),
++    ]);
++
++    expect(groupes).toHaveLength(2);
++    expect(groupes.every((g) => g.liens.length === 1)).toBe(true);
++  });
++
++  it("laisse SEULE chaque affectation sans libellé — jamais fusionnées entre elles", () => {
++    const groupes = regrouperLesCollaborateurs([
++      lien("a", null, "2026-08-21T17:24:25Z"),
++      lien("b", "", "2026-08-21T17:25:00Z"),
++      lien("c", "   ", "2026-08-21T17:26:00Z"),
++    ]);
++
++    expect(groupes).toHaveLength(3);
++    expect(groupes.every((g) => g.nom === null && g.liens.length === 1)).toBe(true);
++  });
++
++  it("un lien sans libellé ne rejoint pas une personne nommée", () => {
++    const groupes = regrouperLesCollaborateurs([
++      lien("a", "Emma", "2026-08-24T14:00:00Z"),
++      lien("b", null, "2026-08-24T15:00:00Z"),
++    ]);
++    expect(groupes).toHaveLength(2);
++  });
++
++  it("range les liens du plus ancien au plus récent", () => {
++    const groupes = regrouperLesCollaborateurs([
++      lien("récent", "Emma", "2026-08-24T16:29:15Z"),
++      lien("ancien", "Emma", "2026-08-24T14:28:27Z"),
++    ]);
++    expect(groupes[0].liens.map((l) => l.id)).toEqual(["ancien", "récent"]);
++  });
++
++  it("le rôle de la fiche est celui du lien le PLUS RÉCENT", () => {
++    const groupes = regrouperLesCollaborateurs([
++      lien("a", "Emma", "2026-08-24T14:00:00Z", "role-viewer"),
++      lien("b", "Emma", "2026-08-24T16:00:00Z", "role-editor"),
++    ]);
++    expect(groupes[0].roleId).toBe("role-editor");
++  });
++
++  it("chaque lien garde sa date d'émission, distincte", () => {
++    const groupes = regrouperLesCollaborateurs([
++      lien("a", "Emma", "2026-08-24T14:28:27Z"),
++      lien("b", "Emma", "2026-08-24T16:29:15Z"),
++    ]);
++    const dates = groupes[0].liens.map((l) => l.createdAt);
++    expect(new Set(dates).size).toBe(2);
++  });
++
++  it("une liste vide ne produit aucune fiche", () => {
++    expect(regrouperLesCollaborateurs([])).toEqual([]);
++  });
++
++  it("deux homonymes fusionnent — limite assumée, visible par les dates", () => {
++    const groupes = regrouperLesCollaborateurs([
++      lien("a", "Marie", "2026-08-01T10:00:00Z"),
++      lien("b", "Marie", "2026-08-20T10:00:00Z"),
++    ]);
++    expect(groupes).toHaveLength(1);
++    expect(groupes[0].liens).toHaveLength(2);
++  });
++});
++
++describe("nombreDeCollaborateursDistincts", () => {
++  it("compte les PERSONNES, pas les liens", () => {
++    const affectations = [
++      lien("a", "Emma", "2026-08-24T14:00:00Z"),
++      lien("b", "Emma", "2026-08-24T16:00:00Z"),
++      lien("c", "Parents DIDOT", "2026-08-24T11:00:00Z"),
++    ];
++    expect(affectations).toHaveLength(3);
++    expect(nombreDeCollaborateursDistincts(affectations)).toBe(2);
++  });
++
++  it("compte chaque lien sans libellé comme une personne — on n'en sait pas plus", () => {
++    expect(nombreDeCollaborateursDistincts([lien("a", null, "x"), lien("b", null, "y")])).toBe(2);
++  });
++});
++
++describe("estUnCollaborateurConnu", () => {
++  const affectations = [lien("a", "Emma", "2026-08-24T14:00:00Z")];
++
++  it("reconnaît une personne déjà collaboratrice, quelle que soit la casse", () => {
++    expect(estUnCollaborateurConnu(affectations, "emma")).toBe(true);
++    expect(estUnCollaborateurConnu(affectations, "  EMMA  ")).toBe(true);
++  });
++
++  it("ne reconnaît pas quelqu'un de nouveau", () => {
++    expect(estUnCollaborateurConnu(affectations, "Mathieu")).toBe(false);
++  });
++
++  it("un nom vide n'est jamais une réémission", () => {
++    expect(estUnCollaborateurConnu(affectations, "")).toBe(false);
++    expect(estUnCollaborateurConnu(affectations, null)).toBe(false);
++  });
++});
++
++describe("ouvertureDeLaFeuille — réémission sans rien redemander", () => {
++  const roles = [{ id: "role-editor" }, { id: "role-viewer" }];
++
++  it("nom et rôle connus : la feuille GÉNÈRE, elle ne demande rien", () => {
++    expect(ouvertureDeLaFeuille("Emma", "role-editor", roles)).toEqual({
++      etat: "generating",
++      roleId: "role-editor",
++      nom: "Emma",
++    });
++  });
++
++  it("un rôle SUPPRIMÉ entre-temps fait retomber sur le sélecteur", () => {
++    const r = ouvertureDeLaFeuille("Emma", "role-disparu", roles);
++    expect(r.etat).toBe("selecting");
++    expect(r.roleId).toBeUndefined();
++  });
++
++  it("elle n'émet JAMAIS de lien sans rôle résolu", () => {
++    for (const cas of [
++      ouvertureDeLaFeuille("Emma", null, roles),
++      ouvertureDeLaFeuille("Emma", undefined, roles),
++      ouvertureDeLaFeuille("Emma", "role-disparu", roles),
++      ouvertureDeLaFeuille("Emma", "role-editor", []),
++    ]) {
++      expect(cas.etat).toBe("selecting");
++      expect(cas.roleId).toBeUndefined();
++    }
++  });
++
++  it("sans nom, la feuille demande — même si le rôle est connu", () => {
++    expect(ouvertureDeLaFeuille("", "role-editor", roles).etat).toBe("selecting");
++    expect(ouvertureDeLaFeuille("   ", "role-editor", roles).etat).toBe("selecting");
++    expect(ouvertureDeLaFeuille(null, "role-editor", roles).etat).toBe("selecting");
++  });
++
++  it("une ouverture ordinaire, sans rien de pré-rempli, demande", () => {
++    expect(ouvertureDeLaFeuille(undefined, undefined, roles)).toEqual({ etat: "selecting" });
++  });
++
++  it("le nom est pré-rempli même quand le rôle manque — la saisie n'est pas perdue", () => {
++    expect(ouvertureDeLaFeuille("  Emma  ", "role-disparu", roles).nom).toBe("Emma");
++  });
++});
++
++describe("affectationsARereferencer — le rôle vaut pour tous les liens", () => {
++  const MAINTENANT = "2026-08-24T17:00:00.000Z";
++
++  it("réécrit les N affectations d'une personne, pas seulement une", () => {
++    const groupe = regrouperLesCollaborateurs([
++      lien("a", "Emma", "2026-08-24T14:00:00Z", "role-viewer"),
++      lien("b", "Emma", "2026-08-24T16:00:00Z", "role-viewer"),
++    ])[0];
++
++    const aEcrire = affectationsARereferencer(groupe, "role-editor", MAINTENANT);
++    expect(aEcrire).toHaveLength(2);
++    expect(aEcrire.every((a) => a.roleId === "role-editor")).toBe(true);
++    expect(aEcrire.map((a) => a.id).sort()).toEqual(["a", "b"]);
++  });
++
++  it("écarte les affectations déjà au bon rôle — pas d'écriture pour rien", () => {
++    const groupe = regrouperLesCollaborateurs([
++      lien("a", "Emma", "2026-08-24T14:00:00Z", "role-editor"),
++      lien("b", "Emma", "2026-08-24T16:00:00Z", "role-viewer"),
++    ])[0];
++
++    const aEcrire = affectationsARereferencer(groupe, "role-editor", MAINTENANT);
++    expect(aEcrire.map((a) => a.id)).toEqual(["b"]);
++  });
++
++  it("un groupe déjà au bon rôle ne produit aucune écriture", () => {
++    const groupe = regrouperLesCollaborateurs([lien("a", "Emma", "x", "role-editor")])[0];
++    expect(affectationsARereferencer(groupe, "role-editor", MAINTENANT)).toEqual([]);
++  });
++
++  it("horodate chaque affectation réécrite", () => {
++    const groupe = regrouperLesCollaborateurs([lien("a", "Emma", "x", "role-viewer")])[0];
++    expect(affectationsARereferencer(groupe, "role-editor", MAINTENANT)[0].updatedAt).toBe(MAINTENANT);
++  });
++
++  it("ne touche jamais aux liens d'une AUTRE personne", () => {
++    const groupes = regrouperLesCollaborateurs([
++      lien("a", "Emma", "2026-08-24T14:00:00Z", "role-viewer"),
++      lien("b", "Mathieu", "2026-08-24T15:00:00Z", "role-viewer"),
++    ]);
++    const emma = groupes.find((g) => g.nom === "Emma")!;
++    const aEcrire = affectationsARereferencer(emma, "role-editor", MAINTENANT);
++    expect(aEcrire.map((a) => a.id)).toEqual(["a"]);
++  });
++});
++
++describe("révoquer UN lien, pas la personne", () => {
++  const emmaA = lien("a", "Emma", "2026-08-24T14:00:00Z");
++  const emmaB = lien("b", "Emma", "2026-08-24T16:00:00Z");
++  const mathieu = lien("c", "Mathieu", "2026-08-24T11:00:00Z");
++  const toutes = [emmaA, emmaB, mathieu];
++
++  /** Ce que fait `removeAssignment(id)` : l'affectation disparaît, elle seule. */
++  const apresRevocation = (id: string) => toutes.filter((a) => a.id !== id);
++
++  it("la personne reste dans la liste tant qu'il lui reste un lien", () => {
++    const groupes = regrouperLesCollaborateurs(apresRevocation("a"));
++    const emma = groupes.find((g) => g.nom === "Emma");
++    expect(emma).toBeDefined();
++    expect(emma!.liens.map((l) => l.id)).toEqual(["b"]);
++  });
++
++  it("les autres collaborateurs ne bougent pas", () => {
++    const groupes = regrouperLesCollaborateurs(apresRevocation("a"));
++    expect(groupes.find((g) => g.nom === "Mathieu")?.liens).toHaveLength(1);
++  });
++
++  it("révoquer le DERNIER lien retire la personne de la liste", () => {
++    const restantes = toutes.filter((a) => a.id !== "a" && a.id !== "b");
++    const groupes = regrouperLesCollaborateurs(restantes);
++    expect(groupes.map((g) => g.nom)).toEqual(["Mathieu"]);
++  });
++
++  it("le drapeau « dernier lien » distingue les deux avertissements", () => {
++    const emma = regrouperLesCollaborateurs(toutes).find((g) => g.nom === "Emma")!;
++    const mathieuSeul = regrouperLesCollaborateurs(toutes).find((g) => g.nom === "Mathieu")!;
++    expect(emma.liens.length === 1).toBe(false);
++    expect(mathieuSeul.liens.length === 1).toBe(true);
++  });
++});
+diff --git a/apps/mobile/components/FicheCollaborateur.tsx b/apps/mobile/components/FicheCollaborateur.tsx
+new file mode 100644
+index 0000000..a0302c3
+--- /dev/null
++++ b/apps/mobile/components/FicheCollaborateur.tsx
+@@ -0,0 +1,182 @@
++import { View, Pressable } from "react-native";
++import { useTranslation } from "react-i18next";
++import { RefreshCw, Trash2 } from "lucide-react-native";
++
++import { Display } from "@/components/Display";
++import { Label } from "@/components/Label";
++import { theme } from "@/lib/theme";
++import type { Collaborateur } from "@/lib/collaborateurs";
++
++/**
++ * Une personne, et les liens qu'elle détient.
++ *
++ * Une fiche par PERSONNE, pas par lien : les liens successifs émis pour
++ * quelqu'un ne sont pas des collaborateurs différents. La fiche dit combien de
++ * liens sont actifs et depuis quand chacun existe — c'est ce qui rend visible,
++ * entre autres, la fusion de deux homonymes.
++ *
++ * Elle dit aussi ce que l'application ne sait PAS faire : un lien déjà émis
++ * n'est pas conservé, donc pas recopiable. Un bouton absent se lit comme une
++ * panne ; une phrase, non.
++ */
++export function FicheCollaborateur({
++  collaborateur,
++  roleLabel,
++  roles,
++  onRegenerer,
++  onChangerDeRole,
++  onRevoquerLien,
++}: {
++  collaborateur: Collaborateur;
++  /** L'intitulé du rôle, résolu par l'appelant (les rôles système sont traduits). */
++  roleLabel: string;
++  /** Les rôles proposables. Changer le rôle vaut pour TOUS les liens de la personne. */
++  roles: { id: string; label: string }[];
++  onRegenerer: () => void;
++  onChangerDeRole: (roleId: string) => void;
++  /** Révoque UN lien. L'appareil qui s'en sert perd son accès. */
++  onRevoquerLien: (assignmentId: string, subjectUserId: string, dernier: boolean) => void;
++}) {
++  const { t } = useTranslation("settings");
++  const liens = collaborateur.liens;
++  const sansNom = collaborateur.nom === null;
++
++  const dateCourte = (iso?: string | null) => {
++    if (!iso) return null;
++    const d = new Date(iso);
++    return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString("fr-FR");
++  };
++
++  return (
++    <View
++      style={{
++        backgroundColor: theme.card,
++        borderRadius: 18,
++        borderWidth: 1,
++        borderColor: theme.hair,
++        paddingHorizontal: 14,
++        paddingVertical: 14,
++        gap: 12,
++      }}
++    >
++      <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
++        <Monogramme label={collaborateur.nom ?? "?"} />
++        <View style={{ flex: 1 }}>
++          <Display size={16} weight="500" color={sansNom ? theme.mute : theme.ink} numberOfLines={1}>
++            {collaborateur.nom ?? t("collaborateurSansNom")}
++          </Display>
++          <Display size={12.5} color={theme.mute} numberOfLines={1} style={{ marginTop: 1 }}>
++            {roleLabel}
++            {" · "}
++            {liens.length === 1 ? t("liensActifsUn") : t("liensActifsPlusieurs", { count: liens.length })}
++          </Display>
++        </View>
++      </View>
++
++      {sansNom && (
++        <Display size={11.5} color={theme.mute} style={{ lineHeight: 16 }}>
++          {t("collaborateurSansNomAide")}
++        </Display>
++      )}
++
++      {/* Le rôle appartient à la PERSONNE : le changer vaut pour tous ses liens,
++          sans quoi ses deux appareils divergeraient. */}
++      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
++        {roles.map((r) => {
++          const actif = r.id === collaborateur.roleId;
++          return (
++            <Pressable
++              key={r.id}
++              onPress={() => { if (!actif) onChangerDeRole(r.id); }}
++              style={({ pressed }) => ({
++                paddingHorizontal: 10,
++                paddingVertical: 6,
++                borderRadius: 999,
++                backgroundColor: actif ? theme.clay : theme.paper,
++                borderWidth: 1,
++                borderColor: actif ? theme.clay : theme.hair,
++                opacity: pressed ? 0.7 : 1,
++              })}
++            >
++              <Label size={11} color={actif ? "#ffffff" : theme.mute}>{r.label}</Label>
++            </Pressable>
++          );
++        })}
++      </View>
++
++      {/* Un lien par ligne, avec sa date : c'est ce qui permet de reconnaître
++          lequel révoquer, et de repérer deux homonymes fusionnés par erreur. */}
++      <View style={{ gap: 6 }}>
++        {liens.map((lien) => {
++          const date = dateCourte(lien.createdAt);
++          return (
++            <View
++              key={lien.id}
++              style={{
++                flexDirection: "row",
++                alignItems: "center",
++                gap: 10,
++                backgroundColor: theme.paper,
++                borderRadius: 12,
++                paddingHorizontal: 10,
++                paddingVertical: 8,
++              }}
++            >
++              <Display size={12.5} color={theme.mute} style={{ flex: 1 }} numberOfLines={1}>
++                {date ? t("lienEmisLe", { date }) : lien.subjectUserId.slice(0, 12)}
++              </Display>
++              <Pressable
++                onPress={() => onRevoquerLien(lien.id, lien.subjectUserId, liens.length === 1)}
++                hitSlop={8}
++                accessibilityLabel={t("revoquerCeLien")}
++              >
++                <Trash2 size={15} color={theme.strawberryInk} />
++              </Pressable>
++            </View>
++          );
++        })}
++      </View>
++
++      <Pressable
++        onPress={onRegenerer}
++        style={({ pressed }) => ({
++          flexDirection: "row",
++          alignItems: "center",
++          justifyContent: "center",
++          gap: 8,
++          borderRadius: 14,
++          borderWidth: 1,
++          borderColor: theme.hair,
++          paddingVertical: 11,
++          opacity: pressed ? 0.7 : 1,
++        })}
++      >
++        <RefreshCw size={15} color={theme.clay} />
++        <Label color={theme.clay}>{t("regenererLeLien")}</Label>
++      </Pressable>
++
++      <Display size={11.5} color={theme.mute} style={{ lineHeight: 16 }}>
++        {t("lienNonConserve")}
++      </Display>
++    </View>
++  );
++}
++
++function Monogramme({ label }: { label: string }) {
++  return (
++    <View
++      style={{
++        width: 42,
++        height: 42,
++        borderRadius: 14,
++        backgroundColor: theme.mustardSoft,
++        alignItems: "center",
++        justifyContent: "center",
++      }}
++    >
++      <Display size={19} weight="500" color={theme.mustard}>
++        {(label.trim()[0] ?? "?").toUpperCase()}
++      </Display>
++    </View>
++  );
++}
+diff --git a/apps/mobile/lib/collaborateurs.ts b/apps/mobile/lib/collaborateurs.ts
+new file mode 100644
+index 0000000..8917a89
+--- /dev/null
++++ b/apps/mobile/lib/collaborateurs.ts
+@@ -0,0 +1,159 @@
++/**
++ * Une personne, et les liens d'invitation qu'elle détient.
++ *
++ * Chaque lien est un SUJET DIFFÉRENT : `createSpaceInviteLink` tire une paire
++ * de clés neuve et enregistre une affectation portant un identifiant frais.
++ * Deux liens pour la même personne, c'est donc deux affectations — et c'est
++ * délibéré. Réaffecter l'affectation existante au nouveau sujet casserait
++ * l'accès de l'appareil déjà appairé : `resolvePermissionForSubject` cherche
++ * l'affectation dont `subjectUserId` égale le sujet de l'appareil, et sans elle
++ * l'appareil se verrouille sur une matrice vide.
++ *
++ * Le regroupement vit donc dans la VUE, jamais dans les données : c'est un
++ * calcul sur les affectations, clé = libellé normalisé. Aucun champ neuf,
++ * aucune migration, aucune poussée supplémentaire.
++ */
++
++/** Une affectation, réduite à ce dont le regroupement a besoin. */
++export interface AffectationDeLien {
++  id: string;
++  subjectUserId: string;
++  roleId: string;
++  label?: string | null;
++  createdAt?: string | null;
++  updatedAt?: string | null;
++}
++
++export interface Collaborateur {
++  /** Clé de regroupement. Une affectation sans libellé garde la sienne, seule. */
++  cle: string;
++  /** Le libellé tel que le propriétaire l'a saisi, ou `null` s'il n'y en a pas. */
++  nom: string | null;
++  /** Le rôle du lien le plus récent — c'est celui que la fiche affiche. */
++  roleId: string;
++  /** Les liens de cette personne, du plus ancien au plus récent. */
++  liens: AffectationDeLien[];
++}
++
++/** Le libellé, réduit à ce qui permet de reconnaître la même personne. */
++export function normaliserLeLibelle(label: string | null | undefined): string {
++  return (label ?? "").trim().toLocaleLowerCase("fr-FR").replace(/\s+/g, " ");
++}
++
++/** Ordre stable : à défaut de `createdAt`, l'ordre d'arrivée fait foi. */
++function parDateDeCreation(a: AffectationDeLien, b: AffectationDeLien): number {
++  return (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
++}
++
++/**
++ * Regroupe les affectations par personne.
++ *
++ * Deux limites assumées, et qu'il vaut mieux lire ici qu'apprendre à l'écran :
++ *
++ * – Une affectation SANS libellé reste seule sur sa ligne. Ces liens ont été
++ *   émis avant que le nom soit obligatoire ; rien ne permet de savoir à qui ils
++ *   appartiennent. Visible, pas silencieux.
++ * – Deux personnes que le propriétaire aurait nommées pareil seraient fusionnées.
++ *   Le libellé est sa propre note ; la fiche affichant la date de chaque lien,
++ *   l'erreur se voit.
++ */
++export function regrouperLesCollaborateurs(
++  affectations: readonly AffectationDeLien[],
++): Collaborateur[] {
++  const groupes = new Map<string, Collaborateur>();
++
++  for (const a of affectations) {
++    const normalise = normaliserLeLibelle(a.label);
++    // Sans libellé : sa propre clé, donc son propre groupe d'un seul lien.
++    const cle = normalise ? `nom:${normalise}` : `sans-libelle:${a.id}`;
++    const existant = groupes.get(cle);
++    if (existant) existant.liens.push(a);
++    else groupes.set(cle, { cle, nom: a.label?.trim() || null, roleId: a.roleId, liens: [a] });
++  }
++
++  return [...groupes.values()].map((g) => {
++    const liens = [...g.liens].sort(parDateDeCreation);
++    const dernier = liens[liens.length - 1];
++    // Le rôle et l'orthographe du nom viennent du lien le plus récent : c'est
++    // la dernière intention du propriétaire.
++    return { ...g, liens, roleId: dernier.roleId, nom: dernier.label?.trim() || g.nom };
++  });
++}
++
++/**
++ * Le nombre de PERSONNES, et non de liens.
++ *
++ * C'est ce que la limite de l'offre veut dire. La compter en affectations
++ * interdirait à un propriétaire au palier gratuit de renvoyer un lien perdu —
++ * l'exact contraire du besoin.
++ */
++export function nombreDeCollaborateursDistincts(
++  affectations: readonly AffectationDeLien[],
++): number {
++  return regrouperLesCollaborateurs(affectations).length;
++}
++
++/** Vrai quand ce nom désigne une personne déjà collaboratrice : réémission, pas invitation. */
++export function estUnCollaborateurConnu(
++  affectations: readonly AffectationDeLien[],
++  nom: string | null | undefined,
++): boolean {
++  const cherche = normaliserLeLibelle(nom);
++  if (!cherche) return false;
++  return affectations.some((a) => normaliserLeLibelle(a.label) === cherche);
++}
++
++// ---------------------------------------------------------------------------
++// Réémission : ce que la feuille d'invitation doit faire à l'ouverture
++// ---------------------------------------------------------------------------
++
++/** L'état dans lequel la feuille d'invitation s'ouvre. */
++export type EtatDOuverture = "generating" | "selecting";
++
++export interface OuvertureDeLaFeuille {
++  etat: EtatDOuverture;
++  /** Le rôle retenu. `undefined` quand il reste à choisir. */
++  roleId?: string;
++  /** Le nom pré-rempli, s'il y en a un. */
++  nom?: string;
++}
++
++/**
++ * Décide si la feuille peut générer tout de suite.
++ *
++ * Elle ne le peut QUE si le nom et un rôle qui existe encore sont fournis. Un
++ * rôle supprimé entre-temps n'a rien à pré-remplir : on retombe sur le
++ * sélecteur plutôt que d'émettre un lien sans rôle résolu.
++ */
++export function ouvertureDeLaFeuille(
++  initialName: string | null | undefined,
++  initialRoleId: string | null | undefined,
++  rolesExistants: readonly { id: string }[],
++): OuvertureDeLaFeuille {
++  const nom = (initialName ?? "").trim();
++  const roleEncoreLa = !!initialRoleId && rolesExistants.some((r) => r.id === initialRoleId);
++  if (nom && roleEncoreLa) return { etat: "generating", roleId: initialRoleId as string, nom };
++  return { etat: "selecting", ...(nom ? { nom } : {}) };
++}
++
++// ---------------------------------------------------------------------------
++// Le rôle appartient à la personne, pas au lien
++// ---------------------------------------------------------------------------
++
++/**
++ * Les affectations d'un groupe qu'un changement de rôle doit réécrire.
++ *
++ * Une personne peut détenir plusieurs liens, donc plusieurs affectations. Ne
++ * changer que l'une d'elles ferait diverger ses appareils — l'un gardant
++ * l'ancien rôle indéfiniment. Les affectations déjà au bon rôle sont écartées :
++ * une écriture sans changement est une poussée pour rien.
++ */
++export function affectationsARereferencer<T extends AffectationDeLien>(
++  groupe: { liens: T[] },
++  roleId: string,
++  maintenant: string,
++): T[] {
++  return groupe.liens
++    .filter((l) => l.roleId !== roleId)
++    .map((l) => ({ ...l, roleId, updatedAt: maintenant }));
++}
+diff --git a/apps/mobile/app/settings/roles.tsx b/apps/mobile/app/settings/roles.tsx
+index 1355999..5323613 100644
+--- a/apps/mobile/app/settings/roles.tsx
++++ b/apps/mobile/app/settings/roles.tsx
+@@ -1,4 +1,4 @@
+-import React, { useCallback, useState } from "react";
++import React, { useCallback, useMemo, useState } from "react";
+ import { ScrollView, View, Pressable } from "react-native";
+ import { useTranslation } from "react-i18next";
+ import * as Crypto from "expo-crypto";
+diff --git a/apps/mobile/app/settings/roles.tsx b/apps/mobile/app/settings/roles.tsx
+index 1355999..5323613 100644
+--- a/apps/mobile/app/settings/roles.tsx
++++ b/apps/mobile/app/settings/roles.tsx
+@@ -20,6 +20,16 @@ import { Chip } from "@/components/Chip";
+ import { ConfirmSheet } from "@/components/ConfirmSheet";
+ import { RenameSheet } from "@/components/RenameSheet";
+ import { theme } from "@/lib/theme";
++// MODIFICATION LOCALE — réémettre un lien depuis la fiche d'un collaborateur.
++import { FicheCollaborateur } from "@/components/FicheCollaborateur";
++import { InviteQRSheet } from "@/components/InviteQRSheet";
++import { createInviteLink } from "@/lib/invite-link";
++import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
++import {
++  affectationsARereferencer,
++  regrouperLesCollaborateurs,
++  type Collaborateur,
++} from "@/lib/collaborateurs";
+ 
+ type Level = "none" | PermissionAction;
+ const LEVELS: Level[] = ["none", "view", "edit"];
+diff --git a/apps/mobile/app/settings/roles.tsx b/apps/mobile/app/settings/roles.tsx
+index 1355999..5323613 100644
+--- a/apps/mobile/app/settings/roles.tsx
++++ b/apps/mobile/app/settings/roles.tsx
+@@ -58,7 +68,20 @@ export default function RolesScreen() {
+   const [editingId, setEditingId] = useState<string | null>(null);
+   const [showCreate, setShowCreate] = useState(false);
+   const [deleteRoleId, setDeleteRoleId] = useState<string | null>(null);
+-  const [removeAssignmentId, setRemoveAssignmentId] = useState<string | null>(null);
++  // MODIFICATION LOCALE — l'avancement du rescellement pendant une révocation.
++  const [rescellement, setRescellement] = useState<{ fait: number; total: number } | null>(null);
++  // MODIFICATION LOCALE — réémission et révocation PAR LIEN.
++  const [reemission, setReemission] = useState<{ nom: string; roleId: string } | null>(null);
++  const [revocation, setRevocation] = useState<
++    { assignmentId: string; subjectUserId: string; dernier: boolean } | null
++  >(null);
++  const upsertAssignment = usePermissionsStore((s) => s.upsertAssignment);
++  const registry = useWeddingRegistryStore((s) => s.registry);
++  const activeEntry = registry?.weddings.find((w) => w.id === registry.activeWeddingId) ?? null;
++
++  // Une fiche par personne : les liens successifs d'une même personne ne sont
++  // pas des collaborateurs différents.
++  const collaborateurs = useMemo(() => regrouperLesCollaborateurs(assignments), [assignments]);
+ 
+   const roleLabel = useCallback(
+     (r: RoleDefinition) => (r.isSystem ? t(r.name) : r.name),
+diff --git a/apps/mobile/app/settings/roles.tsx b/apps/mobile/app/settings/roles.tsx
+index 1355999..5323613 100644
+--- a/apps/mobile/app/settings/roles.tsx
++++ b/apps/mobile/app/settings/roles.tsx
+@@ -70,6 +93,35 @@ export default function RolesScreen() {
+   );
+   const roleTone = (r: RoleDefinition) => (r.isSystem ? theme.olive : theme.clay);
+ 
++  const rolesProposables = useMemo(
++    () => roles.map((r) => ({ id: r.id, label: roleLabel(r) })),
++    [roles, roleLabel],
++  );
++
++  /**
++   * Le rôle appartient à la PERSONNE, pas au lien.
++   *
++   * Une personne peut détenir plusieurs liens, donc plusieurs affectations.
++   * N'en changer qu'une ferait diverger ses appareils — l'un gardant l'ancien
++   * rôle indéfiniment. Chaque `upsertAssignment` appelle `notifySync`, qui est
++   * débouncée : les N écritures se résolvent en UNE poussée.
++   */
++  const changerLeRoleDuGroupe = useCallback(
++    (groupe: Collaborateur, roleId: string) => {
++      const maintenant = new Date().toISOString();
++      for (const a of affectationsARereferencer(groupe, roleId, maintenant)) {
++        const source = assignments.find((x) => x.id === a.id);
++        if (source) upsertAssignment({ ...source, roleId, updatedAt: maintenant });
++      }
++    },
++    [assignments, upsertAssignment],
++  );
++
++  const regenerer = useCallback(
++    (roleId?: string, name?: string) => createInviteLink(activeEntry!, roleId, name),
++    [activeEntry],
++  );
++
+   const roleSummary = useCallback(
+     (r: RoleDefinition) => {
+       const granted = FEATURE_SURFACES.filter((s) => r.matrix[s]);
+diff --git a/apps/mobile/app/settings/roles.tsx b/apps/mobile/app/settings/roles.tsx
+index 1355999..5323613 100644
+--- a/apps/mobile/app/settings/roles.tsx
++++ b/apps/mobile/app/settings/roles.tsx
+@@ -302,7 +354,7 @@ export default function RolesScreen() {
+ 
+       <View style={{ height: 28 }} />
+       <Label color={theme.clay} style={{ marginBottom: 10 }}>{t("collaboratorsSectionTitle")}</Label>
+-      {assignments.length === 0 ? (
++      {collaborateurs.length === 0 ? (
+         <View
+           style={{
+             backgroundColor: theme.card,
+diff --git a/apps/mobile/app/settings/roles.tsx b/apps/mobile/app/settings/roles.tsx
+index 1355999..5323613 100644
+--- a/apps/mobile/app/settings/roles.tsx
++++ b/apps/mobile/app/settings/roles.tsx
+@@ -319,37 +371,20 @@ export default function RolesScreen() {
+         </View>
+       ) : (
+         <View style={{ gap: 10 }}>
+-          {assignments.map((a) => {
+-            const role = roles.find((r) => r.id === a.roleId);
+-            const name = a.label ?? (role ? roleLabel(role) : t("unknownRole"));
++          {collaborateurs.map((c) => {
++            const role = roles.find((r) => r.id === c.roleId);
+             return (
+-              <View
+-                key={a.id}
+-                style={{
+-                  flexDirection: "row",
+-                  alignItems: "center",
+-                  gap: 14,
+-                  backgroundColor: theme.card,
+-                  borderRadius: 18,
+-                  borderWidth: 1,
+-                  borderColor: theme.hair,
+-                  paddingHorizontal: 14,
+-                  paddingVertical: 14,
+-                }}
+-              >
+-                <Monogram label={name} tone={theme.mustard} />
+-                <View style={{ flex: 1 }}>
+-                  <Display size={16} weight="500" color={theme.ink} numberOfLines={1}>
+-                    {name}
+-                  </Display>
+-                  <Display size={12.5} color={theme.mute} numberOfLines={1} style={{ marginTop: 1 }}>
+-                    {role ? roleLabel(role) : t("unknownRole")}
+-                  </Display>
+-                </View>
+-                <Pressable onPress={() => setRemoveAssignmentId(a.id)} hitSlop={8}>
+-                  <Trash2 size={17} color={theme.clay} />
+-                </Pressable>
+-              </View>
++              <FicheCollaborateur
++                key={c.cle}
++                collaborateur={c}
++                roleLabel={role ? roleLabel(role) : t("unknownRole")}
++                roles={rolesProposables}
++                onRegenerer={() => setReemission({ nom: c.nom ?? "", roleId: c.roleId })}
++                onChangerDeRole={(roleId) => changerLeRoleDuGroupe(c, roleId)}
++                onRevoquerLien={(assignmentId, subjectUserId, dernier) =>
++                  setRevocation({ assignmentId, subjectUserId, dernier })
++                }
++              />
+             );
+           })}
+         </View>
+diff --git a/apps/mobile/app/settings/roles.tsx b/apps/mobile/app/settings/roles.tsx
+index 1355999..5323613 100644
+--- a/apps/mobile/app/settings/roles.tsx
++++ b/apps/mobile/app/settings/roles.tsx
+@@ -367,29 +402,60 @@ export default function RolesScreen() {
+         onCancel={() => setShowCreate(false)}
+       />
+ 
++      {rescellement && (
++        <View
++          className="mx-4 mb-3 rounded-xl px-3 py-2 items-center"
++          style={{ backgroundColor: theme.claySoft }}
++        >
++          <Label color={theme.clay}>{t("rescellementEnCours", rescellement)}</Label>
++        </View>
++      )}
++
+       <ConfirmSheet
+-        visible={!!removeAssignmentId}
+-        title={t("removeCollaboratorTitle")}
+-        message={t("removeCollaboratorMsg")}
+-        confirmLabel={t("removeCollaborator")}
++        visible={!!revocation}
++        title={t("revoquerCeLienTitre")}
++        message={revocation?.dernier ? t("revoquerDernierLienMsg") : t("revoquerCeLienMsg")}
++        confirmLabel={t("revoquerCeLien")}
+         destructive
+         onConfirm={() => {
+-          const id = removeAssignmentId;
+-          setRemoveAssignmentId(null);
++          const id = revocation?.assignmentId ?? null;
++          setRevocation(null);
+           if (!id) return;
+           const assignment = assignments.find((a) => a.id === id);
+           if (!assignment) {
+             removeAssignment(id);
+             return;
+           }
+-          // Real eviction (keyring rotation + roster drop); falls back to a roster-only drop.
+-          revokeCollaborator(assignment.subjectUserId, assignment.id).catch((err) => {
+-            console.error("[roles] revokeCollaborator failed", err);
+-            removeAssignment(id);
+-            toast.error(t("collaboratorRemoveError"));
+-          });
++          // MODIFICATION LOCALE — l'éviction n'est accomplie qu'une fois le
++          // contenu rescellé, et cela n'est plus instantané : on montre la
++          // progression, et une révocation incomplète se dit.
++          setRescellement({ fait: 0, total: 0 });
++          revokeCollaborator(assignment.subjectUserId, assignment.id, {
++            onAvancement: ({ fait, total }) => setRescellement({ fait, total }),
++          })
++            .then((résultat) => {
++              if (résultat.evicted) toast.success(t("revocationAccomplie"));
++              else if (résultat.aResceller?.length) {
++                toast.error(t("revocationIncomplete", { restant: résultat.aResceller.join(", ") }));
++              } else toast.error(t("collaboratorRemoveError"));
++            })
++            .catch((err) => {
++              console.error("[roles] revokeCollaborator failed", err);
++              removeAssignment(id);
++              toast.error(t("collaboratorRemoveError"));
++            })
++            .finally(() => setRescellement(null));
+         }}
+-        onCancel={() => setRemoveAssignmentId(null)}
++        onCancel={() => setRevocation(null)}
++      />
++
++      {/* La feuille de réémission : nom et rôle déjà remplis, elle génère seule. */}
++      <InviteQRSheet
++        visible={!!reemission}
++        onClose={() => setReemission(null)}
++        generate={regenerer}
++        initialName={reemission?.nom}
++        initialRoleId={reemission?.roleId}
+       />
+     </ScrollView>
+   );
+diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
+index 8c90fdb..0ce885d 100644
+--- a/apps/mobile/lib/invite-link.ts
++++ b/apps/mobile/lib/invite-link.ts
+@@ -1,12 +1,23 @@
+ import * as Linking from "expo-linking";
+ import * as Crypto from "expo-crypto";
+ import { createSpaceInviteLink, getSyncNamespace, roleCanWrite, serializeSpaceInviteStore, isWithinFreeLimit } from "@fiance/sdk";
+-import { resolveSessionConfig } from "@/lib/server";
++import { normalizeSyncBase, resolveServerUrl, resolveSessionConfig } from "@/lib/server";
++// MODIFICATION LOCALE — le lien passe de ~1342 à ~81 caractères : jeton chiffré
++// déposé derrière un code court, clé dans le fragment. Voir `invitation-courte.ts`.
++import {
++  chiffrerLeJeton,
++  construireLeLienCourt,
++  deposer,
++  retirer,
++  tirerUnCode,
++} from "@/lib/invitation-courte";
+ import { ensureSpaceProvisioned } from "@/lib/space-provision";
+ import { pushSpaceSnapshot } from "@/lib/space-sync";
+ import { usePermissionsStore } from "@/store/usePermissionsStore";
+-import { writeCollection } from "@/lib/kv-storage";
++import { readCollection, writeCollection } from "@/lib/kv-storage";
+ import { isPremium } from "@/lib/premium";
++// MODIFICATION LOCALE — la limite porte sur les personnes, pas sur les liens.
++import { estUnCollaborateurConnu, nombreDeCollaborateursDistincts } from "@/lib/collaborateurs";
+ import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
+ 
+ /** KV key holding the serialized space-invite store (edPub/kemPub/cap handles per invite),
+diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
+index 8c90fdb..0ce885d 100644
+--- a/apps/mobile/lib/invite-link.ts
++++ b/apps/mobile/lib/invite-link.ts
+@@ -24,7 +35,19 @@ export const SPACE_INVITE_STORE_KEY = "spaceInviteStore";
+ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: string, name?: string): Promise<string> {
+   // Defensive backstop — the primary gate is the paywall prompt in settings/index.tsx's
+   // handleInvite. Free tier allows 1 invited member (the partner); the 2nd+ requires premium.
+-  if (!isWithinFreeLimit("members", usePermissionsStore.getState().assignments.length, isPremium())) {
++  //
++  // MODIFICATION LOCALE — la limite compte des PERSONNES, pas des liens.
++  //
++  // Chaque lien crée une affectation de plus : compter les affectations
++  // interdirait à un propriétaire au palier gratuit de RENVOYER un lien perdu à
++  // quelqu'un qu'il a déjà invité — l'exact contraire du besoin. Réémettre pour
++  // une personne déjà collaboratrice n'est donc opposable à aucune limite.
++  const affectations = usePermissionsStore.getState().assignments;
++  const réémission = estUnCollaborateurConnu(affectations, name);
++  if (
++    !réémission &&
++    !isWithinFreeLimit("members", nombreDeCollaborateursDistincts(affectations), isPremium())
++  ) {
+     throw new Error("FREE_MEMBER_LIMIT");
+   }
+ 
+diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
+index 07ec918..efd97e0 100644
+--- a/apps/mobile/components/InviteQRSheet.tsx
++++ b/apps/mobile/components/InviteQRSheet.tsx
+@@ -12,16 +12,38 @@ import { Label } from "@/components/Label";
+ import { Chip } from "@/components/Chip";
+ import { usePermissionsStore } from "@/store/usePermissionsStore";
+ import { roleCanWrite, FEATURE_SURFACES, type FeatureSurface, type RoleDefinition } from "@fiance/sdk";
++// MODIFICATION LOCALE — réémission depuis la fiche d'un collaborateur.
++import { ouvertureDeLaFeuille } from "@/lib/collaborateurs";
+ 
+ interface InviteQRSheetProps {
+   visible: boolean;
+   onClose: () => void;
+   generate: (roleId?: string, name?: string) => Promise<string>;
++  /** MODIFICATION LOCALE — retire le dépôt du lien court avant son terme. */
++  retirer?: (lien: string) => Promise<void>;
++  /**
++   * MODIFICATION LOCALE — réémission depuis la fiche d'un collaborateur.
++   *
++   * Quand le nom ET un rôle qui existe encore sont fournis, la feuille saute
++   * l'étape de sélection et génère directement : le propriétaire ne retape pas
++   * ce qu'il a déjà dit. Un rôle qui a été supprimé entre-temps ne se
++   * pré-remplit pas — on retombe sur le sélecteur plutôt que d'émettre un lien
++   * sans rôle résolu.
++   */
++  initialName?: string;
++  initialRoleId?: string;
+ }
+ 
+ type State = "selecting" | "generating" | "ready" | "error";
+ 
+-export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps) {
++export function InviteQRSheet({
++  visible,
++  onClose,
++  generate,
++  retirer,
++  initialName,
++  initialRoleId,
++}: InviteQRSheetProps) {
+   const { t } = useTranslation("settings");
+   const { width } = useWindowDimensions();
+   const roles = usePermissionsStore((s) => s.roles);
+diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
+index 07ec918..efd97e0 100644
+--- a/apps/mobile/components/InviteQRSheet.tsx
++++ b/apps/mobile/components/InviteQRSheet.tsx
+@@ -53,12 +77,13 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
+   const [roleId, setRoleId] = useState<string | undefined>(undefined);
+   const nameValid = name.trim().length > 0;
+ 
+-  const run = (selectedRoleId?: string) => {
+-    if (!nameValid) return;
++  const run = (selectedRoleId?: string, nomExplicite?: string) => {
++    const nom = (nomExplicite ?? name).trim();
++    if (!nom) return;
+     setRoleId(selectedRoleId);
+     setState("generating");
+     setDetail("");
+-    generate(selectedRoleId, name.trim() || undefined)
++    generate(selectedRoleId, nom || undefined)
+       .then((link) => {
+         setUrl(link);
+         setState("ready");
+diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
+index 07ec918..efd97e0 100644
+--- a/apps/mobile/components/InviteQRSheet.tsx
++++ b/apps/mobile/components/InviteQRSheet.tsx
+@@ -72,6 +97,11 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
+ 
+   useEffect(() => {
+     if (visible) {
++      // MODIFICATION LOCALE — réémission : la décision vit dans
++      // `ouvertureDeLaFeuille`, testable sans monter le composant.
++      const ouverture = ouvertureDeLaFeuille(initialName, initialRoleId, roles);
++      if (ouverture.nom) setName(ouverture.nom);
++      if (ouverture.etat === "generating") { run(ouverture.roleId, ouverture.nom); return; }
+       setState("selecting");
+     } else {
+       setState("selecting");
+diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
+index 07ec918..efd97e0 100644
+--- a/apps/mobile/components/InviteQRSheet.tsx
++++ b/apps/mobile/components/InviteQRSheet.tsx
+@@ -79,8 +109,10 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
+       setDetail("");
+       setRoleId(undefined);
+       setName("");
++      setRetrait("idle");
+     }
+-  }, [visible]);
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [visible, initialName, initialRoleId]);
+ 
+   const handleShare = async () => {
+     await Clipboard.setStringAsync(url);

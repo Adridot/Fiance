@@ -1,0 +1,1111 @@
+diff --git a/apps/mobile/__tests__/guest-bulk-store.test.ts b/apps/mobile/__tests__/guest-bulk-store.test.ts
+new file mode 100644
+index 0000000..e2d091c
+--- /dev/null
++++ b/apps/mobile/__tests__/guest-bulk-store.test.ts
+@@ -0,0 +1,207 @@
++import { describe, it, expect, vi, beforeEach } from "vitest";
++
++const persistGuests = vi.fn();
++const persistCommunications = vi.fn();
++const persistWeddingRoleAssignments = vi.fn();
++const persistSeatingConstraints = vi.fn();
++const persistMealSelections = vi.fn();
++const notifySync = vi.fn();
++
++// Non-null on purpose: a null storage would short-circuit every `persist*`, and
++// the "writes only once" tests would stop proving anything.
++vi.mock("@/lib/kv-storage", () => ({ getStorage: () => ({}) }));
++vi.mock("@/lib/persistence", () => ({
++  persistGuests: (...a: unknown[]) => persistGuests(...a),
++  persistTables: vi.fn(),
++  persistGroups: vi.fn(),
++  persistHouseholds: vi.fn(),
++  persistCommunications: (...a: unknown[]) => persistCommunications(...a),
++  persistWeddingRoleAssignments: (...a: unknown[]) => persistWeddingRoleAssignments(...a),
++  persistSeatingConstraints: (...a: unknown[]) => persistSeatingConstraints(...a),
++  persistMealSelections: (...a: unknown[]) => persistMealSelections(...a),
++}));
++vi.mock("@/lib/starfish", () => ({ notifySync: () => notifySync() }));
++vi.mock("@/lib/store-review", () => ({ maybeRequestReview: vi.fn() }));
++
++import { useGuestsStore } from "@/store/useGuestsStore";
++import { useCommunicationsStore } from "@/store/useCommunicationsStore";
++import { useWeddingPartyStore } from "@/store/useWeddingPartyStore";
++import { useSeatingConstraintsStore } from "@/store/useSeatingConstraintsStore";
++import { useMealSelectionsStore } from "@/store/useMealSelectionsStore";
++
++// ─── Fixture ─────────────────────────────────────────────────────────────────
++// "a" leaves its companion "b" behind; "c" and "d" leave as a whole couple.
++
++const guest = (id: string, companionId: string | null = null) =>
++  ({
++    id,
++    firstName: id,
++    lastName: id.toUpperCase(),
++    companionId,
++    rsvpStatus: "PENDING",
++    rsvpDate: null,
++    invitationType: "FULL",
++  }) as never;
++
++const TARGETS = ["a", "c", "d", "e"];
++
++function seed() {
++  useGuestsStore.setState({
++    guests: [guest("a", "b"), guest("b", "a"), guest("c", "d"), guest("d", "c"), guest("e"), guest("f")],
++    tables: [],
++    groups: [],
++    households: [],
++  });
++  useCommunicationsStore.setState({
++    communications: [
++      {
++        id: "comm-1",
++        recipients: [{ guestId: "a" }, { guestId: "e" }, { guestId: "f" }],
++      },
++    ] as never,
++  });
++  useWeddingPartyStore.setState({
++    weddingRoleAssignments: [
++      { id: "ra-1", guestId: "c", roleId: "r" },
++      { id: "ra-2", guestId: "f", roleId: "r" },
++    ] as never,
++  });
++  useSeatingConstraintsStore.setState({
++    seatingConstraints: [
++      { id: "sc-1", guestIds: ["a", "b", "f"], type: "TOGETHER" },
++      { id: "sc-2", guestIds: ["c", "f"], type: "APART" },
++    ] as never,
++  });
++  useMealSelectionsStore.setState({
++    mealSelections: [
++      { id: "ms-1", guestId: "d" },
++      { id: "ms-2", guestId: "b" },
++    ] as never,
++  });
++}
++
++/** The five collections, timestamps stripped — they differ between the two runs. */
++function snapshot() {
++  const withoutTimestamp = (xs: unknown[]) =>
++    xs.map((x) => {
++      const { updatedAt, ...rest } = x as Record<string, unknown>;
++      return rest;
++    });
++  return {
++    guests: withoutTimestamp(useGuestsStore.getState().guests),
++    communications: withoutTimestamp(useCommunicationsStore.getState().communications),
++    roleAssignments: withoutTimestamp(useWeddingPartyStore.getState().weddingRoleAssignments),
++    seatingConstraints: withoutTimestamp(useSeatingConstraintsStore.getState().seatingConstraints),
++    mealSelections: withoutTimestamp(useMealSelectionsStore.getState().mealSelections),
++  };
++}
++
++beforeEach(() => {
++  vi.clearAllMocks();
++  seed();
++});
++
++describe("removeGuests — equivalence with the matching single deletions", () => {
++  it("leaves the same complete state, all four cascades included", () => {
++    useGuestsStore.getState().removeGuests(TARGETS);
++    const inBatch = snapshot();
++
++    seed();
++    for (const id of TARGETS) useGuestsStore.getState().removeGuest(id);
++    const oneByOne = snapshot();
++
++    expect(inBatch).toEqual(oneByOne);
++  });
++
++  // Both sides run the same body, so the state comparison above is blind to a
++  // cascade nobody plays any more. These assertions are not: they name the one
++  // that went missing.
++  describe("every cascade is played by the batch", () => {
++    beforeEach(() => useGuestsStore.getState().removeGuests(TARGETS));
++
++    it("the guests go, and the companion left behind loses its link", () => {
++      const remaining = useGuestsStore.getState().guests;
++      expect(remaining.map((g) => g.id)).toEqual(["b", "f"]);
++      expect(remaining.find((g) => g.id === "b")?.companionId).toBeNull();
++    });
++
++    it("communication recipients", () => {
++      const recipients = useCommunicationsStore.getState().communications[0].recipients;
++      expect(recipients.map((r) => r.guestId)).toEqual(["f"]);
++    });
++
++    it("wedding-party roles", () => {
++      expect(
++        useWeddingPartyStore.getState().weddingRoleAssignments.map((a) => a.id),
++      ).toEqual(["ra-2"]);
++    });
++
++    it("seating constraints, including those falling under two guests", () => {
++      const constraints = useSeatingConstraintsStore.getState().seatingConstraints;
++      expect(constraints.map((c) => c.id)).toEqual(["sc-1"]);
++      expect(constraints[0].guestIds).toEqual(["b", "f"]);
++    });
++
++    it("meal selections", () => {
++      expect(useMealSelectionsStore.getState().mealSelections.map((s) => s.id)).toEqual([
++        "ms-2",
++      ]);
++    });
++  });
++});
++
++describe("a batch action writes only once", () => {
++  it("removeGuests: one persist per touched collection, one sync notification", () => {
++    useGuestsStore.getState().removeGuests(TARGETS);
++    expect(persistGuests).toHaveBeenCalledTimes(1);
++    expect(persistCommunications).toHaveBeenCalledTimes(1);
++    expect(persistWeddingRoleAssignments).toHaveBeenCalledTimes(1);
++    expect(persistSeatingConstraints).toHaveBeenCalledTimes(1);
++    expect(persistMealSelections).toHaveBeenCalledTimes(1);
++    expect(notifySync).toHaveBeenCalledTimes(1);
++  });
++
++  it("updateGuests: a single persistGuests, a single notification", () => {
++    useGuestsStore.getState().updateGuests(["a", "b", "f"], () => ({ rsvpStatus: "ACCEPTED" }));
++    expect(persistGuests).toHaveBeenCalledTimes(1);
++    expect(notifySync).toHaveBeenCalledTimes(1);
++  });
++
++  it("an empty batch neither writes nor notifies", () => {
++    useGuestsStore.getState().removeGuests([]);
++    useGuestsStore.getState().updateGuests([], () => ({}));
++    expect(persistGuests).not.toHaveBeenCalled();
++    expect(notifySync).not.toHaveBeenCalled();
++  });
++});
++
++describe("updateGuests — each guest gets its own patch", () => {
++  it("two guests of the batch can receive different values", () => {
++    useGuestsStore
++      .getState()
++      .updateGuests(["a", "b"], (g) => ({ rsvpStatus: g.id === "a" ? "ACCEPTED" : "DECLINED" }));
++    const byId = new Map(useGuestsStore.getState().guests.map((g) => [g.id, g]));
++    expect(byId.get("a")?.rsvpStatus).toBe("ACCEPTED");
++    expect(byId.get("b")?.rsvpStatus).toBe("DECLINED");
++    expect(byId.get("f")?.rsvpStatus).toBe("PENDING");
++  });
++});
++
++describe("the single-guest actions go through the batch and cannot diverge from it", () => {
++  it("removing an accompanied guest from its own screen leaves the companion, without the link", () => {
++    useGuestsStore.getState().removeGuest("a");
++    const remaining = useGuestsStore.getState().guests;
++    expect(remaining.map((g) => g.id)).toEqual(["b", "c", "d", "e", "f"]);
++    expect(remaining.find((g) => g.id === "b")?.companionId).toBeNull();
++    expect(
++      useCommunicationsStore.getState().communications[0].recipients.map((r) => r.guestId),
++    ).toEqual(["e", "f"]);
++  });
++
++  it("updateGuest applies its patch", () => {
++    useGuestsStore.getState().updateGuest("f", { rsvpStatus: "DECLINED" });
++    expect(useGuestsStore.getState().guests.find((g) => g.id === "f")?.rsvpStatus).toBe(
++      "DECLINED",
++    );
++  });
++});
+diff --git a/apps/mobile/__tests__/guest-import.test.ts b/apps/mobile/__tests__/guest-import.test.ts
+index 26bb080..e730fb1 100644
+--- a/apps/mobile/__tests__/guest-import.test.ts
++++ b/apps/mobile/__tests__/guest-import.test.ts
+@@ -1,7 +1,7 @@
+ import { describe, it, expect } from "vitest";
+ import { zipSync, strToU8 } from "fflate";
+-import { base64ToBytes, parseSpreadsheet, mapRowsToGuests, type ParsedSheet } from "@/lib/guest-import";
+-import type { GuestGroup, Table } from "@fiance/sdk";
++import { base64ToBytes, parseSpreadsheet, mapRowsToGuests, reconcileGuests, type ParsedSheet } from "@/lib/guest-import";
++import type { Guest, GuestGroup, Table } from "@fiance/sdk";
+ 
+ // ─── Fixtures ────────────────────────────────────────────────────────────────
+ 
+@@ -123,7 +123,8 @@ describe("mapRowsToGuests", () => {
+     expect(paul.phone).toBe("0612345678"); // mobile preferred over landline
+     expect(paul.address).toBe("1 rue de la Paix, 75001, Paris");
+     expect(paul.email).toBe("paul@example.com");
+-    expect(paul.invitationType).toBe("FULL");
++    // These headers carry no invitation-type column, so every row lands undetermined.
++    expect(paul.invitationType).toBe("IMPORT_UNDETERMINED");
+ 
+     const catherine = result.guests[1];
+     expect(catherine.rsvpStatus).toBe("PENDING");
+@@ -215,3 +216,210 @@ describe("base64ToBytes", () => {
+     expect(Buffer.from(base64ToBytes(b64)).toString("utf8")).toBe("hello!");
+   });
+ });
++
++// ─── mapRowsToGuests — invitation types ──────────────────────────────────────
++
++describe("mapRowsToGuests — invitation types", () => {
++  const sheetWith = (header: string, values: string[]) => ({
++    headers: ["Prénom", "Nom", header],
++    rows: values.map((v, i) => [`Prenom${i}`, `Nom${i}`, v]),
++  });
++  const ids = () => {
++    let n = 0;
++    return () => `id-${n++}`;
++  };
++
++  it("recognises the usual column headers, whatever the accents and case", () => {
++    for (const header of ["Cadre", "CADRE", "Type d'invitation", "invitation", "Cadre d'invitation"]) {
++      const r = mapRowsToGuests(sheetWith(header, ["Vin d'honneur"]), { groups: [], tables: [] }, { makeId: ids() });
++      expect(r.withoutInvitationType, `header "${header}" not recognised`).toBe(0);
++      expect(r.invitationTypes[0].label).toBe("Vin d'honneur");
++    }
++  });
++
++  it("reuses an existing type, by id or by label, without duplicating it", () => {
++    const existing = [
++      { id: "FULL", label: "Journée complète", isDefault: true, needsSleeping: false, createdAt: null, updatedAt: null },
++    ];
++    const r = mapRowsToGuests(
++      sheetWith("Cadre", ["FULL", "Journée complète", "journee complete"]),
++      { groups: [], tables: [], invitationTypes: existing },
++      { makeId: ids() },
++    );
++    expect(r.invitationTypes).toHaveLength(0);
++    expect(r.guests.map((g) => g.invitationType)).toEqual(["FULL", "FULL", "FULL"]);
++  });
++
++  it("creates a new type only once when several rows repeat it", () => {
++    const r = mapRowsToGuests(
++      sheetWith("Cadre", ["Brunch", "Brunch", "Brunch"]),
++      { groups: [], tables: [] },
++      { makeId: ids() },
++    );
++    expect(r.invitationTypes).toHaveLength(1);
++    expect(new Set(r.guests.map((g) => g.invitationType)).size).toBe(1);
++  });
++
++  it("reports rows without an invitation type instead of forcing FULL on them", () => {
++    const r = mapRowsToGuests(
++      sheetWith("Cadre", ["Cérémonie", "", "  "]),
++      { groups: [], tables: [] },
++      { makeId: ids() },
++    );
++    expect(r.withoutInvitationType).toBe(2);
++    expect(r.guests[1].invitationType).toBe("IMPORT_UNDETERMINED");
++    expect(r.guests[1].invitationType).not.toBe("FULL");
++    expect(r.invitationTypes.some((t) => t.id === "IMPORT_UNDETERMINED")).toBe(true);
++  });
++
++  it("reports namesakes found in the source", () => {
++    const r = mapRowsToGuests(
++      { headers: ["Prénom", "Nom", "Cadre"], rows: [["Jean", "Dupont", "Cérémonie"], ["Jean", "Dupont", "Cérémonie"], ["Marie", "Curie", "Cérémonie"]] },
++      { groups: [], tables: [] },
++      { makeId: ids() },
++    );
++    expect(r.duplicateNames).toEqual(["jean dupont"]);
++    expect(r.guests).toHaveLength(3); // imported all the same: a real namesake is plausible
++  });
++});
++
++// ─── reconcileGuests ─────────────────────────────────────────────────────────
++
++const guest = (over: Partial<Guest> & { firstName: string; lastName: string }): Guest => ({
++  id: `g-${over.firstName}-${over.lastName}`,
++  side: null, invitationType: "FULL", rsvpStatus: "PENDING", rsvpDate: null,
++  isSleeping: null, childrenCount: 0, diet: "STANDARD", dietNotes: null,
++  groupId: null, tableId: null, companionId: null, noTableNeeded: null,
++  giftDescription: null, thankYouSent: null, thankYouSentDate: null,
++  accommodationId: null, roomNumber: null, rsvpToken: null,
++  email: null, phone: null, address: null, notes: null,
++  shuttleVendorId: null, shuttlePickupLocation: null, shuttlePickupTime: null,
++  parkingNeeded: null, parkingNotes: null, arrivalNotes: null, transportMode: null,
++  createdAt: null, updatedAt: null,
++  ...over,
++});
++
++describe("reconcileGuests", () => {
++  it("does not add a guest already present: the import is replayable", () => {
++    const existing = [guest({ firstName: "Jean", lastName: "Dupont" })];
++    const incoming = [guest({ id: "new", firstName: "Jean", lastName: "Dupont" })];
++
++    const r = reconcileGuests(existing, incoming);
++
++    expect(r.toAdd).toHaveLength(0);
++    expect(r.matched).toBe(1);
++  });
++
++  it("matches across accents and case", () => {
++    const existing = [guest({ firstName: "Cécile", lastName: "MARTIN" })];
++    const incoming = [guest({ id: "new", firstName: "cecile", lastName: "martin" })];
++
++    expect(reconcileGuests(existing, incoming).toAdd).toHaveLength(0);
++  });
++
++  it("adds the guests that are genuinely unknown", () => {
++    const existing = [guest({ firstName: "Jean", lastName: "Dupont" })];
++    const incoming = [
++      guest({ id: "a", firstName: "Jean", lastName: "Dupont" }),
++      guest({ id: "b", firstName: "Marie", lastName: "Curie" }),
++    ];
++
++    const r = reconcileGuests(existing, incoming);
++
++    expect(r.toAdd.map((g) => g.lastName)).toEqual(["Curie"]);
++  });
++
++  it("fills an empty field without overwriting one already entered in the app", () => {
++    const existing = [guest({ firstName: "Jean", lastName: "Dupont", email: null, notes: "Allergique aux fruits de mer" })];
++    const incoming = [guest({ id: "new", firstName: "Jean", lastName: "Dupont", email: "jean@example.com", notes: "" })];
++
++    const r = reconcileGuests(existing, incoming);
++
++    expect(r.toUpdate).toHaveLength(1);
++    expect(r.toUpdate[0].updates.email).toBe("jean@example.com");
++    expect(r.toUpdate[0].updates).not.toHaveProperty("notes");
++  });
++
++  it("replaces the undetermined type when the source finally brings a real one", () => {
++    const existing = [guest({ firstName: "Jean", lastName: "Dupont", invitationType: "IMPORT_UNDETERMINED" })];
++    const incoming = [guest({ id: "new", firstName: "Jean", lastName: "Dupont", invitationType: "CEREMONY" })];
++
++    expect(reconcileGuests(existing, incoming).toUpdate[0].updates.invitationType).toBe("CEREMONY");
++  });
++
++  it("does not overwrite an invitation type already chosen in the app", () => {
++    const existing = [guest({ firstName: "Jean", lastName: "Dupont", invitationType: "CEREMONY" })];
++    const incoming = [guest({ id: "new", firstName: "Jean", lastName: "Dupont", invitationType: "FULL" })];
++
++    const r = reconcileGuests(existing, incoming);
++    expect(r.toUpdate).toHaveLength(0);
++  });
++
++  it("lets two existing namesakes absorb two namesake source rows", () => {
++    const existing = [
++      guest({ id: "x1", firstName: "Jean", lastName: "Dupont" }),
++      guest({ id: "x2", firstName: "Jean", lastName: "Dupont" }),
++    ];
++    const incoming = [
++      guest({ id: "a", firstName: "Jean", lastName: "Dupont" }),
++      guest({ id: "b", firstName: "Jean", lastName: "Dupont" }),
++    ];
++
++    const r = reconcileGuests(existing, incoming);
++
++    expect(r.toAdd).toHaveLength(0);
++    expect(r.matched).toBe(2);
++  });
++});
++
++// ─── mapRowsToGuests — child marker ──────────────────────────────────────────
++
++describe("mapRowsToGuests — child marker", () => {
++  const sheet = (values: string[]) => ({
++    headers: ["Prénom", "Nom", "Enfant"],
++    rows: values.map((v, i) => [`P${i}`, `N${i}`, v]),
++  });
++
++  it("a tick marks the guest as a child and sets no companion count", () => {
++    let n = 0;
++    const r = mapRowsToGuests(sheet(["X", "x", "", "2"]), { groups: [], tables: [] }, { makeId: () => `i-${n++}` });
++    expect(r.guests.map((g) => g.isChild)).toEqual([true, true, false, true]);
++    expect(r.guests.map((g) => g.childrenCount)).toEqual([0, 0, 0, 0]);
++  });
++
++  it("an empty column marks nothing", () => {
++    let n = 0;
++    const r = mapRowsToGuests(sheet([""]), { groups: [], tables: [] }, { makeId: () => `i-${n++}` });
++    expect(r.guests[0].isChild).toBe(false);
++    expect(r.guests[0].childrenCount).toBe(0);
++  });
++});
++
++// ─── reconcileGuests — first names ───────────────────────────────────────────
++
++describe("reconcileGuests — the first name is never filled in", () => {
++  it("a guest without a first name keeps none, even when the source offers one", () => {
++    const existing = [guest({ firstName: "", lastName: "ARDOUIN", groupId: "g1" })];
++    const incoming = [guest({ firstName: "", lastName: "ARDOUIN", email: "a@b.c" })];
++
++    const { toAdd, toUpdate, matched } = reconcileGuests(existing, incoming);
++
++    expect(matched).toBe(1);
++    expect(toAdd).toHaveLength(0);
++    expect(toUpdate[0].updates).not.toHaveProperty("firstName");
++    expect(toUpdate[0].updates.email).toBe("a@b.c");
++  });
++
++  it("a source lending a spouse's first name adds a person rather than overwriting one", () => {
++    // Reconciliation is no safety net here: a borrowed first name changes the match
++    // key, so the row is ADDED. The guarantee rests on the source normalizer.
++    const existing = [guest({ firstName: "", lastName: "ARDOUIN" })];
++    const incoming = [guest({ firstName: "Luc 2", lastName: "ARDOUIN" })];
++
++    const { toAdd, toUpdate } = reconcileGuests(existing, incoming);
++
++    expect(toUpdate).toHaveLength(0);
++    expect(toAdd).toHaveLength(1);
++    expect(existing[0].firstName).toBe("");
++  });
++});
+diff --git a/apps/mobile/app/settings/import-file.tsx b/apps/mobile/app/settings/import-file.tsx
+index 08f9d74..8b3b687 100644
+--- a/apps/mobile/app/settings/import-file.tsx
++++ b/apps/mobile/app/settings/import-file.tsx
+@@ -8,15 +8,17 @@ import { FileSpreadsheet, Users, Lock } from "lucide-react-native";
+ import { toast } from "@/lib/toast/sonner";
+ import { useGuestsStore } from "@/store/useGuestsStore";
+ import { pickSpreadsheetFile } from "@/lib/export-import";
+-import { parseSpreadsheet, mapRowsToGuests, type GuestImportResult } from "@/lib/guest-import";
++import { parseSpreadsheet, mapRowsToGuests, reconcileGuests, type GuestImportResult } from "@/lib/guest-import";
++import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
+ import { analytics } from "@/lib/analytics";
+ import { SectionTitle, FormCard, FormActions } from "@/components/FormSection";
+ import { SettingsRow, WebFilePickRow } from "@/components/SettingsRow";
+ import { useCan } from "@/lib/permissions/usePermissions";
+ import { useIsPremium } from "@/lib/premium";
+ import { FREE_LIMITS } from "@/lib/limits";
+-import { wouldExceedFreeLimit } from "@fiance/sdk";
++import { wouldExceedFreeLimit, formatGuestName } from "@fiance/sdk";
+ import { useShowPaywall } from "@/components/PaywallProvider";
++import { theme as GP } from "@/lib/theme";
+ 
+ export default function ImportFileScreen() {
+   const { t } = useTranslation("settings");
+@@ -30,6 +32,9 @@ export default function ImportFileScreen() {
+   const groups = useGuestsStore((s) => s.groups);
+   const tables = useGuestsStore((s) => s.tables);
+   const existingGuestCount = useGuestsStore((s) => s.guests.length);
++  const existingGuests = useGuestsStore((s) => s.guests);
++  const invitationTypes = useInvitationTypesStore((s) => s.invitationTypes);
++  const addInvitationType = useInvitationTypesStore((s) => s.addInvitationType);
+   const importGuestData = useGuestsStore((s) => s.importGuestData);
+   const premium = useIsPremium();
+ 
+@@ -47,7 +52,7 @@ export default function ImportFileScreen() {
+     (bytes: Uint8Array, name: string) => {
+       try {
+         const sheet = parseSpreadsheet(bytes);
+-        const result = mapRowsToGuests(sheet, { groups, tables }, { makeId: () => Crypto.randomUUID() });
++        const result = mapRowsToGuests(sheet, { groups, tables, invitationTypes }, { makeId: () => Crypto.randomUUID() });
+         if (result.guests.length === 0) {
+           toast.error(t("importNoGuestsFound"));
+           return;
+@@ -58,7 +63,7 @@ export default function ImportFileScreen() {
+         toast.error(t("importParseError"));
+       }
+     },
+-    [groups, tables, t]
++    [groups, tables, invitationTypes, t]
+   );
+ 
+   const handlePickNative = useCallback(() => {
+@@ -69,6 +74,11 @@ export default function ImportFileScreen() {
+       .catch(() => toast.error(t("importParseError")));
+   }, [handleFile, t]);
+ 
++  const reconciliation = React.useMemo(
++    () => (preview ? reconcileGuests(existingGuests, preview.guests) : null),
++    [preview, existingGuests],
++  );
++
+   const doImport = useCallback(() => {
+     if (!preview) return;
+     if (wouldExceedLimit) {
+@@ -76,6 +86,7 @@ export default function ImportFileScreen() {
+       openPaywall(limitMessage);
+       return;
+     }
++    for (const type of preview.invitationTypes) addInvitationType(type);
+     importGuestData(preview);
+     analytics.capture("import_data", {
+       source: isMariagesNet ? "mariagesnet" : "spreadsheet",
+@@ -83,7 +94,7 @@ export default function ImportFileScreen() {
+     });
+     toast.success(t("importGuestsSuccess", { count: preview.guests.length }));
+     router.back();
+-  }, [preview, importGuestData, isMariagesNet, t, router, wouldExceedLimit, limitMessage, openPaywall]);
++  }, [preview, importGuestData, addInvitationType, isMariagesNet, t, router, wouldExceedLimit, limitMessage, openPaywall]);
+ 
+   return (
+     <ScrollView className="flex-1 bg-accent-paper" showsVerticalScrollIndicator={false}>
+@@ -133,6 +144,26 @@ export default function ImportFileScreen() {
+             })}
+             {preview.skippedRows > 0 ? ` · ${t("importPreviewSkipped", { count: preview.skippedRows })}` : ""}
+           </Text>
++          {/* The summary above counts file rows; this one counts what will be written. */}
++          <Text className="text-sm text-mute leading-5 mb-3 -mt-2">
++            {[
++              reconciliation ? t("importPreviewNew", { count: reconciliation.toAdd.length }) : null,
++              reconciliation && reconciliation.matched > 0
++                ? t("importPreviewExisting", { count: reconciliation.matched })
++                : null,
++              preview.invitationTypes.length > 0
++                ? t("importPreviewInvitationTypes", { count: preview.invitationTypes.length })
++                : null,
++              preview.withoutInvitationType > 0
++                ? t("importPreviewUndetermined", { count: preview.withoutInvitationType })
++                : null,
++              preview.duplicateNames.length > 0
++                ? t("importPreviewDuplicates", { count: preview.duplicateNames.length })
++                : null,
++            ]
++              .filter(Boolean)
++              .join(" · ")}
++          </Text>
+           <FormCard>
+             {preview.guests.slice(0, 50).map((guest, index) => {
+               const groupName = guest.groupId
+@@ -144,11 +175,11 @@ export default function ImportFileScreen() {
+                   className={`flex-row items-center py-2.5 ${index < Math.min(preview.guests.length, 50) - 1 ? "border-b border-hair" : ""}`}
+                 >
+                   <View className="w-8 h-8 items-center justify-center mr-3">
+-                    <Users size={16} color="#6e7a4a" />
++                    <Users size={16} color={GP.olive} />
+                   </View>
+                   <View className="flex-1">
+                     <Text className="text-base text-ink">
+-                      {`${guest.firstName} ${guest.lastName}`.trim()}
++                      {formatGuestName(guest)}
+                     </Text>
+                     {groupName && <Text className="text-xs text-mute mt-0.5">{groupName}</Text>}
+                   </View>
+@@ -166,7 +197,7 @@ export default function ImportFileScreen() {
+               onPress={() => openPaywall(limitMessage)}
+               className="flex-row items-start gap-2 mt-3 px-3.5 py-3 rounded-xl bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-800 active:opacity-70"
+             >
+-              <Lock size={14} color="#b96a4a" style={{ marginTop: 1 }} />
++              <Lock size={14} color={GP.clay} style={{ marginTop: 1 }} />
+               <Text className="flex-1 text-xs text-primary-600 dark:text-primary-300 leading-4">
+                 {limitMessage}
+               </Text>
+diff --git a/apps/mobile/lib/guest-import.ts b/apps/mobile/lib/guest-import.ts
+index e1b2461..7e823fa 100644
+--- a/apps/mobile/lib/guest-import.ts
++++ b/apps/mobile/lib/guest-import.ts
+@@ -8,7 +8,7 @@
+  */
+ 
+ import { unzipSync, strFromU8 } from "fflate";
+-import type { Guest, GuestGroup, Table } from "@fiance/sdk";
++import type { Guest, GuestGroup, Table, InvitationTypeEntity } from "@fiance/sdk";
+ 
+ export interface ParsedSheet {
+   headers: string[];
+@@ -21,9 +21,24 @@ export interface GuestImportResult {
+   groups: GuestGroup[];
+   /** Newly created tables only (existing ones are reused by name). */
+   tables: Table[];
++  /** Newly created invitation types only (existing ones are reused, by id then by label). */
++  invitationTypes: InvitationTypeEntity[];
+   skippedRows: number;
++  /** Rows whose source gave no invitation type — they get UNDETERMINED_INVITATION_TYPE. */
++  withoutInvitationType: number;
++  /** Names appearing more than once in the source: reported, not merged — every row is imported. */
++  duplicateNames: string[];
+ }
+ 
++export const UNDETERMINED_INVITATION_TYPE: InvitationTypeEntity = {
++  id: "IMPORT_UNDETERMINED",
++  label: "À déterminer",
++  isDefault: false,
++  needsSleeping: false,
++  createdAt: null,
++  updatedAt: null,
++};
++
+ // ─── Bytes helpers ───────────────────────────────────────────────────────────
+ 
+ const B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+@@ -183,6 +198,8 @@ type GuestField =
+   | "phoneMobile"
+   | "phone"
+   | "group"
++  | "invitationType"
++  | "children"
+   | "rsvp"
+   | "table"
+   | "addressStreet"
+@@ -197,6 +214,16 @@ const HEADER_SYNONYMS: Record<GuestField, string[]> = {
+   phoneMobile: ["telephone portable", "portable", "mobile"],
+   phone: ["telephone", "phone", "tel"],
+   group: ["groupe", "group"],
++  invitationType: [
++    "cadre",
++    "cadres",
++    "cadre d'invitation",
++    "type d'invitation",
++    "type invitation",
++    "invitation",
++    "invitation type",
++  ],
++  children: ["enfant", "enfants", "children", "nb enfants"],
+   rsvp: ["confirme", "statut", "rsvp", "reponse", "status"],
+   table: ["table"],
+   addressStreet: ["adresse", "address"],
+@@ -239,7 +266,7 @@ function mapRsvpStatus(raw: string): string {
+ 
+ export function mapRowsToGuests(
+   sheet: ParsedSheet,
+-  existing: { groups: GuestGroup[]; tables: Table[] },
++  existing: { groups: GuestGroup[]; tables: Table[]; invitationTypes?: InvitationTypeEntity[] },
+   opts: { makeId: () => string; now?: string },
+ ): GuestImportResult {
+   const now = opts.now ?? new Date().toISOString();
+@@ -256,6 +283,16 @@ export function mapRowsToGuests(
+   const guests: Guest[] = [];
+   let skippedRows = 0;
+ 
++  const knownTypes = existing.invitationTypes ?? [];
++  const typeIdsByKey = new Map<string, string>();
++  for (const it of knownTypes) {
++    typeIdsByKey.set(normalizeHeader(it.id), it.id);
++    typeIdsByKey.set(normalizeHeader(it.label), it.id);
++  }
++  const newInvitationTypes: InvitationTypeEntity[] = [];
++  let withoutInvitationType = 0;
++  const nameSeen = new Map<string, number>();
++
+   for (const row of sheet.rows) {
+     let firstName = cell(row, "firstName");
+     let lastName = cell(row, "lastName");
+@@ -294,6 +331,43 @@ export function mapRowsToGuests(
+       }
+     }
+ 
++    const rawType = cell(row, "invitationType");
++    let invitationTypeId: string;
++    if (!rawType) {
++      withoutInvitationType++;
++      const undeterminedKey = normalizeHeader(UNDETERMINED_INVITATION_TYPE.id);
++      if (!typeIdsByKey.has(undeterminedKey)) {
++        typeIdsByKey.set(undeterminedKey, UNDETERMINED_INVITATION_TYPE.id);
++        typeIdsByKey.set(normalizeHeader(UNDETERMINED_INVITATION_TYPE.label), UNDETERMINED_INVITATION_TYPE.id);
++        newInvitationTypes.push({ ...UNDETERMINED_INVITATION_TYPE, createdAt: now, updatedAt: now });
++      }
++      invitationTypeId = UNDETERMINED_INVITATION_TYPE.id;
++    } else {
++      const key = normalizeHeader(rawType);
++      const known = typeIdsByKey.get(key);
++      if (known) {
++        invitationTypeId = known;
++      } else {
++        invitationTypeId = opts.makeId();
++        typeIdsByKey.set(key, invitationTypeId);
++        newInvitationTypes.push({
++          id: invitationTypeId,
++          label: rawType,
++          isDefault: false,
++          needsSleeping: false,
++          createdAt: now,
++          updatedAt: now,
++        });
++      }
++    }
++
++    // The column says the person on this row IS a child, not that they bring one:
++    // reading it as a companion count gave every named child a phantom second one.
++    const isChild = cell(row, "children") !== "";
++
++    const nameKey = normalizeHeader(`${firstName} ${lastName}`);
++    nameSeen.set(nameKey, (nameSeen.get(nameKey) ?? 0) + 1);
++
+     const address = [cell(row, "addressStreet"), cell(row, "addressZip"), cell(row, "addressCity")]
+       .filter(Boolean)
+       .join(", ");
+@@ -303,10 +377,11 @@ export function mapRowsToGuests(
+       firstName,
+       lastName,
+       side: null,
+-      invitationType: "FULL",
++      invitationType: invitationTypeId,
+       rsvpStatus: mapRsvpStatus(cell(row, "rsvp")),
+       rsvpDate: null,
+       isSleeping: null,
++      isChild,
+       childrenCount: 0,
+       diet: "STANDARD",
+       dietNotes: null,
+@@ -336,5 +411,81 @@ export function mapRowsToGuests(
+     });
+   }
+ 
+-  return { guests, groups: newGroups, tables: newTables, skippedRows };
++  const duplicateNames = [...nameSeen.entries()].filter(([, n]) => n > 1).map(([k]) => k);
++
++  return {
++    guests,
++    groups: newGroups,
++    tables: newTables,
++    invitationTypes: newInvitationTypes,
++    skippedRows,
++    withoutInvitationType,
++    duplicateNames,
++  };
++}
++
++// ─── Reconciling an import with what the app already holds ───────────────────
++
++/** A guest export carries no stable id, so the normalized name is the only match key. */
++export function guestMatchKey(g: { firstName: string; lastName: string }): string {
++  return normalizeHeader(`${g.firstName} ${g.lastName}`);
++}
++
++const isEmpty = (v: unknown): boolean => v == null || (typeof v === "string" && v.trim() === "");
++
++/** Fields a re-import may fill in — never the identity, never the timestamps. */
++const MERGEABLE_FIELDS = [
++  "email", "phone", "address", "notes", "groupId", "tableId",
++] as const satisfies readonly (keyof Guest)[];
++
++export interface GuestReconciliation {
++  toAdd: Guest[];
++  toUpdate: { id: string; updates: Partial<Guest> }[];
++  /** Source rows recognised as already present. */
++  matched: number;
++}
++
++/**
++ * Matches are consumed one by one: two existing namesakes absorb two namesake
++ * source rows, instead of both rows landing on the first guest.
++ */
++export function reconcileGuests(existing: Guest[], incoming: Guest[]): GuestReconciliation {
++  const pool = new Map<string, Guest[]>();
++  for (const g of existing) {
++    const key = guestMatchKey(g);
++    const bucket = pool.get(key);
++    if (bucket) bucket.push(g);
++    else pool.set(key, [g]);
++  }
++
++  const toAdd: Guest[] = [];
++  const toUpdate: { id: string; updates: Partial<Guest> }[] = [];
++  let matched = 0;
++
++  for (const candidate of incoming) {
++    const bucket = pool.get(guestMatchKey(candidate));
++    const match = bucket?.shift();
++    if (!match) {
++      toAdd.push(candidate);
++      continue;
++    }
++    matched++;
++
++    const updates: Partial<Guest> = {};
++    for (const field of MERGEABLE_FIELDS) {
++      if (isEmpty(match[field]) && !isEmpty(candidate[field])) {
++        (updates as Record<string, unknown>)[field] = candidate[field];
++      }
++    }
++    // The undetermined type is an absence, not a choice: a real one may replace it.
++    if (
++      match.invitationType === UNDETERMINED_INVITATION_TYPE.id &&
++      candidate.invitationType !== UNDETERMINED_INVITATION_TYPE.id
++    ) {
++      updates.invitationType = candidate.invitationType;
++    }
++    if (Object.keys(updates).length > 0) toUpdate.push({ id: match.id, updates });
++  }
++
++  return { toAdd, toUpdate, matched };
+ }
+diff --git a/apps/mobile/store/useGuestsStore.ts b/apps/mobile/store/useGuestsStore.ts
+index 80424dd..9eb1d2f 100644
+--- a/apps/mobile/store/useGuestsStore.ts
++++ b/apps/mobile/store/useGuestsStore.ts
+@@ -1,20 +1,30 @@
+ import { create } from "zustand";
+-import type { Guest, Table, GuestGroup } from "@fiance/sdk";
++import * as Crypto from "expo-crypto";
++import type { Guest, Table, GuestGroup, Household } from "@fiance/sdk";
+ import {
+   computeCounts,
+   addGuest as sdkAddGuest,
+-  updateGuest as sdkUpdateGuest,
+-  removeGuest as sdkRemoveGuest,
++  removeGuests as sdkRemoveGuests,
++  applyGuestUpdates as sdkApplyGuestUpdates,
+   linkCompanion as sdkLinkCompanion,
+   unlinkCompanion as sdkUnlinkCompanion,
+   addTable as sdkAddTable,
+   updateTable as sdkUpdateTable,
+   removeTable as sdkRemoveTable,
+   addGroup as sdkAddGroup,
++  sortGroups,
+   updateGroup as sdkUpdateGroup,
+   removeGroup as sdkRemoveGroup,
+   getGuestsByTable as sdkGetGuestsByTable,
+   getUnassignedGuests as sdkGetUnassignedGuests,
++  createHousehold as sdkCreateHousehold,
++  updateHousehold as sdkUpdateHousehold,
++  materializeHousehold as sdkMaterializeHousehold,
++  attachToHousehold as sdkAttachToHousehold,
++  detachFromHousehold as sdkDetachFromHousehold,
++  splitHousehold as sdkSplitHousehold,
++  removeHousehold as sdkRemoveHousehold,
++  pruneEmptyHouseholds as sdkPruneEmptyHouseholds,
+ } from "@fiance/sdk";
+ export type { GuestCounts } from "@fiance/sdk";
+ import { getStorage } from "@/lib/kv-storage";
+@@ -22,11 +32,13 @@ import {
+   persistGuests,
+   persistTables,
+   persistGroups,
++  persistHouseholds,
+   persistCommunications,
+   persistWeddingRoleAssignments,
+   persistSeatingConstraints,
+   persistMealSelections,
+ } from "@/lib/persistence";
++import { reconcileGuests } from "@/lib/guest-import";
+ import { notifySync } from "@/lib/starfish";
+ import { maybeRequestReview } from "@/lib/store-review";
+ import {
+@@ -43,17 +55,43 @@ import { useMealSelectionsStore } from "@/store/useMealSelectionsStore";
+ // Re-export computeCounts so existing callers of the store module still work
+ export { computeCounts };
+ 
++function persistHouseholdsAndGuests(): void {
++  const storage = getStorage();
++  if (storage) {
++    persistHouseholds(storage);
++    persistGuests(storage);
++  }
++  notifySync();
++}
++
+ interface GuestsState {
+   guests: Guest[];
+   tables: Table[];
+   groups: GuestGroup[];
++  // Membership is carried by the guest (`Guest.householdId`); this list only
++  // holds household names and addresses.
++  households: Household[];
+   setGuests: (guests: Guest[]) => void;
+   setTables: (tables: Table[]) => void;
+   setGroups: (groups: GuestGroup[]) => void;
++  setHouseholds: (households: Household[]) => void;
++  createHousehold: (memberIds: string[], fields?: { name?: string | null; address?: string | null }) => string;
++  updateHousehold: (id: string, updates: Partial<Household>) => void;
++  /** Gives a household its entity on first edit, keeping the id its members already carry. */
++  materializeHousehold: (
++    memberIds: string[],
++    fields: { name?: string | null; address?: string | null },
++  ) => string;
++  attachToHousehold: (guestIds: string[], householdId: string) => void;
++  detachFromHousehold: (guestIds: string[]) => void;
++  splitHousehold: (memberIds: string[]) => string;
++  removeHousehold: (id: string) => void;
+   addGuest: (guest: Guest) => void;
+   importGuestData: (data: { guests: Guest[]; groups: GuestGroup[]; tables: Table[] }) => void;
+   updateGuest: (id: string, updates: Partial<Guest>) => void;
+   removeGuest: (id: string) => void;
++  removeGuests: (ids: string[]) => void;
++  updateGuests: (ids: string[], updatesFor: (guest: Guest) => Partial<Guest>) => void;
+   linkCompanion: (guestId: string, companionId: string) => void;
+   unlinkCompanion: (guestId: string) => void;
+   addTable: (table: Table) => void;
+@@ -71,9 +109,61 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
+   guests: [],
+   tables: [],
+   groups: [],
++  households: [],
+   setGuests: (guests) => set({ guests }),
+   setTables: (tables) => set({ tables }),
+-  setGroups: (groups) => set({ groups }),
++  setHouseholds: (households) => set({ households }),
++  // Hydration yields groups in serialization order, which differs from device to
++  // device, so the order is settled on write. Only the declared side is known here:
++  // screens sort again once they have projected the deduced one (`resolveGroupSides`).
++  setGroups: (groups) => set({ groups: sortGroups(groups) }),
++
++  createHousehold: (memberIds, fields = {}) => {
++    const id = Crypto.randomUUID();
++    set((s) => sdkCreateHousehold(s.households, s.guests, memberIds, id, fields));
++    persistHouseholdsAndGuests();
++    return id;
++  },
++  // A plain map, never an upsert: creating an entity is `materializeHousehold`.
++  updateHousehold: (id, updates) => {
++    set((s) => ({ households: sdkUpdateHousehold(s.households, id, updates) }));
++    const storage = getStorage();
++    if (storage) persistHouseholds(storage);
++    notifySync();
++  },
++  // The fresh id only serves the case where no member carries one yet: reusing the
++  // members' `householdId` is what keeps the new entity from being orphaned.
++  materializeHousehold: (memberIds, fields) => {
++    const fresh = Crypto.randomUUID();
++    let id = fresh;
++    set((s) => {
++      const r = sdkMaterializeHousehold(s.households, s.guests, memberIds, fields, fresh);
++      id = r.id;
++      return { households: r.households, guests: r.guests };
++    });
++    persistHouseholdsAndGuests();
++    return id;
++  },
++  attachToHousehold: (guestIds, householdId) => {
++    set((s) => ({ guests: sdkAttachToHousehold(s.guests, guestIds, householdId) }));
++    // Attaching may have emptied the households the moved members came from.
++    set((s) => ({ households: sdkPruneEmptyHouseholds(s.households, s.guests) }));
++    persistHouseholdsAndGuests();
++  },
++  detachFromHousehold: (guestIds) => {
++    set((s) => sdkDetachFromHousehold(s.households, s.guests, guestIds));
++    persistHouseholdsAndGuests();
++  },
++  splitHousehold: (memberIds) => {
++    const id = Crypto.randomUUID();
++    set((s) => sdkSplitHousehold(s.households, s.guests, memberIds, id));
++    persistHouseholdsAndGuests();
++    return id;
++  },
++  removeHousehold: (id) => {
++    set((s) => sdkRemoveHousehold(s.households, s.guests, id));
++    persistHouseholdsAndGuests();
++  },
+   addGuest: (guest) => {
+     set((s) => ({ guests: sdkAddGuest(s.guests, guest) }));
+     const storage = getStorage();
+@@ -82,9 +172,19 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
+     maybeRequestReview("guests", get().guests.length);
+   },
+   importGuestData: ({ guests, groups, tables }) => {
++    const { toAdd, toUpdate } = reconcileGuests(get().guests, guests);
++    const updateById = new Map(toUpdate.map((u) => [u.id, u.updates]));
++    const stamp = new Date().toISOString();
++
+     set((s) => ({
+-      guests: [...s.guests, ...guests],
+-      groups: [...s.groups, ...groups],
++      guests: [
++        ...s.guests.map((g) => {
++          const updates = updateById.get(g.id);
++          return updates ? { ...g, ...updates, updatedAt: stamp } : g;
++        }),
++        ...toAdd,
++      ],
++      groups: sortGroups([...s.groups, ...groups]),
+       tables: [...s.tables, ...tables],
+     }));
+     const storage = getStorage();
+@@ -95,31 +195,42 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
+     }
+     notifySync();
+   },
+-  updateGuest: (id, updates) => {
+-    set((s) => ({ guests: sdkUpdateGuest(s.guests, id, updates) }));
+-    const storage = getStorage();
+-    if (storage) persistGuests(storage);
+-    notifySync();
+-  },
+-  removeGuest: (id) => {
+-    set((s) => ({ guests: sdkRemoveGuest(s.guests, id) }));
+-    // Cascade: strip this guest from all communications recipients
++  // The single-guest actions go through the batch ones so the two cannot diverge:
++  // there is only one body of cascades to keep up to date.
++  updateGuest: (id, updates) => get().updateGuests([id], () => updates),
++  removeGuest: (id) => get().removeGuests([id]),
++  removeGuests: (ids) => {
++    if (ids.length === 0) return;
++    set((s) => ({ guests: sdkRemoveGuests(s.guests, ids) }));
++    // Cascade: strip these guests from all communications recipients
+     const commStore = useCommunicationsStore.getState();
+-    commStore.setCommunications(removeGuestFromAll(commStore.communications, id));
+-    // Cascade: a guest is gone, so drop their wedding-party role assignments
++    commStore.setCommunications(
++      ids.reduce((cs, id) => removeGuestFromAll(cs, id), commStore.communications),
++    );
++    // Cascade: the guests are gone, so drop their wedding-party role assignments
+     const partyStore = useWeddingPartyStore.getState();
+     partyStore.setWeddingRoleAssignments(
+-      removeRoleAssignmentsForGuest(partyStore.weddingRoleAssignments, id),
++      ids.reduce(
++        (as, id) => removeRoleAssignmentsForGuest(as, id),
++        partyStore.weddingRoleAssignments,
++      ),
+     );
+-    // Cascade: strip this guest from seating constraints, dropping under-2 ones
++    // Cascade: strip these guests from seating constraints, dropping under-2 ones
+     const seatingStore = useSeatingConstraintsStore.getState();
+-    seatingStore.setSeatingConstraints(detachGuestFromConstraints(seatingStore.seatingConstraints, id));
+-    // Cascade: remove this guest's meal selections
++    seatingStore.setSeatingConstraints(
++      ids.reduce((cs, id) => detachGuestFromConstraints(cs, id), seatingStore.seatingConstraints),
++    );
++    // Cascade: remove these guests' meal selections
+     const mealStore = useMealSelectionsStore.getState();
+-    mealStore.setMealSelections(removeMealSelectionsForGuest(mealStore.mealSelections, id));
++    mealStore.setMealSelections(
++      ids.reduce((ms, id) => removeMealSelectionsForGuest(ms, id), mealStore.mealSelections),
++    );
++    // Cascade: a household emptied of its last member disappears, address included
++    set((s) => ({ households: sdkPruneEmptyHouseholds(s.households, s.guests) }));
+     const storage = getStorage();
+     if (storage) {
+       persistGuests(storage);
++      persistHouseholds(storage);
+       persistCommunications(storage);
+       persistWeddingRoleAssignments(storage);
+       persistSeatingConstraints(storage);
+@@ -127,6 +238,13 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
+     }
+     notifySync();
+   },
++  updateGuests: (ids, updatesFor) => {
++    if (ids.length === 0) return;
++    set((s) => ({ guests: sdkApplyGuestUpdates(s.guests, ids, updatesFor) }));
++    const storage = getStorage();
++    if (storage) persistGuests(storage);
++    notifySync();
++  },
+   linkCompanion: (guestId, companionId) => {
+     set((s) => ({ guests: sdkLinkCompanion(s.guests, guestId, companionId) }));
+     const storage = getStorage();
+@@ -161,13 +279,13 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
+     notifySync();
+   },
+   addGroup: (group) => {
+-    set((s) => ({ groups: sdkAddGroup(s.groups, group) }));
++    set((s) => ({ groups: sortGroups(sdkAddGroup(s.groups, group)) }));
+     const storage = getStorage();
+     if (storage) persistGroups(storage);
+     notifySync();
+   },
+   updateGroup: (id, updates) => {
+-    set((s) => ({ groups: sdkUpdateGroup(s.groups, id, updates) }));
++    set((s) => ({ groups: sortGroups(sdkUpdateGroup(s.groups, id, updates)) }));
+     const storage = getStorage();
+     if (storage) persistGroups(storage);
+     notifySync();
+diff --git a/apps/mobile/i18n/locales/fr/settings.json b/apps/mobile/i18n/locales/fr/settings.json
+index 3bf7b5b..81980b7 100644
+--- a/apps/mobile/i18n/locales/fr/settings.json
++++ b/apps/mobile/i18n/locales/fr/settings.json
+@@ -271,6 +274,11 @@
+   "importPreviewTitle": "Aperçu de l'import",
+   "importPreviewSummary": "{{guests}} invités · {{groups}} nouveaux groupes · {{tables}} nouvelles tables",
+   "importPreviewSkipped": "{{count}} lignes ignorées (nom manquant)",
++  "importPreviewNew": "{{count}} à ajouter",
++  "importPreviewExisting": "{{count}} déjà présent(s), non dupliqué(s)",
++  "importPreviewInvitationTypes": "{{count}} cadre(s) à créer",
++  "importPreviewUndetermined": "{{count}} sans cadre → « À déterminer »",
++  "importPreviewDuplicates": "{{count}} homonyme(s) dans le fichier, à vérifier",
+   "importParseError": "Impossible de lire ce fichier. Utilisez un fichier .xlsx ou .csv.",
+   "importNoGuestsFound": "Aucun invité trouvé dans ce fichier.",
+   "importGuestsSuccess": "{{count}} invités importés.",
+diff --git a/apps/mobile/i18n/locales/en/settings.json b/apps/mobile/i18n/locales/en/settings.json
+index 86026b0..98c264a 100644
+--- a/apps/mobile/i18n/locales/en/settings.json
++++ b/apps/mobile/i18n/locales/en/settings.json
+@@ -271,6 +274,11 @@
+   "importPreviewTitle": "Import preview",
+   "importPreviewSummary": "{{guests}} guests · {{groups}} new groups · {{tables}} new tables",
+   "importPreviewSkipped": "{{count}} rows skipped (missing name)",
++  "importPreviewNew": "{{count}} to add",
++  "importPreviewExisting": "{{count}} already present, not duplicated",
++  "importPreviewInvitationTypes": "{{count}} invitation type(s) to create",
++  "importPreviewUndetermined": "{{count}} with no type → “To be decided”",
++  "importPreviewDuplicates": "{{count}} duplicate name(s) in the file, to check",
+   "importParseError": "Could not read this file. Use an .xlsx or .csv file.",
+   "importNoGuestsFound": "No guests found in this file.",
+   "importGuestsSuccess": "{{count}} guests imported.",

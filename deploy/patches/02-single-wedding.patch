@@ -1,0 +1,487 @@
+diff --git a/apps/mobile/__tests__/single-wedding-lock.test.ts b/apps/mobile/__tests__/single-wedding-lock.test.ts
+new file mode 100644
+index 0000000..2c6cd20
+--- /dev/null
++++ b/apps/mobile/__tests__/single-wedding-lock.test.ts
+@@ -0,0 +1,117 @@
++/**
++ * MODIFICATION LOCALE — instance familiale auto-hébergée (mariage.didot.io).
++ *
++ * Cette instance ne sert qu'un mariage. Le verrou vit dans `createWedding`
++ * (store/useWeddingRegistryStore.ts) parce que c'est le seul passage obligé :
++ * masquer les boutons ne suffirait pas, une navigation directe vers l'écran de
++ * création les contournerait.
++ *
++ * Ces tests couvrent surtout ce que le verrou doit **laisser passer**. Bloquer
++ * est facile ; bloquer sans casser l'accès de la famille l'est moins, et deux
++ * parcours passent par la même fonction que la création :
++ *  - rejoindre par lien d'invitation (`role: "member"`, lib/join-space.ts) ;
++ *  - le premier démarrage sur un appareil vierge, sans quoi l'application
++ *    deviendrait inaccessible après une réinstallation.
++ */
++import { describe, it, expect, vi, beforeEach } from "vitest";
++
++// Registre en mémoire, piloté par les tests via `registryState`.
++let registryState: { activeWeddingId: string | null; weddings: unknown[] } = {
++  activeWeddingId: null,
++  weddings: [],
++};
++const createWeddingEntry = vi.fn(async (label: string) => ({ id: "new-id", label }));
++
++vi.mock("@/lib/wedding-registry", () => ({
++  loadRegistry: vi.fn(async () => registryState),
++  saveRegistry: vi.fn(async () => {}),
++  createWeddingEntry: (...args: unknown[]) => createWeddingEntry(...(args as [string])),
++  deleteWeddingEntry: vi.fn(async () => {}),
++  setActiveWeddingEntry: vi.fn(async () => {}),
++  updateWeddingEntry: vi.fn(async () => {}),
++}));
++vi.mock("@/store/useRevenueCatStore", () => ({
++  useRevenueCatStore: { getState: () => ({ setPremium: vi.fn() }) },
++}));
++
++import {
++  useWeddingRegistryStore,
++  SingleWeddingInstanceError,
++} from "@/store/useWeddingRegistryStore";
++
++const anExistingWedding = { id: "w1", label: "Notre mariage" };
++
++beforeEach(() => {
++  createWeddingEntry.mockClear();
++  registryState = { activeWeddingId: null, weddings: [] };
++  useWeddingRegistryStore.setState({ registry: null, isLoaded: false });
++});
++
++describe("verrou du mariage unique", () => {
++  it("refuse la création quand un mariage existe déjà", async () => {
++    registryState = { activeWeddingId: "w1", weddings: [anExistingWedding] };
++
++    await expect(
++      useWeddingRegistryStore.getState().createWedding("Un second mariage", "seed"),
++    ).rejects.toBeInstanceOf(SingleWeddingInstanceError);
++
++    expect(createWeddingEntry).not.toHaveBeenCalled();
++  });
++
++  it("autorise la création sur un registre vide (appareil vierge)", async () => {
++    const entry = await useWeddingRegistryStore
++      .getState()
++      .createWedding("Notre mariage", "seed");
++
++    expect(entry.label).toBe("Notre mariage");
++    expect(createWeddingEntry).toHaveBeenCalledOnce();
++  });
++
++  it("laisse passer l'entrée par lien d'invitation malgré un mariage existant", async () => {
++    registryState = { activeWeddingId: "w1", weddings: [anExistingWedding] };
++
++    // La signature exacte de lib/join-space.ts : le 5e argument vaut "member".
++    await useWeddingRegistryStore
++      .getState()
++      .createWedding("Mariage partagé", "seed", "https://sync.example", "sp-abc", "member");
++
++    expect(createWeddingEntry).toHaveBeenCalledOnce();
++  });
++
++  it("bloque même si le store n'a pas encore chargé son registre", async () => {
++    // Le registre en mémoire est null au tout premier rendu ; le verrou doit
++    // relire le stockage plutôt que conclure « aucun mariage » et laisser passer.
++    registryState = { activeWeddingId: "w1", weddings: [anExistingWedding] };
++    useWeddingRegistryStore.setState({ registry: null, isLoaded: false });
++
++    await expect(
++      useWeddingRegistryStore.getState().createWedding("Contournement", "seed"),
++    ).rejects.toBeInstanceOf(SingleWeddingInstanceError);
++  });
++});
++
++describe("échappatoire de reconstruction", () => {
++  it("rétablit la création quand EXPO_PUBLIC_ALLOW_WEDDING_CREATION vaut 1", async () => {
++    // Le drapeau est lu au chargement du module : il faut le poser AVANT
++    // d'importer, d'où resetModules + import dynamique. C'est aussi ce qui rend
++    // l'échappatoire inatteignable depuis l'app — elle exige un rebuild.
++    vi.resetModules();
++    const previous = process.env.EXPO_PUBLIC_ALLOW_WEDDING_CREATION;
++    process.env.EXPO_PUBLIC_ALLOW_WEDDING_CREATION = "1";
++    try {
++      registryState = { activeWeddingId: "w1", weddings: [anExistingWedding] };
++      const mod = await import("@/store/useWeddingRegistryStore");
++      mod.useWeddingRegistryStore.setState({ registry: null, isLoaded: false });
++
++      await mod.useWeddingRegistryStore
++        .getState()
++        .createWedding("Mariage reconstruit", "seed");
++
++      expect(createWeddingEntry).toHaveBeenCalledOnce();
++    } finally {
++      if (previous === undefined) delete process.env.EXPO_PUBLIC_ALLOW_WEDDING_CREATION;
++      else process.env.EXPO_PUBLIC_ALLOW_WEDDING_CREATION = previous;
++      vi.resetModules();
++    }
++  });
++});
+diff --git a/apps/mobile/app/onboarding.tsx b/apps/mobile/app/onboarding.tsx
+index c3db819..d7fcb6e 100644
+--- a/apps/mobile/app/onboarding.tsx
++++ b/apps/mobile/app/onboarding.tsx
+@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
+ import { PlusCircle, Link, ArrowLeft, CheckCircle2, ScanLine } from "lucide-react-native";
+ import { generatePassphrase, parseSpaceInviteUrl } from "@/lib/identity";
+ import { joinWeddingByToken } from "@/lib/join-space";
+-import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
++import { useWeddingRegistryStore, SingleWeddingInstanceError } from "@/store/useWeddingRegistryStore";
+ import type { SpaceInviteLinkToken } from "@fiance/sdk";
+ import { QRScannerScreen } from "@/components/QRScannerScreen";
+ import { analytics } from "@/lib/analytics";
+@@ -16,10 +16,12 @@ import { Script } from "@/components/Script";
+ import { PageHeader } from "@/components/PageHeader";
+ import { DateRow } from "@/components/FormSection";
+ import { setPendingWeddingSeed, consumePendingWeddingSeed } from "@/lib/pending-wedding-seed";
++import { theme as GP } from "@/lib/theme";
+ 
+ type Mode = "choose" | "create" | "join";
+ 
+ export default function OnboardingScreen() {
++  const { t: tSettings } = useTranslation("settings");
+   const [mode, setMode] = useState<Mode>("choose");
+   const [inviteToken, setInviteToken] = useState<SpaceInviteLinkToken | null>(null);
+   const createWedding = useWeddingRegistryStore((s) => s.createWedding);
+@@ -57,6 +59,13 @@ export default function OnboardingScreen() {
+             await createWedding(label, passphrase);
+           } catch (e) {
+             consumePendingWeddingSeed(); // discard the stale seed on failure
++            // MODIFICATION LOCALE — instance à mariage unique. Cet écran reste
++            // atteignable par URL directe même quand un mariage existe ; le
++            // verrou du store le bloque, mais son message est un code technique.
++            // CreateWeddingForm affiche e.message tel quel, d'où la traduction ici.
++            if (e instanceof SingleWeddingInstanceError) {
++              throw new Error(tSettings("singleWeddingInstanceHint"));
++            }
+             throw e;
+           }
+           analytics.capture("wedding_created", { method: "new" });
+@@ -116,7 +125,7 @@ function ChooseMode({ onSelect }: { onSelect: (m: Mode) => void }) {
+           className="bg-accent-card rounded-2xl py-4 items-center border border-hair active:opacity-80"
+         >
+           <View className="flex-row items-center">
+-            <Link size={20} color="#b96a4a" />
++            <Link size={20} color={GP.clay} />
+             <Text className="text-ink font-semibold text-base ml-2">
+               {t("onboarding.joinWedding")}
+             </Text>
+diff --git a/apps/mobile/app/settings/index.tsx b/apps/mobile/app/settings/index.tsx
+index f48d438..12b161e 100644
+--- a/apps/mobile/app/settings/index.tsx
++++ b/apps/mobile/app/settings/index.tsx
+@@ -26,9 +26,9 @@ import {
+ } from "@/lib/starfish";
+ import { activateSync } from "@/lib/providers";
+ import { needsNamespaceResync, resyncWeddingToCurrentNamespace } from "@/lib/space-resync";
+-import { generatePassphrase } from "@/lib/identity";
+ import { resolveServerUrl } from "@/lib/server";
+-import { createInviteLink } from "@/lib/invite-link";
++import { createInviteLink, retirerLeDepot } from "@/lib/invite-link";
++import { lireLeLienCourt } from "@/lib/invitation-courte";
+ import { usePlanningStore } from "@/store/usePlanningStore";
+ import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
+ import { usePermissionsStore } from "@/store/usePermissionsStore";
+@@ -68,7 +68,6 @@ export default function SettingsScreen() {
+   const updateDate = currentlyRunning?.createdAt ?? null;
+ 
+   const registry = useWeddingRegistryStore((s) => s.registry);
+-  const createWedding = useWeddingRegistryStore((s) => s.createWedding);
+   const deleteWedding = useWeddingRegistryStore((s) => s.deleteWedding);
+   const updateRegistryWedding = useWeddingRegistryStore((s) => s.updateWedding);
+ 
+@@ -204,15 +203,16 @@ export default function SettingsScreen() {
+     [activeEntry],
+   );
+ 
+-  const [showCreateConfirm, setShowCreateConfirm] = useState(false);
+-
+-  const doCreateWedding = useCallback(async () => {
+-    setShowCreateConfirm(false);
+-    const passphrase = generatePassphrase();
+-    await createWedding(t("myWedding"), passphrase);
+-    analytics.capture("wedding_created", { method: "new" });
+-    router.replace("/(tabs)");
+-  }, [createWedding, t, router]);
++  // MODIFICATION LOCALE — retirer le dépôt d'un lien court avant son terme.
++  // Un lien au format long n'a pas de dépôt : il n'y a alors rien à retirer.
++  const retirerLeLien = useCallback(
++    async (lien: string) => {
++      const court = lireLeLienCourt(lien);
++      if (!court) throw new Error("INVITE_NO_DEPOSIT");
++      await retirerLeDepot(activeEntry!, court.code);
++    },
++    [activeEntry],
++  );
+ 
+   const [showJoinScanner, setShowJoinScanner] = useState(false);
+ 
+@@ -334,7 +334,7 @@ export default function SettingsScreen() {
+         <IconCard
+           icon={
+             <View className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center">
+-              <Sparkles size={20} color="#b96a4a" />
++              <Sparkles size={20} color={theme.clay} />
+             </View>
+           }
+           title={premium ? t("premiumUnlocked") : t("premiumTitle")}
+@@ -349,7 +349,7 @@ export default function SettingsScreen() {
+         <IconCard
+           icon={
+             <View className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center">
+-              <Globe size={20} color="#b96a4a" />
++              <Globe size={20} color={theme.clay} />
+             </View>
+           }
+           title={t("publicPageTitle")}
+@@ -361,7 +361,7 @@ export default function SettingsScreen() {
+         {/* <IconCard
+           icon={
+             <View className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center">
+-              <FileText size={20} color="#b96a4a" />
++              <FileText size={20} color={theme.clay} />
+             </View>
+           }
+           title={t("documentsTitle")}
+@@ -409,7 +409,7 @@ export default function SettingsScreen() {
+           <IconCard
+             icon={
+               <View className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center">
+-                <Share2 size={20} color="#b96a4a" />
++                <Share2 size={20} color={theme.clay} />
+               </View>
+             }
+             title={t("shareInviteLink")}
+@@ -417,7 +417,7 @@ export default function SettingsScreen() {
+             right={
+               canInviteMember
+                 ? <ChevronRight size={18} color="#C0C0C8" />
+-                : <Lock size={16} color="#b96a4a" />
++                : <Lock size={16} color={theme.clay} />
+             }
+             onPress={handleInvite}
+           />
+@@ -426,7 +426,7 @@ export default function SettingsScreen() {
+           <IconCard
+             icon={
+               <View className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center">
+-                <Users size={20} color="#b96a4a" />
++                <Users size={20} color={theme.clay} />
+               </View>
+             }
+             title={t("rolesTitle")}
+@@ -439,7 +439,7 @@ export default function SettingsScreen() {
+           <IconCard
+             icon={
+               <View className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center">
+-                <Lock size={20} color="#b96a4a" />
++                <Lock size={20} color={theme.clay} />
+               </View>
+             }
+             title={t("collabInviteLockedTitle")}
+@@ -449,8 +449,8 @@ export default function SettingsScreen() {
+         {needsNamespaceResync(activeEntry) && (
+           <IconCard
+             icon={
+-              <View className="w-10 h-10 rounded-xl items-center justify-center" style={{ backgroundColor: "#FBF0DD" }}>
+-                <RefreshCw size={20} color="#c9922f" />
++              <View className="w-10 h-10 rounded-xl items-center justify-center" style={{ backgroundColor: theme.mustardSoft }}>
++                <RefreshCw size={20} color={theme.mustard} />
+               </View>
+             }
+             title={t("resyncWedding")}
+@@ -503,13 +503,13 @@ export default function SettingsScreen() {
+                 <View
+                   className="w-10 h-10 rounded-xl items-center justify-center mr-3"
+                   style={{
+-                    backgroundColor: isActive ? "#b96a4a15" : "#F3F4F6",
++                    backgroundColor: isActive ? `${theme.clay}15` : "#F3F4F6",
+                   }}
+                 >
+                   <Heart
+                     size={20}
+-                    color={isActive ? "#b96a4a" : "#9CA3AF"}
+-                    fill={isActive ? "#b96a4a" : "transparent"}
++                    color={isActive ? theme.clay : "#9CA3AF"}
++                    fill={isActive ? theme.clay : "transparent"}
+                   />
+                 </View>
+                 <View className="flex-1">
+@@ -521,7 +521,7 @@ export default function SettingsScreen() {
+                   </Text>
+                 </View>
+                 {isActive && (
+-                  <CheckCircle2 size={20} color="#b96a4a" />
++                  <CheckCircle2 size={20} color={theme.clay} />
+                 )}
+               </Pressable>
+               <Pressable
+@@ -539,19 +539,25 @@ export default function SettingsScreen() {
+             </View>
+           );
+         })}
+-        <Pressable
+-          onPress={() => setShowCreateConfirm(true)}
+-          className="bg-accent-card rounded-2xl p-4 mb-2 border border-hair dark:border-hair flex-row items-center active:opacity-80"
+-        >
++        {/* MODIFICATION LOCALE — instance à mariage unique (mariage.didot.io).
++            La ligne « créer un nouveau mariage » devient un encart explicatif :
++            le blocage réel vit dans createWedding (le seul passage obligé), mais
++            laisser un bouton qui échoue serait incompréhensible. La ligne
++            « rejoindre » juste en dessous reste intacte — c'est par elle que la
++            famille accède au mariage. */}
++        <View className="bg-accent-card rounded-2xl p-4 mb-2 border border-hair dark:border-hair flex-row items-center opacity-60">
+           <View className="w-10 h-10 rounded-xl items-center justify-center mr-3 bg-accent-paper">
+             <PlusCircle size={20} color="#9CA3AF" />
+           </View>
+           <View className="flex-1">
+             <Text className="text-base font-medium text-mute">
+-              {t("createNewWedding")}
++              {t("singleWeddingInstance")}
++            </Text>
++            <Text className="text-xs text-mute mt-0.5">
++              {t("singleWeddingInstanceHint")}
+             </Text>
+           </View>
+-        </Pressable>
++        </View>
+         <Pressable
+           onPress={() => setShowJoinScanner(true)}
+           className="bg-accent-card rounded-2xl p-4 mb-2 border border-hair dark:border-hair flex-row items-center active:opacity-80"
+@@ -573,7 +579,7 @@ export default function SettingsScreen() {
+         <ToggleCard
+           icon={
+             <View className="w-10 h-10 rounded-xl bg-accent-paper items-center justify-center">
+-              <Lock size={20} color={lockEnabled ? "#b96a4a" : "#C0C0C8"} />
++              <Lock size={20} color={lockEnabled ? theme.clay : "#C0C0C8"} />
+             </View>
+           }
+           title={t("appLock")}
+@@ -590,7 +596,7 @@ export default function SettingsScreen() {
+           <ToggleCard
+             icon={
+               <View className="w-10 h-10 rounded-xl bg-accent-paper items-center justify-center" style={{ position: "relative" }}>
+-                <Bell size={20} color={notificationsEnabled ? "#b96a4a" : "#C0C0C8"} />
++                <Bell size={20} color={notificationsEnabled ? theme.clay : "#C0C0C8"} />
+                 {!hasReminders && (
+                   <View
+                     className="w-3.5 h-3.5 rounded-full bg-primary-500 items-center justify-center"
+@@ -611,7 +617,7 @@ export default function SettingsScreen() {
+               onPress={() => { toast.error(t("remindersLockedHint")); setShowPaywall(true); }}
+               className="flex-row items-start gap-2 mb-2 -mt-1 px-3.5 py-3 rounded-xl bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-800 active:opacity-70"
+             >
+-              <Lock size={14} color="#b96a4a" style={{ marginTop: 1 }} />
++              <Lock size={14} color={theme.clay} style={{ marginTop: 1 }} />
+               <Text className="flex-1 text-xs text-primary-600 dark:text-primary-300 leading-4">
+                 {t("remindersLockedHint")}
+               </Text>
+@@ -751,14 +757,6 @@ export default function SettingsScreen() {
+       onCancel={() => setDeleteWeddingId(null)}
+     />
+ 
+-    <ConfirmSheet
+-      visible={showCreateConfirm}
+-      title={t("createNewWedding")}
+-      message={t("newWeddingConfirm", { count: registry?.weddings.length ?? 0 })}
+-      onConfirm={doCreateWedding}
+-      onCancel={() => setShowCreateConfirm(false)}
+-    />
+-
+     <ConfirmSheet
+       visible={showDisableLock}
+       title={t("disableLock")}
+@@ -796,6 +794,7 @@ export default function SettingsScreen() {
+       visible={showInviteQR}
+       onClose={() => setShowInviteQR(false)}
+       generate={generateInvite}
++      retirer={retirerLeLien}
+     />
+ 
+     <PaywallSheet
+diff --git a/apps/mobile/store/useWeddingRegistryStore.ts b/apps/mobile/store/useWeddingRegistryStore.ts
+index 0513fe7..b6db026 100644
+--- a/apps/mobile/store/useWeddingRegistryStore.ts
++++ b/apps/mobile/store/useWeddingRegistryStore.ts
+@@ -10,6 +10,38 @@ import {
+ } from "@/lib/wedding-registry";
+ import { useRevenueCatStore } from "@/store/useRevenueCatStore";
+ 
++/**
++ * MODIFICATION LOCALE — instance familiale auto-hébergée (mariage.didot.io).
++ *
++ * Cette instance ne sert qu'un mariage, déjà créé. En créer un second ne
++ * pourrait que disperser les données de la famille entre deux espaces sans lien
++ * entre eux, chacun avec sa propre phrase de récupération.
++ *
++ * Le verrou vit ici et non dans les composants : `createWedding` est le seul
++ * passage obligé, donc le seul endroit qu'une navigation directe vers l'écran
++ * de création ne peut pas contourner.
++ *
++ * Deux exceptions délibérées, sans lesquelles le verrou casserait plus qu'il ne
++ * protège :
++ *  - `role === "member"` — c'est le parcours « rejoindre par lien d'invitation »
++ *    (lib/join-space.ts), celui par lequel la famille accède au mariage.
++ *  - registre vide — sinon un appareil neuf, ou une réinstallation, se
++ *    retrouverait sans aucun moyen d'entrer dans l'application.
++ *
++ * Pour lever la contrainte (reconstruction après perte du mariage) : rebuild
++ * avec EXPO_PUBLIC_ALLOW_WEDDING_CREATION=1. Cela exige de reconstruire le
++ * bundle, donc ne peut pas se produire par inadvertance depuis l'app.
++ */
++const ALLOW_WEDDING_CREATION = process.env.EXPO_PUBLIC_ALLOW_WEDDING_CREATION === "1";
++
++/** Levée par `createWedding` quand un mariage existe déjà sur cette instance. */
++export class SingleWeddingInstanceError extends Error {
++  constructor() {
++    super("SINGLE_WEDDING_INSTANCE");
++    this.name = "SingleWeddingInstanceError";
++  }
++}
++
+ interface WeddingRegistryState {
+   registry: WeddingRegistry | null;
+   isLoaded: boolean;
+@@ -31,6 +63,13 @@ export const useWeddingRegistryStore = create<WeddingRegistryState>((set, get) =
+   },
+ 
+   createWedding: async (label, seedPhrase, serverUrl, spaceId, role) => {
++    if (!ALLOW_WEDDING_CREATION && role !== "member") {
++      // Relu depuis le stockage plutôt que depuis get().registry : au tout
++      // premier rendu le store n'est pas encore chargé, et un registre null
++      // laisserait passer la création qu'on veut justement bloquer.
++      const current = await loadRegistry();
++      if (current.weddings.length > 0) throw new SingleWeddingInstanceError();
++    }
+     const entry = await createWeddingEntry(label, seedPhrase, serverUrl, spaceId, role);
+     const registry = await loadRegistry();
+     // Reset BEFORE the registry update below triggers React's re-render, so
+diff --git a/apps/mobile/i18n/locales/fr/settings.json b/apps/mobile/i18n/locales/fr/settings.json
+index 3bf7b5b..81980b7 100644
+--- a/apps/mobile/i18n/locales/fr/settings.json
++++ b/apps/mobile/i18n/locales/fr/settings.json
+@@ -33,6 +34,8 @@
+   "tapToSwitch": "Appuyez pour basculer",
+   "createNewWedding": "Créer un nouveau mariage",
+   "newWeddingConfirm": "Vous avez déjà {{count}} mariage(s). Créer un nouveau mariage ? Vous pourrez basculer entre vos mariages à tout moment.",
++  "singleWeddingInstance": "Instance à mariage unique",
++  "singleWeddingInstanceHint": "Ce serveur n'héberge qu'un seul mariage. Rejoindre un mariage par lien d'invitation reste possible ci-dessous.",
+   "myWedding": "Mon mariage",
+   "security": "Sécurité",
+   "appLock": "Verrouillage de l'app",
+diff --git a/apps/mobile/i18n/locales/en/settings.json b/apps/mobile/i18n/locales/en/settings.json
+index 86026b0..98c264a 100644
+--- a/apps/mobile/i18n/locales/en/settings.json
++++ b/apps/mobile/i18n/locales/en/settings.json
+@@ -33,6 +34,8 @@
+   "tapToSwitch": "Tap to switch",
+   "createNewWedding": "Create a new wedding",
+   "newWeddingConfirm": "You already have {{count}} wedding(s). Create a new wedding? You can switch between weddings at any time.",
++  "singleWeddingInstance": "Single-wedding instance",
++  "singleWeddingInstanceHint": "This server hosts a single wedding. Joining a wedding from an invitation link is still available below.",
+   "myWedding": "My wedding",
+   "security": "Security",
+   "appLock": "App lock",

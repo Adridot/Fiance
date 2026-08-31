@@ -1,0 +1,2514 @@
+diff --git a/apps/mobile/components/GuestListRow.tsx b/apps/mobile/components/GuestListRow.tsx
+new file mode 100644
+index 0000000..ba387d5
+--- /dev/null
++++ b/apps/mobile/components/GuestListRow.tsx
+@@ -0,0 +1,432 @@
++import React, { useRef, useState } from "react";
++import { View, Text, Pressable, TextInput } from "react-native-css/components";
++import { useTranslation } from "react-i18next";
++import { Check, ChevronDown, ChevronRight, Pencil } from "lucide-react-native";
++import { formatGuestLastName, formatGuestName, isFirstNameToComplete } from "@fiance/sdk";
++import { useGuestsStore } from "@/store/useGuestsStore";
++import { useWeddingPartyStore } from "@/store/useWeddingPartyStore";
++import { DIET_LABELS, RSVP_STATUS_COLORS, RSVP_STATUS_LABELS } from "@/db/types";
++import type { RsvpStatus } from "@/db/types";
++import { theme as GP } from "@/lib/theme";
++import type { InlineSelectAnchor } from "@/components/InlineSelectMenu";
++import type { Guest } from "@/db/schema";
++
++/** Hauteur de ligne CONSTANTE : c'est elle qui fait tenir 352 lignes en registre. */
++export const GUEST_ROW_HEIGHT = 40;
++/** Décrochement des invités sous leur groupe, filet vertical compris. */
++export const GUEST_ROW_INDENT = 21;
++const BOX_COLUMN = 34;
++const CHEVRON_COLUMN = 22;
++
++export interface GuestRowColumns {
++  invitationType: number;
++  rsvp: number;
++}
++
++export const GUEST_ROW_NARROW = 700;
++
++export function guestRowColumns(windowWidth: number): GuestRowColumns {
++  return windowWidth >= GUEST_ROW_NARROW
++    ? { invitationType: 200, rsvp: 124 }
++    : { invitationType: 92, rsvp: 90 };
++}
++
++interface GuestListRowProps {
++  guest: Guest;
++  invitationTypeLabel: string;
++  columns: GuestRowColumns;
++  /** Régime pointeur : survol, crayon, chevron, menus ancrés. */
++  pointer: boolean;
++  canEdit: boolean;
++  selected: boolean;
++  /** Cases rendues persistantes dès qu'un invité est coché. */
++  boxPinned: boolean;
++  renaming: boolean;
++  /** Mode saisie des prénoms : la cellule Invité devient un champ de prénom. */
++  capturing: boolean;
++  onOpen: () => void;
++  onToggleSelected: () => void;
++  onOpenInvitationType: (anchor: InlineSelectAnchor) => void;
++  onOpenRsvp: (anchor: InlineSelectAnchor) => void;
++  onStartRename: () => void;
++  onCommitRename: (firstName: string, particle: string, lastName: string) => void;
++  onCancelRename: () => void;
++  onCommitFirstName: (firstName: string) => void;
++  onCancelCapture: () => void;
++}
++
++export function GuestListRow({
++  guest,
++  invitationTypeLabel,
++  columns,
++  pointer,
++  canEdit,
++  selected,
++  boxPinned,
++  renaming,
++  capturing,
++  onOpen,
++  onToggleSelected,
++  onOpenInvitationType,
++  onOpenRsvp,
++  onStartRename,
++  onCommitRename,
++  onCancelRename,
++  onCommitFirstName,
++  onCancelCapture,
++}: GuestListRowProps) {
++  const { t } = useTranslation("guests");
++  const [hovered, setHovered] = useState(false);
++  const typeRef = useRef<any>(null);
++  const rsvpRef = useRef<any>(null);
++
++  const companionName = useGuestsStore((s) => {
++    if (!guest.companionId) return null;
++    const c = s.guests.find((g) => g.id === guest.companionId);
++    return c ? formatGuestName(c) : null;
++  });
++  const roleLabel = useWeddingPartyStore((s) => {
++    const names = s.weddingRoleAssignments
++      .filter((a) => a.guestId === guest.id)
++      .map((a) => s.weddingRoles.find((r) => r.id === a.roleId)?.name)
++      .filter(Boolean);
++    return names.length > 0 ? names.join(", ") : null;
++  });
++
++  const complements = [
++    roleLabel,
++    guest.isChild === true ? t("child") : null,
++    guest.diet && guest.diet !== "STANDARD"
++      ? t(DIET_LABELS[guest.diet as keyof typeof DIET_LABELS])
++      : null,
++    companionName ? t("withCompanion", { name: companionName }) : null,
++  ]
++    .filter(Boolean)
++    .join(" · ");
++
++  const incomplete = isFirstNameToComplete(guest);
++  const rsvpColor = RSVP_STATUS_COLORS[guest.rsvpStatus as RsvpStatus] ?? GP.mute;
++  const rsvpLabel = t(RSVP_STATUS_LABELS[guest.rsvpStatus as RsvpStatus] ?? "");
++  const boxVisible = !pointer || boxPinned || hovered || selected;
++
++  const measure = (
++    ref: React.MutableRefObject<any>,
++    then: (anchor: InlineSelectAnchor) => void,
++  ) => {
++    if (!ref.current?.measureInWindow) {
++      then({ x: 0, y: 0, width: columns.invitationType, height: GUEST_ROW_HEIGHT });
++      return;
++    }
++    ref.current.measureInWindow((x: number, y: number, width: number, height: number) =>
++      then({ x, y, width, height }),
++    );
++  };
++
++  // Entrer dans une commande de la ligne fait SORTIR du survol de la ligne :
++  // chaque commande doit donc le retenir, faute de quoi elle s'efface sous le
++  // curseur au moment même où on la vise.
++  const survol = {
++    onHoverIn: () => setHovered(true),
++    onHoverOut: () => setHovered(false),
++  };
++
++  return (
++    <Pressable
++      onPress={onOpen}
++      {...survol}
++      className="flex-row items-center"
++      style={{
++        height: GUEST_ROW_HEIGHT,
++        backgroundColor: pointer && hovered ? GP.card : "transparent",
++      }}
++    >
++      <View style={{ width: BOX_COLUMN, alignItems: "center" }}>
++        {canEdit && (
++          <Pressable
++            onPress={onToggleSelected}
++            {...survol}
++            hitSlop={10}
++            accessibilityRole="checkbox"
++            accessibilityState={{ checked: selected }}
++            className="w-5 h-5 rounded-full items-center justify-center"
++            style={{
++              opacity: boxVisible ? 1 : 0,
++              backgroundColor: selected ? GP.clay : "transparent",
++              borderWidth: selected ? 0 : 1.5,
++              borderColor: GP.hairStrong,
++            }}
++          >
++            {selected ? <Check size={11} color={GP.card} strokeWidth={3.4} /> : null}
++          </Pressable>
++        )}
++      </View>
++
++      <View className="flex-1 flex-row items-center gap-1" style={{ minWidth: 0 }}>
++        {capturing ? (
++          <CaptureField
++            guest={guest}
++            onCommit={onCommitFirstName}
++            onCancel={onCancelCapture}
++          />
++        ) : renaming ? (
++          <RenameFields guest={guest} onCommit={onCommitRename} onCancel={onCancelRename} />
++        ) : (
++          <>
++            <Text
++              numberOfLines={1}
++              style={{
++                fontSize: 14.5,
++                fontWeight: incomplete ? "400" : "500",
++                color: incomplete ? GP.mute : GP.ink,
++              }}
++            >
++              {formatGuestName(guest)}
++            </Text>
++            {pointer && canEdit && (
++              <Pressable
++                onPress={onStartRename}
++                {...survol}
++                accessibilityRole="button"
++                accessibilityLabel={t("inlineRename")}
++                hitSlop={6}
++                className="rounded-full items-center justify-center"
++                style={{ width: 30, height: 30, opacity: hovered ? 1 : 0 }}
++              >
++                <Pencil size={13} color={GP.mute} />
++              </Pressable>
++            )}
++            {complements !== "" && (
++              <Text
++                numberOfLines={1}
++                className="flex-1"
++                style={{ fontSize: 12.5, color: GP.mute }}
++              >
++                {complements}
++              </Text>
++            )}
++          </>
++        )}
++      </View>
++
++      <View style={{ width: columns.invitationType }}>
++        <Pressable
++          ref={typeRef}
++          disabled={!canEdit}
++          {...survol}
++          onPress={() => measure(typeRef, onOpenInvitationType)}
++          className="flex-row items-center gap-1.5 rounded-lg"
++          style={{
++            height: 30,
++            paddingLeft: 10,
++            paddingRight: 6,
++            borderWidth: canEdit ? 1 : 0,
++            borderColor: GP.hair,
++            width: columns.invitationType - 12,
++          }}
++        >
++          <Text numberOfLines={1} className="flex-1" style={{ fontSize: 13, color: GP.inkSoft }}>
++            {invitationTypeLabel}
++          </Text>
++          {canEdit && <ChevronDown size={12} color={GP.mute} />}
++        </Pressable>
++      </View>
++
++      <View style={{ width: columns.rsvp }}>
++        <Pressable
++          ref={rsvpRef}
++          disabled={!canEdit}
++          {...survol}
++          onPress={() => measure(rsvpRef, onOpenRsvp)}
++          className="flex-row items-center gap-1.5 rounded-full self-start"
++          style={{
++            height: 26,
++            paddingLeft: 10,
++            paddingRight: canEdit ? 6 : 10,
++            backgroundColor: rsvpColor + "18",
++            maxWidth: columns.rsvp - 8,
++          }}
++        >
++          <Text
++            numberOfLines={1}
++            className="font-semibold"
++            style={{ fontSize: 12.5, color: rsvpColor }}
++          >
++            {rsvpLabel}
++          </Text>
++          {canEdit && <ChevronDown size={11} color={rsvpColor} />}
++        </Pressable>
++      </View>
++
++      {pointer && (
++        <View style={{ width: CHEVRON_COLUMN, alignItems: "flex-end" }}>
++          {hovered && <ChevronRight size={15} color={GP.mute} />}
++        </View>
++      )}
++    </Pressable>
++  );
++}
++
++/** Trois champs, jamais un nom recomposé. */
++function RenameFields({
++  guest,
++  onCommit,
++  onCancel,
++}: {
++  guest: Guest;
++  onCommit: (firstName: string, particle: string, lastName: string) => void;
++  onCancel: () => void;
++}) {
++  const { t } = useTranslation("guests");
++  const [firstName, setFirstName] = useState(guest.firstName ?? "");
++  const [particle, setParticle] = useState(guest.nameParticle ?? "");
++  const [lastName, setLastName] = useState(guest.lastName ?? "");
++
++  const commit = () => onCommit(firstName.trim(), particle.trim(), lastName.trim());
++
++  return (
++    <FieldsBox>
++      <TextInput
++        value={firstName}
++        onChangeText={setFirstName}
++        onSubmitEditing={commit}
++        onKeyPress={(e: any) => {
++          if (e?.nativeEvent?.key === "Escape") onCancel();
++        }}
++        placeholder={t("firstName")}
++        placeholderTextColor={GP.mute}
++        autoFocus
++        autoCorrect={false}
++        blurOnSubmit={false}
++        style={{
++          width: 130,
++          height: 28,
++          paddingHorizontal: 9,
++          borderRadius: 7,
++          borderWidth: 1.5,
++          borderColor: GP.clay,
++          backgroundColor: GP.card,
++          fontSize: 14,
++          color: GP.ink,
++        }}
++      />
++      <TextInput
++        value={particle}
++        onChangeText={setParticle}
++        onSubmitEditing={commit}
++        onKeyPress={(e: any) => {
++          if (e?.nativeEvent?.key === "Escape") onCancel();
++        }}
++        placeholder={t("nameParticle")}
++        placeholderTextColor={GP.mute}
++        autoCorrect={false}
++        blurOnSubmit={false}
++        style={{
++          width: 70,
++          height: 28,
++          paddingHorizontal: 9,
++          borderRadius: 7,
++          borderWidth: 1.5,
++          borderColor: GP.clay,
++          backgroundColor: GP.card,
++          fontSize: 13,
++          fontStyle: "italic",
++          color: GP.mute,
++        }}
++      />
++      <TextInput
++        value={lastName}
++        onChangeText={setLastName}
++        onSubmitEditing={commit}
++        onKeyPress={(e: any) => {
++          if (e?.nativeEvent?.key === "Escape") onCancel();
++        }}
++        placeholder={t("lastName")}
++        placeholderTextColor={GP.mute}
++        autoCorrect={false}
++        blurOnSubmit={false}
++        style={{
++          width: 150,
++          height: 28,
++          paddingHorizontal: 9,
++          borderRadius: 7,
++          borderWidth: 1.5,
++          borderColor: GP.clay,
++          backgroundColor: GP.card,
++          fontSize: 14,
++          color: GP.ink,
++        }}
++      />
++      <Text style={{ fontSize: 11, color: GP.mute }} numberOfLines={1}>
++        {t("inlineEditHint")}
++      </Text>
++    </FieldsBox>
++  );
++}
++
++/** Mode saisie : le prénom seul, pré-rempli de la valeur fabriquée le cas échéant. */
++function CaptureField({
++  guest,
++  onCommit,
++  onCancel,
++}: {
++  guest: Guest;
++  onCommit: (firstName: string) => void;
++  onCancel: () => void;
++}) {
++  const { t } = useTranslation("guests");
++  const [value, setValue] = useState(guest.firstName ?? "");
++
++  return (
++    <FieldsBox gap="gap-2">
++      <TextInput
++        value={value}
++        onChangeText={setValue}
++        onSubmitEditing={() => onCommit(value.trim())}
++        onKeyPress={(e: any) => {
++          if (e?.nativeEvent?.key === "Escape") onCancel();
++        }}
++        placeholder={t("nameQueueFirstName")}
++        placeholderTextColor={GP.mute}
++        autoFocus
++        autoCapitalize="words"
++        autoCorrect={false}
++        returnKeyType="next"
++        blurOnSubmit={false}
++        style={{
++          width: 200,
++          height: 28,
++          paddingHorizontal: 9,
++          borderRadius: 7,
++          borderWidth: 1.5,
++          borderColor: GP.clay,
++          backgroundColor: GP.card,
++          fontSize: 14,
++          fontWeight: "600",
++          color: GP.ink,
++        }}
++      />
++      <Text style={{ fontSize: 12.5, color: GP.mute }} numberOfLines={1}>
++        {formatGuestLastName(guest)}
++      </Text>
++    </FieldsBox>
++  );
++}
++
++/**
++ * Un `TextInput` nu ne revendique pas l'appui : le clic remonterait à la ligne,
++ * qui ouvre la fiche. Le conteneur le revendique, sans rien faire — l'idiome du
++ * fichier, où l'arrêt de propagation EST la revendication.
++ */
++function FieldsBox({
++  children,
++  gap = "gap-1.5",
++}: {
++  children: React.ReactNode;
++  gap?: string;
++}) {
++  return (
++    <Pressable onPress={() => {}} className={`flex-row items-center ${gap}`}>
++      {children}
++    </Pressable>
++  );
++}
+diff --git a/apps/mobile/components/GuestQuickAddModal.tsx b/apps/mobile/components/GuestQuickAddModal.tsx
+new file mode 100644
+index 0000000..e7f57d7
+--- /dev/null
++++ b/apps/mobile/components/GuestQuickAddModal.tsx
+@@ -0,0 +1,665 @@
++import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
++import { Modal, Platform } from "react-native";
++import { View, Text, Pressable, ScrollView, TextInput } from "react-native-css/components";
++import { useTranslation } from "react-i18next";
++import * as Crypto from "expo-crypto";
++import { Plus, Undo2, X } from "lucide-react-native";
++import {
++  formatGuestGroupName,
++  formatGuestName,
++  newGuestDraft,
++  resolveChainedHousehold,
++  resolveGroupSides,
++  sortGroups,
++} from "@fiance/sdk";
++import { useGuestsStore } from "@/store/useGuestsStore";
++import { useWeddingStore } from "@/store/useWeddingStore";
++import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
++import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
++import { useGuestGroupSideLabel } from "@/lib/guest-group-side";
++import { useShowPaywall } from "@/components/PaywallProvider";
++import { useCanAddMore, FREE_LIMITS } from "@/lib/limits";
++import { toast } from "@/lib/toast/sonner";
++import { analytics } from "@/lib/analytics";
++import { InlineSelectMenu } from "@/components/InlineSelectMenu";
++import type { InlineSelectAnchor, InlineSelectOption } from "@/components/InlineSelectMenu";
++import { Display } from "@/components/Display";
++import { theme as GP } from "@/lib/theme";
++import { RSVP_STATUS_COLORS, RSVP_STATUS_LABELS } from "@/db/types";
++import type { RsvpStatus } from "@/db/types";
++import type { Guest } from "@/db/schema";
++
++const RSVP_STATUSES: RsvpStatus[] = ["PENDING", "ACCEPTED", "DECLINED", "MAYBE"];
++
++type MenuKind = "group" | "invitationType" | "rsvp";
++
++/**
++ * Ce qui colle d'une création à l'autre — et survit à la fermeture de la
++ * modale. L'état vit dans l'écran ; la modale n'a en propre que le volatil.
++ */
++export interface QuickAddContext {
++  groupId: string | null;
++  invitationType: string;
++  rsvpStatus: string;
++  sameHousehold: boolean;
++  lastName: string;
++  nameParticle: string;
++  /** La tête de chaîne : le foyer de la création suivante se lit sur elle. */
++  lastCreatedId: string | null;
++}
++
++const LABEL_STYLE = {
++  fontSize: 10.5,
++  fontWeight: "600" as const,
++  letterSpacing: 1.2,
++  textTransform: "uppercase" as const,
++  color: GP.mute,
++};
++
++/** Pilule du bandeau : la valeur courante, ouvrant son menu sous elle. */
++function Pill({
++  label,
++  value,
++  dot,
++  editable,
++  onOpen,
++}: {
++  label: string;
++  value: string;
++  dot?: string | null;
++  editable: boolean;
++  onOpen: (anchor: InlineSelectAnchor) => void;
++}) {
++  const ref = useRef<any>(null);
++
++  const open = () => {
++    if (!ref.current?.measureInWindow) {
++      onOpen({ x: 0, y: 0, width: 220, height: 32 });
++      return;
++    }
++    ref.current.measureInWindow((x: number, y: number, width: number, height: number) =>
++      onOpen({ x, y, width, height }),
++    );
++  };
++
++  return (
++    <Pressable
++      ref={ref}
++      disabled={!editable}
++      onPress={open}
++      accessibilityRole="button"
++      accessibilityLabel={label}
++      className="flex-row items-center gap-2 rounded-full active:opacity-70"
++      style={{
++        height: 32,
++        paddingHorizontal: 12,
++        borderWidth: 1,
++        borderColor: GP.hair,
++        backgroundColor: GP.paper,
++        opacity: editable ? 1 : 0.6,
++      }}
++    >
++      {dot ? (
++        <View style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: dot }} />
++      ) : null}
++      <Text numberOfLines={1} style={{ fontSize: 12.5, color: GP.inkSoft }}>
++        {value}
++      </Text>
++    </Pressable>
++  );
++}
++
++/** Bascule en pilule, cible de 38 px. */
++function Toggle({
++  label,
++  value,
++  onToggle,
++  disabled,
++}: {
++  label: string;
++  value: boolean;
++  onToggle: () => void;
++  disabled: boolean;
++}) {
++  return (
++    <Pressable
++      onPress={onToggle}
++      disabled={disabled}
++      accessibilityRole="switch"
++      accessibilityState={{ checked: value }}
++      className="flex-row items-center gap-2.5"
++      style={{ height: 38, opacity: disabled ? 0.6 : 1 }}
++    >
++      <View
++        style={{
++          width: 36,
++          height: 21,
++          borderRadius: 999,
++          padding: 2,
++          backgroundColor: value ? GP.clay : GP.hairStrong,
++          alignItems: value ? "flex-end" : "flex-start",
++        }}
++      >
++        <View
++          style={{
++            width: 17,
++            height: 17,
++            borderRadius: 999,
++            backgroundColor: GP.card,
++            shadowColor: GP.ink,
++            shadowOffset: { width: 0, height: 1 },
++            shadowOpacity: 0.25,
++            shadowRadius: 2,
++          }}
++        />
++      </View>
++      <Text style={{ fontSize: 13.5, color: GP.inkSoft }}>{label}</Text>
++    </Pressable>
++  );
++}
++
++/** Champ de nom : Entrée y crée et enchaîne. */
++function NameInput({
++  inputRef,
++  label,
++  value,
++  onChange,
++  onSubmit,
++  width,
++  flex,
++  borderColor,
++  italic,
++  autoFocus,
++  editable,
++}: {
++  inputRef?: React.RefObject<any>;
++  label: string;
++  value: string;
++  onChange: (v: string) => void;
++  onSubmit: () => void;
++  width?: number;
++  flex?: number;
++  borderColor: string;
++  italic?: boolean;
++  autoFocus?: boolean;
++  editable: boolean;
++}) {
++  return (
++    <View style={{ gap: 5, width, flex }}>
++      <Text style={LABEL_STYLE}>{label}</Text>
++      <TextInput
++        ref={inputRef}
++        value={value}
++        onChangeText={onChange}
++        onSubmitEditing={onSubmit}
++        placeholder={label}
++        placeholderTextColor={GP.mute}
++        autoFocus={autoFocus}
++        autoCorrect={false}
++        blurOnSubmit={false}
++        editable={editable}
++        accessibilityLabel={label}
++        style={{
++          height: 40,
++          paddingHorizontal: 11,
++          borderRadius: 9,
++          borderWidth: 1,
++          borderColor,
++          backgroundColor: GP.card,
++          fontSize: 15,
++          fontStyle: italic ? "italic" : "normal",
++          color: GP.ink,
++        }}
++      />
++    </View>
++  );
++}
++
++export function GuestQuickAddModal({
++  context,
++  onContextChange,
++  onCreated,
++  onOpenRecord,
++  onClose,
++}: {
++  context: QuickAddContext;
++  onContextChange: (patch: Partial<QuickAddContext>) => void;
++  onCreated: (guest: Guest) => void;
++  onOpenRecord: (guestId: string) => void;
++  onClose: () => void;
++}) {
++  const { t } = useTranslation("guests");
++  const canEdit = useCanEditHere();
++  const sideLabel = useGuestGroupSideLabel();
++  const guests = useGuestsStore((s) => s.guests);
++  const storedGroups = useGuestsStore((s) => s.groups);
++  const addGuest = useGuestsStore((s) => s.addGuest);
++  const removeGuests = useGuestsStore((s) => s.removeGuests);
++  const attachToHousehold = useGuestsStore((s) => s.attachToHousehold);
++  const wedding = useWeddingStore((s) => s.wedding);
++  const invitationTypes = useInvitationTypesStore((s) => s.invitationTypes);
++  const canAddGuest = useCanAddMore("guests", guests.length);
++  const { openPaywall } = useShowPaywall();
++
++  // Le volatil : la fermeture l'emporte, le contexte de l'écran survit.
++  const [firstName, setFirstName] = useState("");
++  const [isChild, setIsChild] = useState(false);
++  const [lastName, setLastName] = useState(context.sameHousehold ? context.lastName : "");
++  const [particle, setParticle] = useState(context.sameHousehold ? context.nameParticle : "");
++  const [batch, setBatch] = useState<string[]>([]);
++  const [menu, setMenu] = useState<{ kind: MenuKind; anchor: InlineSelectAnchor } | null>(null);
++  const firstNameRef = useRef<any>(null);
++
++  // Un menu ouvert prend Échap pour lui.
++  useEffect(() => {
++    if (Platform.OS !== "web" || typeof document === "undefined") return;
++    const onKey = (e: KeyboardEvent) => {
++      if (e.key !== "Escape" || menu) return;
++      e.preventDefault();
++      onClose();
++    };
++    document.addEventListener("keydown", onKey, true);
++    return () => document.removeEventListener("keydown", onKey, true);
++  }, [onClose, menu]);
++
++  // Sur le web, react-native-web ferme la modale sur le `keyup` d'Échap, hors
++  // de toute connaissance du menu ouvert : Échap est à l'écoute ci-dessus, seul.
++  const requestClose = useCallback(() => {
++    if (Platform.OS === "web") return;
++    onClose();
++  }, [onClose]);
++
++  const groups = useMemo(
++    () => sortGroups(resolveGroupSides(storedGroups, wedding)),
++    [storedGroups, wedding],
++  );
++
++  const groupLabel = (id: string | null): string => {
++    const group = groups.find((g) => g.id === id);
++    return group ? `${formatGuestGroupName(group.name)} · ${sideLabel(group.side)}` : t("none");
++  };
++  const typeLabel =
++    invitationTypes.find((it) => it.id === context.invitationType)?.label ?? t("none");
++  const rsvpStatus = context.rsvpStatus as RsvpStatus;
++
++  const canCreate = canEdit && lastName.trim().length > 0;
++  const added = batch
++    .map((id) => guests.find((g) => g.id === id))
++    .filter((g): g is Guest => g !== undefined);
++
++  const create = useCallback(
++    (thenClose: boolean) => {
++      if (!canEdit || !lastName.trim()) return;
++      // La modale n'est pas une porte dérobée autour de la limite.
++      if (!canAddGuest) {
++        const msg = t("common:premiumLimits.guests", { limit: FREE_LIMITS.guests });
++        toast.error(msg);
++        openPaywall(msg);
++        return;
++      }
++
++      const chained = context.sameHousehold
++        ? resolveChainedHousehold(guests, context.lastCreatedId, Crypto.randomUUID())
++        : { householdId: null, attachPrevious: false };
++      if (chained.attachPrevious && context.lastCreatedId && chained.householdId) {
++        attachToHousehold([context.lastCreatedId], chained.householdId);
++      }
++
++      const draft = newGuestDraft({
++        id: Crypto.randomUUID(),
++        now: new Date().toISOString(),
++        firstName,
++        nameParticle: particle,
++        lastName,
++        groupId: context.groupId,
++        invitationType: context.invitationType,
++        rsvpStatus: context.rsvpStatus,
++        isChild,
++        householdId: chained.householdId,
++      });
++      addGuest(draft);
++      analytics.capture("guest_added");
++      onCreated(draft);
++
++      setBatch((prev) => [...prev, draft.id]);
++      onContextChange({
++        lastCreatedId: draft.id,
++        lastName,
++        nameParticle: particle,
++      });
++
++      if (thenClose) {
++        onClose();
++        return;
++      }
++      setFirstName("");
++      setIsChild(false);
++      if (!context.sameHousehold) {
++        setLastName("");
++        setParticle("");
++      }
++      firstNameRef.current?.focus();
++    },
++    [
++      canEdit,
++      canAddGuest,
++      lastName,
++      particle,
++      firstName,
++      isChild,
++      guests,
++      context,
++      addGuest,
++      attachToHousehold,
++      onContextChange,
++      onCreated,
++      onClose,
++      openPaywall,
++      t,
++    ],
++  );
++
++  const toggleSameHousehold = useCallback(() => {
++    const engagee = !context.sameHousehold;
++    onContextChange({ sameHousehold: engagee });
++    if (engagee) {
++      // Engagée après une création, elle reprend le nom de celle-ci.
++      if (!lastName.trim() && context.lastName) {
++        setLastName(context.lastName);
++        setParticle(context.nameParticle);
++      }
++      return;
++    }
++    // Décochée, elle cesse de conserver — sans effacer une frappe en cours.
++    if (lastName === context.lastName) {
++      setLastName("");
++      setParticle("");
++    }
++  }, [context.sameHousehold, context.lastName, context.nameParticle, lastName, onContextChange]);
++
++  /** Le dernier ajout cesse d'exister, et la chaîne recule d'un cran. */
++  const undoLast = useCallback(() => {
++    const last = batch[batch.length - 1];
++    if (!last) return;
++    removeGuests([last]);
++    const rest = batch.slice(0, -1);
++    setBatch(rest);
++    onContextChange({ lastCreatedId: rest[rest.length - 1] ?? null });
++  }, [batch, removeGuests, onContextChange]);
++
++  const menuOptions: InlineSelectOption[] = !menu
++    ? []
++    : menu.kind === "group"
++      ? [
++          { id: "", label: t("none") },
++          ...groups.map((g) => ({
++            id: g.id,
++            label: `${formatGuestGroupName(g.name)} · ${sideLabel(g.side)}`,
++          })),
++        ]
++      : menu.kind === "invitationType"
++        ? invitationTypes.map((it) => ({ id: it.id, label: it.label }))
++        : RSVP_STATUSES.map((s) => ({
++            id: s,
++            label: t(RSVP_STATUS_LABELS[s]),
++            color: RSVP_STATUS_COLORS[s],
++          }));
++
++  const menuValue = !menu
++    ? null
++    : menu.kind === "group"
++      ? context.groupId ?? ""
++      : menu.kind === "invitationType"
++        ? context.invitationType
++        : context.rsvpStatus;
++
++  const pickMenuValue = (id: string) => {
++    if (!menu) return;
++    if (menu.kind === "group") onContextChange({ groupId: id || null });
++    else if (menu.kind === "invitationType") onContextChange({ invitationType: id });
++    else onContextChange({ rsvpStatus: id });
++    setMenu(null);
++  };
++
++  const openMenu = (kind: MenuKind) => (anchor: InlineSelectAnchor) => setMenu({ kind, anchor });
++
++  return (
++    <Modal visible transparent animationType="fade" onRequestClose={requestClose}>
++      <Pressable
++        onPress={onClose}
++        style={{
++          position: "absolute",
++          top: 0,
++          left: 0,
++          right: 0,
++          bottom: 0,
++          backgroundColor: GP.ink + "66",
++        }}
++      />
++      {/* `box-none` : hors de la carte, le clic atteint le voile. */}
++      <View
++        pointerEvents="box-none"
++        className="flex-1 items-center"
++        style={{ paddingTop: 84, paddingBottom: 32 }}
++      >
++        <View
++          className="overflow-hidden rounded-3xl"
++          style={{
++            width: 560,
++            maxWidth: "94%",
++            maxHeight: "100%",
++            backgroundColor: GP.card,
++            shadowColor: GP.ink,
++            shadowOffset: { width: 0, height: 30 },
++            shadowOpacity: 0.35,
++            shadowRadius: 70,
++            elevation: 20,
++          }}
++        >
++          <View
++            className="flex-row items-center gap-3"
++            style={{
++              paddingTop: 18,
++              paddingHorizontal: 22,
++              paddingBottom: 14,
++              borderBottomWidth: 1,
++              borderBottomColor: GP.hair,
++            }}
++          >
++            <View className="flex-1" style={{ minWidth: 0 }}>
++              <Display size={20} weight="600" style={{ lineHeight: 24 }} numberOfLines={1}>
++                {t("quickAdd.title")}
++              </Display>
++            </View>
++            {added.length > 0 ? (
++              <Text style={{ fontSize: 12.5, color: GP.mute }} numberOfLines={1}>
++                {t("quickAdd.added", { count: added.length })}
++              </Text>
++            ) : null}
++            <Pressable
++              onPress={onClose}
++              accessibilityRole="button"
++              accessibilityLabel={t("quickAdd.close")}
++              className="rounded-full items-center justify-center active:opacity-60"
++              style={{ width: 38, height: 38 }}
++            >
++              <X size={17} color={GP.ink} />
++            </Pressable>
++          </View>
++
++          <ScrollView showsVerticalScrollIndicator={false} style={{ flexShrink: 1 }}>
++            <View style={{ paddingHorizontal: 22, paddingTop: 16, gap: 14 }}>
++              {/* Le bandeau : ce qui ne se redemande pas d'une création à l'autre. */}
++              <View style={{ gap: 7 }}>
++                <Text style={LABEL_STYLE}>{t("quickAdd.context")}</Text>
++                <View className="flex-row flex-wrap items-center gap-2">
++                  <Pill
++                    label={t("groupLabel")}
++                    value={groupLabel(context.groupId)}
++                    editable={canEdit}
++                    onOpen={openMenu("group")}
++                  />
++                  <Pill
++                    label={t("columnInvitationType")}
++                    value={typeLabel}
++                    editable={canEdit}
++                    onOpen={openMenu("invitationType")}
++                  />
++                  <Pill
++                    label={t("columnRsvp")}
++                    value={t(RSVP_STATUS_LABELS[rsvpStatus] ?? "")}
++                    dot={RSVP_STATUS_COLORS[rsvpStatus] ?? GP.mute}
++                    editable={canEdit}
++                    onOpen={openMenu("rsvp")}
++                  />
++                </View>
++              </View>
++
++              <View className="flex-row items-end gap-2.5">
++                <NameInput
++                  inputRef={firstNameRef}
++                  label={t("quickAdd.firstName")}
++                  value={firstName}
++                  onChange={setFirstName}
++                  onSubmit={() => create(false)}
++                  flex={1}
++                  borderColor={GP.hair}
++                  autoFocus
++                  editable={canEdit}
++                />
++                <NameInput
++                  label={t("nameParticle")}
++                  value={particle}
++                  onChange={setParticle}
++                  onSubmit={() => create(false)}
++                  width={92}
++                  borderColor={GP.hair}
++                  italic
++                  editable={canEdit}
++                />
++                <NameInput
++                  label={t("lastName")}
++                  value={lastName}
++                  onChange={setLastName}
++                  onSubmit={() => create(false)}
++                  flex={1.2}
++                  // Le signal « nom attendu » est passif : la rafale ne se
++                  // laisse pas interrompre par un message.
++                  borderColor={lastName.trim() ? GP.hair : GP.mustard}
++                  editable={canEdit}
++                />
++              </View>
++
++              <View className="flex-row items-center gap-5">
++                <Toggle
++                  label={t("quickAdd.sameHousehold")}
++                  value={context.sameHousehold}
++                  onToggle={toggleSameHousehold}
++                  disabled={!canEdit}
++                />
++                <Toggle
++                  label={t("quickAdd.child")}
++                  value={isChild}
++                  onToggle={() => setIsChild((v) => !v)}
++                  disabled={!canEdit}
++                />
++              </View>
++
++              <Text style={{ fontSize: 11.5, color: GP.mute }}>{t("quickAdd.nameIsEnough")}</Text>
++            </View>
++
++            {/* La fournée sous les yeux : le journal de la séance de saisie. */}
++            {added.length > 0 ? (
++              <View
++                className="flex-row flex-wrap items-center gap-2"
++                style={{ paddingHorizontal: 22, paddingTop: 14 }}
++              >
++                {added.map((guest) => (
++                  <Pressable
++                    key={guest.id}
++                    onPress={() => onOpenRecord(guest.id)}
++                    accessibilityRole="button"
++                    className="rounded-full active:opacity-70"
++                    style={{
++                      height: 28,
++                      paddingHorizontal: 11,
++                      justifyContent: "center",
++                      backgroundColor: GP.claySoft,
++                    }}
++                  >
++                    <Text style={{ fontSize: 12, color: GP.olive }} numberOfLines={1}>
++                      {formatGuestName(guest)}
++                    </Text>
++                  </Pressable>
++                ))}
++                <Pressable
++                  onPress={undoLast}
++                  accessibilityRole="button"
++                  className="flex-row items-center gap-1.5 active:opacity-60"
++                  style={{ height: 28, paddingHorizontal: 4 }}
++                >
++                  <Undo2 size={12} color={GP.mute} />
++                  <Text style={{ fontSize: 12, color: GP.mute }}>{t("quickAdd.undoLast")}</Text>
++                </Pressable>
++              </View>
++            ) : null}
++          </ScrollView>
++
++          <View
++            className="flex-row items-center gap-3"
++            style={{
++              paddingHorizontal: 22,
++              paddingVertical: 14,
++              marginTop: 14,
++              borderTopWidth: 1,
++              borderTopColor: GP.hair,
++            }}
++          >
++            <Pressable
++              onPress={() => create(false)}
++              disabled={!canCreate}
++              accessibilityRole="button"
++              className="flex-row items-center gap-2 rounded-full active:opacity-80"
++              style={{
++                height: 38,
++                paddingHorizontal: 16,
++                backgroundColor: GP.clay,
++                opacity: canCreate ? 1 : 0.45,
++              }}
++            >
++              <Plus size={14} color={GP.card} />
++              <Text className="font-semibold" style={{ fontSize: 13, color: GP.card }}>
++                {t("quickAdd.addAndChain")}
++              </Text>
++              <Text style={{ fontSize: 11, color: GP.card, opacity: 0.75 }}>
++                {t("quickAdd.enterHint")}
++              </Text>
++            </Pressable>
++            <Pressable
++              onPress={() => create(true)}
++              disabled={!canCreate}
++              accessibilityRole="button"
++              className="justify-center active:opacity-60"
++              style={{ height: 38, opacity: canCreate ? 1 : 0.45 }}
++            >
++              <Text className="font-medium" style={{ fontSize: 12.5, color: GP.clay }}>
++                {t("quickAdd.addAndClose")}
++              </Text>
++            </Pressable>
++          </View>
++        </View>
++      </View>
++
++      <InlineSelectMenu
++        visible={menu !== null}
++        anchor={menu?.anchor ?? null}
++        options={menuOptions}
++        valueId={menuValue}
++        direction="over"
++        hint={t("inlineMenuHint")}
++        onPick={pickMenuValue}
++        onDismiss={() => setMenu(null)}
++      />
++    </Modal>
++  );
++}
+diff --git a/apps/mobile/components/GuestRecordModal.tsx b/apps/mobile/components/GuestRecordModal.tsx
+new file mode 100644
+index 0000000..1b56e46
+--- /dev/null
++++ b/apps/mobile/components/GuestRecordModal.tsx
+@@ -0,0 +1,1030 @@
++import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
++import { Modal, Platform } from "react-native";
++import { View, Text, Pressable, ScrollView, TextInput } from "react-native-css/components";
++import { useRouter } from "expo-router";
++import { useTranslation } from "react-i18next";
++import * as Crypto from "expo-crypto";
++import {
++  Check,
++  ChevronDown,
++  ChevronLeft,
++  ChevronRight,
++  Home,
++  Plus,
++  X,
++  XCircle,
++} from "lucide-react-native";
++import {
++  formatGuestGroupName,
++  householdName,
++  resolveGroupSides,
++  resolveHousehold,
++  rsvpStatusUpdate,
++  sortGroups,
++} from "@fiance/sdk";
++import { useGuestsStore } from "@/store/useGuestsStore";
++import { useWeddingStore } from "@/store/useWeddingStore";
++import { useWeddingPartyStore } from "@/store/useWeddingPartyStore";
++import { useAccommodationsStore } from "@/store/useAccommodationsStore";
++import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
++import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
++import { useGuestGroupSideLabel } from "@/lib/guest-group-side";
++import { InlineSelectMenu } from "@/components/InlineSelectMenu";
++import type { InlineSelectAnchor, InlineSelectOption } from "@/components/InlineSelectMenu";
++import { theme as GP } from "@/lib/theme";
++import {
++  DIET_LABELS,
++  RSVP_STATUS_COLORS,
++  RSVP_STATUS_LABELS,
++  TRANSPORT_MODE_LABELS,
++} from "@/db/types";
++import type { Diet, RsvpStatus, TransportMode } from "@/db/types";
++
++const RSVP_STATUSES: RsvpStatus[] = ["PENDING", "ACCEPTED", "DECLINED", "MAYBE"];
++const DIETS: Diet[] = ["STANDARD", "VEGETARIAN", "VEGAN", "HALAL", "KOSHER", "ALLERGY"];
++const TRANSPORTS: TransportMode[] = ["car", "train", "shuttle", "taxi"];
++
++/** Les champs de choix de la modale, un par déclencheur mesurable. */
++type MenuKind =
++  | "group"
++  | "invitationType"
++  | "rsvp"
++  | "diet"
++  | "table"
++  | "accommodation"
++  | "transport";
++
++const LABEL_STYLE = {
++  fontSize: 10.5,
++  fontWeight: "600" as const,
++  letterSpacing: 1.2,
++  textTransform: "uppercase" as const,
++  color: GP.mute,
++};
++
++const FIELD_BOX = {
++  paddingHorizontal: 11,
++  borderRadius: 9,
++  borderWidth: 1,
++  borderColor: GP.hair,
++  backgroundColor: GP.card,
++};
++
++/** Titre de bloc : capitales espacées sur filet, le motif de la liste réduit. */
++function BlockTitle({ title, action }: { title: string; action?: React.ReactNode }) {
++  return (
++    <View className="flex-row items-center gap-2.5">
++      <Text
++        style={{
++          fontSize: 10.5,
++          fontWeight: "600",
++          letterSpacing: 1.5,
++          textTransform: "uppercase",
++          color: GP.olive,
++        }}
++      >
++        {title}
++      </Text>
++      <View className="flex-1" style={{ height: 1, backgroundColor: GP.hair }} />
++      {action}
++    </View>
++  );
++}
++
++/**
++ * Un champ qui s'enregistre au fil de l'eau : la saisie est commise à la sortie
++ * du champ, et la commission en attente est inscrite au registre pour que
++ * fermer ou naviguer ne perde rien.
++ */
++function DirectInput({
++  field,
++  label,
++  value,
++  onCommit,
++  registry,
++  placeholder,
++  height = 38,
++  fontSize = 13.5,
++  multiline,
++  keyboardType,
++  editable,
++}: {
++  field: string;
++  label: string;
++  value: string;
++  onCommit: (v: string) => void;
++  registry: React.MutableRefObject<Map<string, () => void>>;
++  placeholder?: string;
++  height?: number;
++  fontSize?: number;
++  multiline?: boolean;
++  keyboardType?: "default" | "numeric" | "email-address" | "phone-pad";
++  editable?: boolean;
++}) {
++  // Monté par `key={field}` : changer d'invité remonte le champ, la valeur du
++  // magasin redevient donc le brouillon sans effet de synchronisation.
++  const [draft, setDraft] = useState(value);
++
++  const commit = () => {
++    registry.current.delete(field);
++    const next = draft.trim();
++    if (next === (value ?? "").trim()) return;
++    onCommit(next);
++  };
++
++  return (
++    <View className="flex-1" style={{ gap: 5, opacity: editable === false ? 0.6 : 1 }}>
++      <Text style={LABEL_STYLE}>{label}</Text>
++      <TextInput
++        value={draft}
++        onChangeText={(text: string) => {
++          setDraft(text);
++          registry.current.set(field, () => {
++            const v = text.trim();
++            if (v !== (value ?? "").trim()) onCommit(v);
++          });
++        }}
++        onBlur={commit}
++        placeholder={placeholder}
++        placeholderTextColor={GP.mute}
++        multiline={multiline}
++        keyboardType={keyboardType}
++        editable={editable}
++        style={{
++          ...FIELD_BOX,
++          height,
++          paddingTop: multiline ? 9 : 0,
++          fontSize,
++          color: GP.ink,
++          textAlignVertical: multiline ? "top" : "center",
++        }}
++      />
++    </View>
++  );
++}
++
++/** Le nom édité DANS le titre : même registre de commissions, rendu Fraunces. */
++function TitleInput({
++  field,
++  value,
++  onCommit,
++  registry,
++  placeholder,
++  width,
++  fontSize,
++  italic,
++  color,
++  borderColor,
++  editable,
++}: {
++  field: string;
++  value: string;
++  onCommit: (v: string) => void;
++  registry: React.MutableRefObject<Map<string, () => void>>;
++  placeholder: string;
++  width: number;
++  fontSize: number;
++  italic?: boolean;
++  color: string;
++  borderColor: string;
++  editable?: boolean;
++}) {
++  const [draft, setDraft] = useState(value);
++
++  const commit = () => {
++    registry.current.delete(field);
++    const next = draft.trim();
++    if (next === (value ?? "").trim()) return;
++    onCommit(next);
++  };
++
++  return (
++    <TextInput
++      value={draft}
++      onChangeText={(text: string) => {
++        setDraft(text);
++        registry.current.set(field, () => {
++          const v = text.trim();
++          if (v !== (value ?? "").trim()) onCommit(v);
++        });
++      }}
++      onBlur={commit}
++      placeholder={placeholder}
++      placeholderTextColor={GP.mute}
++      editable={editable}
++      autoCorrect={false}
++      style={{
++        width,
++        height: 42,
++        paddingHorizontal: 12,
++        borderRadius: 9,
++        borderWidth: 1,
++        borderColor,
++        backgroundColor: GP.card,
++        fontFamily: Platform.OS === "web" ? "Fraunces" : undefined,
++        fontSize,
++        fontWeight: italic ? "400" : "600",
++        fontStyle: italic ? "italic" : "normal",
++        letterSpacing: -0.02 * fontSize,
++        color,
++        opacity: editable === false ? 0.6 : 1,
++      }}
++    />
++  );
++}
++
++/** Champ de sélection : étiquette au-dessus, valeur et chevron dedans. */
++function SelectField({
++  label,
++  value,
++  color,
++  dot,
++  height = 38,
++  fontSize = 13.5,
++  editable,
++  onOpen,
++}: {
++  label: string;
++  value: string;
++  color?: string;
++  dot?: string | null;
++  height?: number;
++  fontSize?: number;
++  editable: boolean;
++  onOpen: (anchor: InlineSelectAnchor) => void;
++}) {
++  const ref = useRef<any>(null);
++
++  const open = () => {
++    if (!ref.current?.measureInWindow) {
++      onOpen({ x: 0, y: 0, width: 220, height });
++      return;
++    }
++    ref.current.measureInWindow((x: number, y: number, width: number, h: number) =>
++      onOpen({ x, y, width, height: h }),
++    );
++  };
++
++  return (
++    <View className="flex-1" style={{ gap: 5, opacity: editable ? 1 : 0.6 }}>
++      <Text style={LABEL_STYLE}>{label}</Text>
++      <Pressable
++        ref={ref}
++        disabled={!editable}
++        onPress={open}
++        accessibilityRole="button"
++        accessibilityLabel={label}
++        className="flex-row items-center gap-2"
++        style={{ ...FIELD_BOX, height }}
++      >
++        {dot ? (
++          <View style={{ width: 9, height: 9, borderRadius: 999, backgroundColor: dot }} />
++        ) : null}
++        <Text
++          numberOfLines={1}
++          className="flex-1"
++          style={{ fontSize, fontWeight: dot ? "500" : "400", color: color ?? GP.inkSoft }}
++        >
++          {value}
++        </Text>
++        {editable ? <ChevronDown size={12} color={GP.mute} /> : null}
++      </Pressable>
++    </View>
++  );
++}
++
++/** Bascule en pilule, cible de 38 px. */
++function Toggle({
++  label,
++  value,
++  onToggle,
++  disabled,
++}: {
++  label: string;
++  value: boolean;
++  onToggle: () => void;
++  disabled: boolean;
++}) {
++  return (
++    <Pressable
++      onPress={onToggle}
++      disabled={disabled}
++      accessibilityRole="switch"
++      accessibilityState={{ checked: value }}
++      className="flex-row items-center gap-2.5"
++      style={{ height: 38, opacity: disabled ? 0.6 : 1 }}
++    >
++      <View
++        style={{
++          width: 36,
++          height: 21,
++          borderRadius: 999,
++          padding: 2,
++          backgroundColor: value ? GP.clay : GP.hairStrong,
++          alignItems: value ? "flex-end" : "flex-start",
++        }}
++      >
++        <View
++          style={{
++            width: 17,
++            height: 17,
++            borderRadius: 999,
++            backgroundColor: GP.card,
++            shadowColor: GP.ink,
++            shadowOffset: { width: 0, height: 1 },
++            shadowOpacity: 0.25,
++            shadowRadius: 2,
++          }}
++        />
++      </View>
++      <Text style={{ fontSize: 13.5, color: GP.inkSoft }}>{label}</Text>
++    </Pressable>
++  );
++}
++
++export function GuestRecordModal({
++  guestId,
++  hasPrev,
++  hasNext,
++  onNavigate,
++  onClose,
++}: {
++  guestId: string;
++  hasPrev: boolean;
++  hasNext: boolean;
++  onNavigate: (direction: "prev" | "next") => void;
++  onClose: () => void;
++}) {
++  const { t } = useTranslation("guests");
++  const router = useRouter();
++  const canEdit = useCanEditHere();
++  const sideLabel = useGuestGroupSideLabel();
++  const guests = useGuestsStore((s) => s.guests);
++  const storedGroups = useGuestsStore((s) => s.groups);
++  const households = useGuestsStore((s) => s.households);
++  const tables = useGuestsStore((s) => s.tables);
++  const updateGuest = useGuestsStore((s) => s.updateGuest);
++  const wedding = useWeddingStore((s) => s.wedding);
++  const invitationTypes = useInvitationTypesStore((s) => s.invitationTypes);
++  const accommodations = useAccommodationsStore((s) => s.accommodations);
++  const weddingRoles = useWeddingPartyStore((s) => s.weddingRoles);
++  const weddingRoleAssignments = useWeddingPartyStore((s) => s.weddingRoleAssignments);
++  const addRoleAssignment = useWeddingPartyStore((s) => s.addRoleAssignment);
++  const removeRoleAssignment = useWeddingPartyStore((s) => s.removeRoleAssignment);
++
++  const [expanded, setExpanded] = useState(false);
++  const [menu, setMenu] = useState<{ kind: MenuKind; anchor: InlineSelectAnchor } | null>(null);
++  const [savedAt, setSavedAt] = useState<number | null>(null);
++  const registry = useRef<Map<string, () => void>>(new Map());
++
++  const flush = useCallback(() => {
++    const pending = [...registry.current.values()];
++    registry.current.clear();
++    pending.forEach((commit) => commit());
++  }, []);
++
++  const close = useCallback(() => { flush(); onClose(); }, [flush, onClose]);
++  const navigate = useCallback(
++    (direction: "prev" | "next") => { flush(); onNavigate(direction); },
++    [flush, onNavigate],
++  );
++
++  // Un menu ouvert prend Échap pour lui.
++  useEffect(() => {
++    if (Platform.OS !== "web" || typeof document === "undefined") return;
++    const onKey = (e: KeyboardEvent) => {
++      if (e.key !== "Escape" || menu) return;
++      e.preventDefault();
++      close();
++    };
++    document.addEventListener("keydown", onKey, true);
++    return () => document.removeEventListener("keydown", onKey, true);
++  }, [close, menu]);
++
++  // Sur le web, react-native-web ferme la modale sur le `keyup` d'Échap, hors de
++  // toute connaissance du menu ouvert : Échap y est à l'écoute ci-dessus, seule.
++  const requestClose = useCallback(() => {
++    if (Platform.OS === "web") return;
++    close();
++  }, [close]);
++
++  // Changer d'invité est une nouvelle fiche : l'indicateur ne peut ni s'allumer
++  // sans écriture, ni survivre à la navigation.
++  const [seenGuest, setSeenGuest] = useState(guestId);
++  if (guestId !== seenGuest) {
++    setSeenGuest(guestId);
++    setSavedAt(null);
++    setMenu(null);
++  }
++
++  useEffect(() => {
++    if (savedAt === null) return;
++    const id = setTimeout(() => setSavedAt(null), 4000);
++    return () => clearTimeout(id);
++  }, [savedAt]);
++
++  const guest = guests.find((g) => g.id === guestId) ?? null;
++
++  const groups = useMemo(
++    () => sortGroups(resolveGroupSides(storedGroups, wedding)),
++    [storedGroups, wedding],
++  );
++  const household = useMemo(
++    () => (guest ? resolveHousehold(households, guests, guest.id) : null),
++    [households, guests, guest],
++  );
++
++  // Ordre canonique NON filtré — le même classement que la liste sans filtre.
++  // Sous filtre, précédent/suivant suivent l'ordre visible : la position dit le
++  // rang dans le registre entier, pas le nombre de pas faits.
++  const canonical = useMemo(() => {
++    const bySurname = (a: typeof guests[number], b: typeof guests[number]) =>
++      `${a.lastName}${a.firstName}`.localeCompare(`${b.lastName}${b.firstName}`);
++    const order = guests.filter((g) => !g.groupId).sort(bySurname);
++    for (const group of groups) {
++      order.push(...guests.filter((g) => g.groupId === group.id).sort(bySurname));
++    }
++    const placed = new Set(order.map((g) => g.id));
++    for (const g of guests) if (!placed.has(g.id)) order.push(g);
++    return order.map((g) => g.id);
++  }, [guests, groups]);
++  const position = canonical.indexOf(guestId) + 1;
++
++  const guestRoles = weddingRoleAssignments.filter((a) => a.guestId === guestId);
++
++  if (!guest) return null;
++
++  const set = (updates: Parameters<typeof updateGuest>[1]) => {
++    updateGuest(guest.id, updates);
++    setSavedAt(Date.now());
++  };
++
++  const group = groups.find((g) => g.id === guest.groupId) ?? null;
++  const eyebrow = group
++    ? `${formatGuestGroupName(group.name)} · ${sideLabel(group.side)}`
++    : t("none");
++
++  const typeLabel = invitationTypes.find((it) => it.id === guest.invitationType)?.label ?? "";
++  const rsvpStatus = guest.rsvpStatus as RsvpStatus;
++  const rsvpColor = RSVP_STATUS_COLORS[rsvpStatus] ?? GP.mute;
++  const diet = (guest.diet as Diet) ?? "STANDARD";
++  const transport = (guest.transportMode as TransportMode) ?? "car";
++  const tableLabel = tables.find((tb) => tb.id === guest.tableId)?.name ?? t("noTable");
++  const accommodationLabel =
++    accommodations.find((a) => a.id === guest.accommodationId)?.name ?? t("noAccommodation");
++
++  const menuOptions: InlineSelectOption[] = !menu
++    ? []
++    : menu.kind === "group"
++      ? [
++          { id: "", label: t("none") },
++          ...groups.map((g) => ({ id: g.id, label: formatGuestGroupName(g.name) })),
++        ]
++      : menu.kind === "invitationType"
++        ? invitationTypes.map((it) => ({ id: it.id, label: it.label }))
++        : menu.kind === "rsvp"
++          ? RSVP_STATUSES.map((s) => ({
++              id: s,
++              label: t(RSVP_STATUS_LABELS[s]),
++              color: RSVP_STATUS_COLORS[s],
++            }))
++          : menu.kind === "diet"
++            ? DIETS.map((d) => ({ id: d, label: t(DIET_LABELS[d]) }))
++            : menu.kind === "table"
++              ? [
++                  { id: "", label: t("noTable") },
++                  ...tables.map((tb) => ({ id: tb.id, label: tb.name })),
++                ]
++              : menu.kind === "accommodation"
++                ? [
++                    { id: "", label: t("noAccommodation") },
++                    ...accommodations.map((a) => ({ id: a.id, label: a.name })),
++                  ]
++                : TRANSPORTS.map((m) => ({ id: m, label: t(TRANSPORT_MODE_LABELS[m]) }));
++
++  const menuValue = !menu
++    ? null
++    : menu.kind === "group"
++      ? guest.groupId ?? ""
++      : menu.kind === "invitationType"
++        ? guest.invitationType
++        : menu.kind === "rsvp"
++          ? rsvpStatus
++          : menu.kind === "diet"
++            ? diet
++            : menu.kind === "table"
++              ? guest.tableId ?? ""
++              : menu.kind === "accommodation"
++                ? guest.accommodationId ?? ""
++                : transport;
++
++  const pickMenuValue = (id: string) => {
++    if (!menu) return;
++    if (menu.kind === "group") set({ groupId: id || null });
++    else if (menu.kind === "invitationType") set({ invitationType: id });
++    else if (menu.kind === "rsvp") set(rsvpStatusUpdate(guest, id, new Date().toISOString()));
++    else if (menu.kind === "diet") set({ diet: id });
++    else if (menu.kind === "table") set({ tableId: id || null });
++    else if (menu.kind === "accommodation") set({ accommodationId: id || null });
++    else set({ transportMode: id });
++    setMenu(null);
++  };
++
++  const openMenu = (kind: MenuKind) => (anchor: InlineSelectAnchor) => setMenu({ kind, anchor });
++
++  const householdMembers = household?.members ?? [];
++  const householdLabel =
++    householdMembers.length > 1
++      ? householdName(household?.household ?? null, householdMembers)
++      : t("household.alone");
++  const householdAddress = household?.household?.address?.trim() || t("recordAddressToCollect");
++
++  return (
++    <Modal visible transparent animationType="fade" onRequestClose={requestClose}>
++      <Pressable
++        onPress={close}
++        style={{
++          position: "absolute",
++          top: 0,
++          left: 0,
++          right: 0,
++          bottom: 0,
++          backgroundColor: GP.ink + "66",
++        }}
++      />
++      {/* `box-none` : hors de la carte, le clic atteint le voile. */}
++      <View
++        pointerEvents="box-none"
++        className="flex-1 items-center"
++        style={{ paddingTop: 64, paddingBottom: 32 }}
++      >
++        <View
++          className="overflow-hidden"
++          style={{
++            width: 880,
++            maxWidth: "94%",
++            maxHeight: "100%",
++            borderRadius: 20,
++            backgroundColor: GP.card,
++            shadowColor: GP.ink,
++            shadowOffset: { width: 0, height: 30 },
++            shadowOpacity: 0.35,
++            shadowRadius: 70,
++            elevation: 20,
++          }}
++        >
++          <View
++            className="flex-row items-start gap-3"
++            style={{
++              paddingTop: 20,
++              paddingHorizontal: 24,
++              paddingBottom: 16,
++              borderBottomWidth: 1,
++              borderBottomColor: GP.hair,
++            }}
++          >
++            <View className="flex-1" style={{ minWidth: 0 }}>
++              <Text
++                numberOfLines={1}
++                style={{
++                  fontSize: 11,
++                  fontWeight: "600",
++                  letterSpacing: 1.4,
++                  textTransform: "uppercase",
++                  color: GP.mute,
++                  paddingBottom: 8,
++                }}
++              >
++                {eyebrow}
++              </Text>
++              <View className="flex-row items-center gap-2">
++                <TitleInput
++                  key={`${guest.id}:firstName`}
++                  field={`${guest.id}:firstName`}
++                  value={guest.firstName ?? ""}
++                  onCommit={(v) => set({ firstName: v })}
++                  registry={registry}
++                  placeholder={t("firstName")}
++                  width={200}
++                  fontSize={22}
++                  color={GP.ink}
++                  borderColor={(guest.firstName ?? "").trim() ? GP.hair : GP.mustard}
++                  editable={canEdit}
++                />
++                <TitleInput
++                  key={`${guest.id}:nameParticle`}
++                  field={`${guest.id}:nameParticle`}
++                  value={guest.nameParticle ?? ""}
++                  onCommit={(v) => set({ nameParticle: v || null })}
++                  registry={registry}
++                  placeholder={t("nameParticle")}
++                  width={96}
++                  fontSize={17}
++                  italic
++                  color={GP.mute}
++                  borderColor={GP.hair}
++                  editable={canEdit}
++                />
++                <TitleInput
++                  key={`${guest.id}:lastName`}
++                  field={`${guest.id}:lastName`}
++                  value={guest.lastName ?? ""}
++                  onCommit={(v) => set({ lastName: v })}
++                  registry={registry}
++                  placeholder={t("lastName")}
++                  width={230}
++                  fontSize={22}
++                  color={GP.ink}
++                  borderColor={GP.hair}
++                  editable={canEdit}
++                />
++              </View>
++            </View>
++            <View className="flex-row items-center gap-1">
++              <Pressable
++                onPress={() => hasPrev && navigate("prev")}
++                disabled={!hasPrev}
++                accessibilityRole="button"
++                accessibilityLabel={t("recordPrev")}
++                className="rounded-full items-center justify-center"
++                style={{ width: 38, height: 38, opacity: hasPrev ? 1 : 0.3 }}
++              >
++                <ChevronLeft size={16} color={GP.mute} />
++              </Pressable>
++              <Text
++                style={{ fontSize: 12, color: GP.mute, minWidth: 48, textAlign: "center" }}
++                numberOfLines={1}
++              >
++                {`${position} / ${guests.length}`}
++              </Text>
++              <Pressable
++                onPress={() => hasNext && navigate("next")}
++                disabled={!hasNext}
++                accessibilityRole="button"
++                accessibilityLabel={t("recordNext")}
++                className="rounded-full items-center justify-center"
++                style={{ width: 38, height: 38, opacity: hasNext ? 1 : 0.3 }}
++              >
++                <ChevronRight size={16} color={GP.mute} />
++              </Pressable>
++              <Pressable
++                onPress={close}
++                accessibilityRole="button"
++                accessibilityLabel={t("recordClose")}
++                className="rounded-full items-center justify-center active:opacity-60"
++                style={{ width: 38, height: 38, marginLeft: 4 }}
++              >
++                <X size={17} color={GP.ink} />
++              </Pressable>
++            </View>
++          </View>
++
++          {/* Replié, le contenu tient et ce défilement reste inerte. */}
++          <ScrollView showsVerticalScrollIndicator={false} style={{ flexShrink: 1 }}>
++            <View
++              className="flex-row"
++              style={{ gap: 28, paddingTop: 4, paddingHorizontal: 24, paddingBottom: 14 }}
++            >
++              <View className="flex-1" style={{ gap: 12, paddingTop: 16 }}>
++                <BlockTitle title={t("sections.rsvpInvitation")} />
++                <SelectField
++                  label={t("groupLabel")}
++                  value={group ? formatGuestGroupName(group.name) : t("none")}
++                  editable={canEdit}
++                  onOpen={openMenu("group")}
++                />
++                <View className="flex-row" style={{ gap: 12 }}>
++                  <SelectField
++                    label={t("columnInvitationType")}
++                    value={typeLabel}
++                    editable={canEdit}
++                    onOpen={openMenu("invitationType")}
++                  />
++                  <SelectField
++                    label={t("columnRsvp")}
++                    value={t(RSVP_STATUS_LABELS[rsvpStatus] ?? "")}
++                    color={rsvpColor}
++                    dot={rsvpColor}
++                    editable={canEdit}
++                    onOpen={openMenu("rsvp")}
++                  />
++                </View>
++                <Toggle
++                  label={t("isChildLabel")}
++                  value={guest.isChild === true}
++                  onToggle={() => set({ isChild: !(guest.isChild === true) })}
++                  disabled={!canEdit}
++                />
++              </View>
++
++              <View className="flex-1" style={{ gap: 12, paddingTop: 16 }}>
++                <BlockTitle title={t("recordBlockContact")} />
++                <View className="flex-row" style={{ gap: 12 }}>
++                  <DirectInput
++                    key={`${guest.id}:email`}
++                    field={`${guest.id}:email`}
++                    label={t("email")}
++                    value={guest.email ?? ""}
++                    onCommit={(v) => set({ email: v || null })}
++                    registry={registry}
++                    keyboardType="email-address"
++                    editable={canEdit}
++                  />
++                  <DirectInput
++                    key={`${guest.id}:phone`}
++                    field={`${guest.id}:phone`}
++                    label={t("phone")}
++                    value={guest.phone ?? ""}
++                    onCommit={(v) => set({ phone: v || null })}
++                    registry={registry}
++                    keyboardType="phone-pad"
++                    editable={canEdit}
++                  />
++                </View>
++                <DirectInput
++                  key={`${guest.id}:notes`}
++                  field={`${guest.id}:notes`}
++                  label={t("notes")}
++                  value={guest.notes ?? ""}
++                  onCommit={(v) => set({ notes: v || null })}
++                  registry={registry}
++                  height={76}
++                  multiline
++                  editable={canEdit}
++                />
++              </View>
++            </View>
++
++            <View style={{ paddingHorizontal: 24, paddingBottom: 16 }}>
++              {expanded ? (
++                <View style={{ gap: 12, padding: 14, borderRadius: 12, backgroundColor: GP.paper }}>
++                  <BlockTitle
++                    title={t("recordRareTitle")}
++                    action={
++                      <Pressable
++                        onPress={() => setExpanded(false)}
++                        accessibilityRole="button"
++                        className="justify-center active:opacity-60"
++                        style={{ height: 38, marginVertical: -11 }}
++                      >
++                        <Text style={{ fontSize: 12.5, fontWeight: "500", color: GP.clay }}>
++                          {t("recordFewerSections")}
++                        </Text>
++                      </Pressable>
++                    }
++                  />
++
++                  <View className="flex-row" style={{ gap: 12 }}>
++                    <SelectField
++                      label={t("dietLabel")}
++                      value={t(DIET_LABELS[diet])}
++                      height={36}
++                      fontSize={13}
++                      editable={canEdit}
++                      onOpen={openMenu("diet")}
++                    />
++                    <View className="flex-row" style={{ flex: 2, gap: 12 }}>
++                      <DirectInput
++                        key={`${guest.id}:dietNotes`}
++                        field={`${guest.id}:dietNotes`}
++                        label={t("dietDetails")}
++                        value={guest.dietNotes ?? ""}
++                        onCommit={(v) => set({ dietNotes: v || null })}
++                        registry={registry}
++                        height={36}
++                        fontSize={13}
++                        editable={canEdit}
++                      />
++                    </View>
++                  </View>
++
++                  <View className="flex-row" style={{ gap: 12 }}>
++                    <SelectField
++                      label={t("table")}
++                      value={tableLabel}
++                      color={guest.tableId ? GP.inkSoft : GP.mute}
++                      height={36}
++                      fontSize={13}
++                      editable={canEdit}
++                      onOpen={openMenu("table")}
++                    />
++                    <SelectField
++                      label={t("accommodationSection")}
++                      value={accommodationLabel}
++                      color={guest.accommodationId ? GP.inkSoft : GP.mute}
++                      height={36}
++                      fontSize={13}
++                      editable={canEdit}
++                      onOpen={openMenu("accommodation")}
++                    />
++                    <DirectInput
++                      key={`${guest.id}:roomNumber`}
++                      field={`${guest.id}:roomNumber`}
++                      label={t("roomNumber")}
++                      value={guest.roomNumber ?? ""}
++                      onCommit={(v) => set({ roomNumber: v || null })}
++                      registry={registry}
++                      height={36}
++                      fontSize={13}
++                      editable={canEdit}
++                    />
++                  </View>
++
++                  <View className="flex-row" style={{ gap: 12 }}>
++                    <SelectField
++                      label={t("logistics.transportModeLabel")}
++                      value={t(TRANSPORT_MODE_LABELS[transport])}
++                      height={36}
++                      fontSize={13}
++                      editable={canEdit}
++                      onOpen={openMenu("transport")}
++                    />
++                    <View className="flex-row" style={{ flex: 2, gap: 12 }}>
++                      <DirectInput
++                        key={`${guest.id}:arrivalNotes`}
++                        field={`${guest.id}:arrivalNotes`}
++                        label={t("logistics.arrivalNotes")}
++                        value={guest.arrivalNotes ?? ""}
++                        onCommit={(v) => set({ arrivalNotes: v || null })}
++                        registry={registry}
++                        height={36}
++                        fontSize={13}
++                        editable={canEdit}
++                      />
++                    </View>
++                  </View>
++
++                  <View className="flex-row items-center flex-wrap" style={{ gap: 14 }}>
++                    <Toggle
++                      label={t("logistics.parkingNeeded")}
++                      value={guest.parkingNeeded === true}
++                      onToggle={() => set({ parkingNeeded: !(guest.parkingNeeded === true) })}
++                      disabled={!canEdit}
++                    />
++                    <View style={{ width: 1, height: 20, backgroundColor: GP.hair }} />
++                    {guestRoles.map((assignment) => {
++                      const role = weddingRoles.find((r) => r.id === assignment.roleId);
++                      return (
++                        <View
++                          key={assignment.id}
++                          className="flex-row items-center gap-1.5"
++                          style={{
++                            height: 28,
++                            paddingLeft: 11,
++                            paddingRight: canEdit ? 7 : 11,
++                            borderRadius: 999,
++                            borderWidth: 1,
++                            borderColor: GP.clay,
++                            backgroundColor: GP.claySoft,
++                          }}
++                        >
++                          <Text style={{ fontSize: 12, fontWeight: "600", color: GP.olive }}>
++                            {role?.name ?? ""}
++                          </Text>
++                          {canEdit && (
++                            <Pressable
++                              onPress={() => removeRoleAssignment(assignment.id)}
++                              accessibilityRole="button"
++                              className="items-center justify-center"
++                              style={{ width: 20, height: 28 }}
++                            >
++                              <XCircle size={13} color={GP.olive} />
++                            </Pressable>
++                          )}
++                        </View>
++                      );
++                    })}
++                    {canEdit &&
++                      weddingRoles
++                        .filter((role) => !guestRoles.some((a) => a.roleId === role.id))
++                        .map((role) => (
++                          <Pressable
++                            key={role.id}
++                            onPress={() => {
++                              const now = new Date().toISOString();
++                              addRoleAssignment({
++                                id: Crypto.randomUUID(),
++                                roleId: role.id,
++                                guestId: guest.id,
++                                notes: null,
++                                sortOrder: null,
++                                createdAt: now,
++                                updatedAt: now,
++                              });
++                            }}
++                            accessibilityRole="button"
++                            className="flex-row items-center gap-1.5 active:opacity-60"
++                            style={{
++                              height: 28,
++                              paddingLeft: 10,
++                              paddingRight: 11,
++                              borderRadius: 999,
++                              borderWidth: 1,
++                              borderStyle: "dashed",
++                              borderColor: GP.hairStrong,
++                            }}
++                          >
++                            <Plus size={11} color={GP.mute} />
++                            <Text style={{ fontSize: 12, color: GP.mute }}>{role.name}</Text>
++                          </Pressable>
++                        ))}
++                  </View>
++
++                  <View
++                    className="flex-row items-center gap-2.5"
++                    style={{
++                      height: 44,
++                      paddingHorizontal: 13,
++                      borderRadius: 11,
++                      borderWidth: 1,
++                      borderColor: GP.hair,
++                      backgroundColor: GP.card,
++                    }}
++                  >
++                    <Home size={15} color={GP.clay} />
++                    <Text
++                      numberOfLines={1}
++                      className="flex-1"
++                      style={{ fontSize: 13.5, fontWeight: "500", color: GP.ink }}
++                    >
++                      {householdLabel}
++                    </Text>
++                    <Text
++                      numberOfLines={1}
++                      style={{
++                        fontSize: 12.5,
++                        color: household?.household?.address?.trim() ? GP.inkSoft : GP.mute,
++                      }}
++                    >
++                      {householdAddress}
++                    </Text>
++                  </View>
++                </View>
++              ) : (
++                <Pressable
++                  onPress={() => setExpanded(true)}
++                  accessibilityRole="button"
++                  className="flex-row items-center gap-2 active:opacity-60"
++                  style={{ height: 38 }}
++                >
++                  <Plus size={13} color={GP.clay} />
++                  <Text style={{ fontSize: 12.5, fontWeight: "500", color: GP.clay }}>
++                    {t("recordMoreSections")}
++                  </Text>
++                </Pressable>
++              )}
++            </View>
++          </ScrollView>
++
++          <View
++            className="flex-row items-center gap-3"
++            style={{
++              paddingVertical: 2,
++              paddingHorizontal: 24,
++              borderTopWidth: 1,
++              borderTopColor: GP.hair,
++              backgroundColor: GP.paper,
++            }}
++          >
++            {savedAt !== null && (
++              <>
++                <Check size={14} color={GP.olive} strokeWidth={3} />
++                <Text style={{ fontSize: 12.5, fontWeight: "500", color: GP.olive }}>
++                  {t("recordSaved")}
++                </Text>
++              </>
++            )}
++            <View className="flex-1" />
++            <Text style={{ fontSize: 11.5, color: GP.mute }} numberOfLines={1}>
++              {t("recordShortcuts")}
++            </Text>
++            <Pressable
++              onPress={() => {
++                close();
++                router.push({ pathname: "/(tabs)/guests/[id]", params: { id: guest.id } });
++              }}
++              accessibilityRole="button"
++              className="justify-center active:opacity-60"
++              style={{ height: 38 }}
++            >
++              <Text style={{ fontSize: 12.5, fontWeight: "500", color: GP.clay }}>
++                {t("recordOpenFull")}
++              </Text>
++            </Pressable>
++          </View>
++        </View>
++      </View>
++
++      <InlineSelectMenu
++        visible={menu !== null}
++        anchor={menu?.anchor ?? null}
++        options={menuOptions}
++        valueId={menuValue}
++        direction="over"
++        hint={t("inlineMenuHint")}
++        onPick={pickMenuValue}
++        onDismiss={() => setMenu(null)}
++      />
++    </Modal>
++  );
++}
+diff --git a/apps/mobile/components/InlineChoiceSheet.tsx b/apps/mobile/components/InlineChoiceSheet.tsx
+new file mode 100644
+index 0000000..b9c1f27
+--- /dev/null
++++ b/apps/mobile/components/InlineChoiceSheet.tsx
+@@ -0,0 +1,64 @@
++import React from "react";
++import { View, Text, Pressable } from "react-native-css/components";
++import { Check, Home } from "lucide-react-native";
++import { SheetScaffold } from "@fiance/ui/components";
++import { theme as GP } from "@/lib/theme";
++import type { InlineSelectOption } from "@/components/InlineSelectMenu";
++
++/** Le pendant tactile du calque de menu : le motif de feuille déjà établi. */
++export function InlineChoiceSheet({
++  visible,
++  title,
++  options,
++  valueId,
++  footer,
++  onPick,
++  onDismiss,
++}: {
++  visible: boolean;
++  title: string;
++  options: InlineSelectOption[];
++  valueId: string | null;
++  footer?: { label: string; onPress: () => void } | null;
++  onPick: (id: string) => void;
++  onDismiss: () => void;
++}) {
++  return (
++    <SheetScaffold visible={visible} onDismiss={onDismiss} title={title} scrollable>
++      <View className="gap-1">
++        {options.map((option) => (
++          <Pressable
++            key={option.id}
++            onPress={() => onPick(option.id)}
++            className="flex-row items-center gap-3 px-3 rounded-2xl active:opacity-60"
++            style={{ minHeight: 48 }}
++          >
++            {option.color ? (
++              <View className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: option.color }} />
++            ) : null}
++            <Text className="text-base text-ink flex-1" numberOfLines={1}>
++              {option.label}
++            </Text>
++            {option.id === valueId ? <Check size={16} color={GP.clay} strokeWidth={3} /> : null}
++          </Pressable>
++        ))}
++
++        {footer ? (
++          <>
++            <View className="mx-3 my-1.5" style={{ height: 1, backgroundColor: GP.hair }} />
++            <Pressable
++              onPress={footer.onPress}
++              className="flex-row items-center gap-3 px-3 rounded-2xl active:opacity-60"
++              style={{ minHeight: 48 }}
++            >
++              <Home size={16} color={GP.clay} />
++              <Text className="text-base font-medium flex-1" style={{ color: GP.clay }} numberOfLines={1}>
++                {footer.label}
++              </Text>
++            </Pressable>
++          </>
++        ) : null}
++      </View>
++    </SheetScaffold>
++  );
++}
+diff --git a/apps/mobile/components/InlineSelectMenu.tsx b/apps/mobile/components/InlineSelectMenu.tsx
+new file mode 100644
+index 0000000..73420d9
+--- /dev/null
++++ b/apps/mobile/components/InlineSelectMenu.tsx
+@@ -0,0 +1,254 @@
++import React, { useEffect, useState } from "react";
++import { Modal, Platform, useWindowDimensions } from "react-native";
++import { View, Text, Pressable, ScrollView } from "react-native-css/components";
++import { Check, Home } from "lucide-react-native";
++import { theme as GP } from "@/lib/theme";
++import { inlineMenuHintHeight, INLINE_MENU_HINT_LINE_H } from "@fiance/sdk";
++
++export interface InlineSelectOption {
++  id: string;
++  label: string;
++  /** Pastille de couleur à gauche — les états de réponse en portent une. */
++  color?: string | null;
++  count?: number | null;
++}
++
++/** Cadre du déclencheur, en coordonnées FENÊTRE (`measureInWindow`). */
++export interface InlineSelectAnchor {
++  x: number;
++  y: number;
++  width: number;
++  height: number;
++}
++
++interface InlineSelectMenuProps {
++  visible: boolean;
++  anchor: InlineSelectAnchor | null;
++  options: InlineSelectOption[];
++  valueId: string | null;
++  /** `"over"` recouvre la cellule, `"up"` se déploie au-dessus du déclencheur. */
++  direction?: "over" | "up";
++  width?: number;
++  footer?: { label: string; onPress: () => void } | null;
++  hint?: string | null;
++  onPick: (id: string) => void;
++  onDismiss: () => void;
++}
++
++const OPTION_H = 40;
++const PAD = 6;
++const FOOTER_H = 38;
++const SEPARATOR_H = 13;
++const HINT_FONT = 11;
++// Ce que le cadre prend sur la largeur avant d'en arriver au texte de l'aide :
++// les deux bordures, le `padding` de la carte, puis le `px-3` de la ligne.
++const HINT_INSET = 2 + PAD * 2 + 12 * 2;
++const EDGE = 8;
++const MIN_WIDTH = 200;
++
++function clamp(value: number, low: number, high: number): number {
++  return Math.min(Math.max(value, low), Math.max(low, high));
++}
++
++export function InlineSelectMenu({
++  visible,
++  anchor,
++  options,
++  valueId,
++  direction = "over",
++  width,
++  footer = null,
++  hint = null,
++  onPick,
++  onDismiss,
++}: InlineSelectMenuProps) {
++  const { width: winW, height: winH } = useWindowDimensions();
++  const currentIndex = Math.max(
++    0,
++    options.findIndex((o) => o.id === valueId),
++  );
++  // Réglage d'état pendant le rendu : une nouvelle ancre est un nouveau menu,
++  // et sa surbrillance repart de la valeur courante.
++  const [highlight, setHighlight] = useState<number | null>(null);
++  const [seenAnchor, setSeenAnchor] = useState(anchor);
++  if (anchor !== seenAnchor) {
++    setSeenAnchor(anchor);
++    setHighlight(null);
++  }
++  const active = highlight ?? currentIndex;
++
++  useEffect(() => {
++    if (!visible || Platform.OS !== "web" || typeof document === "undefined") return;
++    const onKey = (e: KeyboardEvent) => {
++      if (e.key === "Escape") {
++        e.preventDefault();
++        onDismiss();
++      } else if (e.key === "ArrowDown") {
++        e.preventDefault();
++        setHighlight((i) => Math.min(options.length - 1, (i ?? currentIndex) + 1));
++      } else if (e.key === "ArrowUp") {
++        e.preventDefault();
++        setHighlight((i) => Math.max(0, (i ?? currentIndex) - 1));
++      } else if (e.key === "Enter") {
++        e.preventDefault();
++        const picked = options[active];
++        if (picked) onPick(picked.id);
++      }
++    };
++    document.addEventListener("keydown", onKey, true);
++    return () => document.removeEventListener("keydown", onKey, true);
++  }, [visible, options, active, currentIndex, onPick, onDismiss]);
++
++  if (!visible || !anchor || options.length === 0) return null;
++
++  const menuW = Math.max(width ?? anchor.width + PAD * 2, MIN_WIDTH);
++  const bodyH = options.length * OPTION_H;
++  const hintH = inlineMenuHintHeight(hint, menuW - HINT_INSET, HINT_FONT);
++  const chromeH = PAD * 2 + (footer ? SEPARATOR_H + FOOTER_H : 0) + hintH;
++  const menuH = Math.min(bodyH + chromeH, winH - EDGE * 2);
++  // L'option de la valeur courante tombe sur la cellule : un `select` natif ne
++  // demande aucun déplacement de souris pour retrouver ce qui est déjà en place.
++  const rawTop =
++    direction === "up"
++      ? anchor.y - menuH - EDGE
++      : anchor.y + anchor.height / 2 - (PAD + currentIndex * OPTION_H + OPTION_H / 2);
++
++  const top = clamp(rawTop, EDGE, winH - menuH - EDGE);
++  const left = clamp(anchor.x - PAD, EDGE, winW - menuW - EDGE);
++  const scrolls = bodyH + chromeH > menuH;
++  const frame = { top, left, right: left + menuW, bottom: top + menuH };
++
++  const rows = options.map((option, index) => {
++    const selected = option.id === valueId;
++    return (
++      <Pressable
++        key={option.id}
++        onPress={() => onPick(option.id)}
++        onHoverIn={() => setHighlight(index)}
++        className="flex-row items-center gap-2.5 px-3 rounded-lg"
++        style={{
++          height: OPTION_H,
++          backgroundColor: selected
++            ? GP.claySoft
++            : active === index
++              ? GP.paper
++              : "transparent",
++        }}
++      >
++        {option.color ? (
++          <View
++            className="w-2.5 h-2.5 rounded-full"
++            style={{ backgroundColor: option.color }}
++          />
++        ) : null}
++        <Text
++          className="flex-1"
++          style={{ fontSize: 13.5, color: GP.ink, fontWeight: selected ? "600" : "400" }}
++          numberOfLines={1}
++        >
++          {option.label}
++        </Text>
++        {option.count != null ? (
++          <Text style={{ fontSize: 11.5, color: GP.mute }}>
++            {option.count}
++          </Text>
++        ) : null}
++        {selected ? <Check size={14} color={GP.clay} strokeWidth={3} /> : null}
++      </Pressable>
++    );
++  });
++
++  return (
++    <Modal visible transparent animationType="none" onRequestClose={onDismiss}>
++      <WheelDismiss frame={frame} enabled={!scrolls} onDismiss={onDismiss} />
++      <Pressable
++        onPress={onDismiss}
++        style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
++      />
++      <View
++        style={{
++          position: "absolute",
++          top,
++          left,
++          width: menuW,
++          maxHeight: menuH,
++          backgroundColor: GP.card,
++          borderWidth: 1,
++          borderColor: GP.hair,
++          borderRadius: 12,
++          padding: PAD,
++          shadowColor: GP.ink,
++          shadowOffset: { width: 0, height: 18 },
++          shadowOpacity: 0.22,
++          shadowRadius: 44,
++          elevation: 12,
++        }}
++      >
++        {scrolls ? (
++          <ScrollView showsVerticalScrollIndicator={false}>{rows}</ScrollView>
++        ) : (
++          rows
++        )}
++
++        {footer ? (
++          <>
++            <View
++              className="mx-1 my-1.5"
++              style={{ height: 1, backgroundColor: GP.hair }}
++            />
++            <Pressable
++              onPress={footer.onPress}
++              className="flex-row items-center gap-2 px-3 rounded-lg active:opacity-60"
++              style={{ height: FOOTER_H }}
++            >
++              <Home size={14} color={GP.clay} />
++              <Text
++                className="font-medium"
++                style={{ fontSize: 13, color: GP.clay }}
++                numberOfLines={1}
++              >
++                {footer.label}
++              </Text>
++            </Pressable>
++          </>
++        ) : null}
++
++        {hint ? (
++          <Text
++            className="px-3 pt-0.5"
++            style={{ fontSize: HINT_FONT, lineHeight: INLINE_MENU_HINT_LINE_H, color: GP.mute }}
++          >
++            {hint}
++          </Text>
++        ) : null}
++      </View>
++    </Modal>
++  );
++}
++
++/** Le calque est ancré sur une mesure : au premier défilement elle serait fausse. */
++function WheelDismiss({
++  frame,
++  enabled,
++  onDismiss,
++}: {
++  frame: { top: number; left: number; right: number; bottom: number };
++  enabled: boolean;
++  onDismiss: () => void;
++}) {
++  useEffect(() => {
++    if (Platform.OS !== "web" || typeof document === "undefined") return;
++    const onWheel = (e: WheelEvent) => {
++      // Un menu qui défile lui-même garde la molette pour lui.
++      if (
++        !enabled &&
++        e.clientX >= frame.left && e.clientX <= frame.right &&
++        e.clientY >= frame.top && e.clientY <= frame.bottom
++      ) return;
++      onDismiss();
++    };
++    document.addEventListener("wheel", onWheel, true);
++    return () => document.removeEventListener("wheel", onWheel, true);
++  }, [frame.top, frame.left, frame.right, frame.bottom, enabled, onDismiss]);
++  return null;
++}
+diff --git a/apps/mobile/lib/usePointerRegime.ts b/apps/mobile/lib/usePointerRegime.ts
+new file mode 100644
+index 0000000..5b3adea
+--- /dev/null
++++ b/apps/mobile/lib/usePointerRegime.ts
+@@ -0,0 +1,33 @@
++import { useEffect, useState } from "react";
++import { Platform } from "react-native";
++
++// La largeur ne dit rien du geste : une tablette large n'a pas de survol, une
++// fenêtre étroite peut avoir une souris.
++const POINTER_QUERY = "(hover: hover) and (pointer: fine)";
++
++function mediaQueryList(): MediaQueryList | null {
++  if (Platform.OS !== "web") return null;
++  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return null;
++  return window.matchMedia(POINTER_QUERY);
++}
++
++/**
++ * Vrai sur un appareil à survol et pointeur fin, toujours faux en natif.
++ *
++ * Faux au premier rendu même sur desktop : le prérendu web n'a pas de
++ * `window`, et partir de vrai ferait diverger l'hydratation.
++ */
++export function usePointerRegime(): boolean {
++  const [pointer, setPointer] = useState(false);
++
++  useEffect(() => {
++    const mql = mediaQueryList();
++    if (!mql) return;
++    const sync = () => setPointer(mql.matches);
++    sync();
++    mql.addEventListener("change", sync);
++    return () => mql.removeEventListener("change", sync);
++  }, []);
++
++  return pointer;
++}
