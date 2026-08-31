@@ -7,12 +7,22 @@ interface RevenueCatState {
 }
 
 /**
- * Holds the wedding owner's premium entitlement state, pushed by the
- * RevenueCat CustomerInfo listener (see lib/revenuecat.ts / revenuecat.web.ts).
- * Configured once per active wedding, keyed to the wedding owner's appUserID —
- * see RevenueCatInitializer in lib/providers.tsx.
+ * MODIFICATION LOCALE — instance familiale auto-hébergée (mariage.didot.io).
+ *
+ * En amont, cet état est piloté par le listener RevenueCat et vaut `false`
+ * tant qu'aucun abonnement n'est actif. Or la sync multi-appareils est gardée
+ * derrière `isPremium()` (lib/premium.ts) : sur un build sans clé RevenueCat,
+ * elle ne s'initialise donc jamais, et le serveur de sync auto-hébergé ne sert
+ * à rien.
+ *
+ * Ce build est distribué sous GPLv3 et tourne sur une infra privée pour un
+ * usage familial : l'entitlement est forcé à `true` et `setPremium` ignore les
+ * remises à zéro (elles viennent d'un RevenueCat non configuré, pas d'une
+ * décision de l'utilisateur).
+ *
+ * Pour revenir au comportement d'origine : `git checkout -- apps/mobile/store/useRevenueCatStore.ts`.
  */
 export const useRevenueCatStore = create<RevenueCatState>((set) => ({
-  isPremium: false,
-  setPremium: (isPremium) => set({ isPremium }),
+  isPremium: true,
+  setPremium: () => set({ isPremium: true }),
 }));
