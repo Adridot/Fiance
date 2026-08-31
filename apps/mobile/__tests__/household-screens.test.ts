@@ -7,6 +7,7 @@ import { describe, it, expect } from "vitest";
 const MOBILE = join(__dirname, "..");
 const GUEST_SCREEN = join(MOBILE, "app", "(tabs)", "guests", "[id].tsx");
 const FIELDS = join(MOBILE, "components", "HouseholdFields.tsx");
+const RECIPIENTS = join(MOBILE, "app", "(tabs)", "guests", "recipients.tsx");
 const HOUSEHOLD_SCREEN = join(MOBILE, "app", "(tabs)", "guests", "household", "[id].tsx");
 
 const read = (p: string) => readFileSync(p, "utf8");
@@ -73,4 +74,10 @@ describe("the new screens honour the write permission", () => {
     expect(household).toContain("{canEdit && !splitting && (");
   });
 
+  it("the recipients list offers no mutating command", () => {
+    const list = read(RECIPIENTS);
+    for (const action of ["attachToHousehold", "detachFromHousehold", "splitHousehold", "removeHousehold", "materializeHousehold"]) {
+      expect(list).not.toContain(`${action}(`);
+    }
+  });
 });

@@ -3,7 +3,7 @@ import { useColorScheme } from "react-native";
 import { View } from "react-native-css/components";
 import { Stack, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { BedDouble, Tag, Mail, FolderOpen, LayoutGrid, Users, UsersRound } from "lucide-react-native";
+import { BedDouble, Tag, Mail, FolderOpen, LayoutGrid, Users, UsersRound, Home } from "lucide-react-native";
 import { useSettingsStore } from "@/store/useSettingsStore";
 import { useGuestsStore } from "@/store/useGuestsStore";
 import { useCanAddMore, FREE_LIMITS } from "@/lib/limits";
@@ -62,6 +62,11 @@ export default function InvitesLayout() {
                     onPress: () => router.push("/(tabs)/guests/groups"),
                   },
                   {
+                    label: t("household.recipientsTitle"),
+                    icon: Home,
+                    onPress: () => router.push("/(tabs)/guests/recipients"),
+                  },
+                  {
                     label: t("tables"),
                     icon: LayoutGrid,
                     onPress: () => router.push("/(tabs)/guests/table-management"),
@@ -100,6 +105,7 @@ export default function InvitesLayout() {
       <Stack.Screen name="[id]" options={{ title: t("guestDetailScreen") }} />
       <Stack.Screen name="groups" options={{ title: t("groups") }} />
       <Stack.Screen name="households" options={{ title: t("household.title") }} />
+      <Stack.Screen name="recipients" options={{ title: t("household.recipientsTitle") }} />
       <Stack.Screen name="household/[id]" options={{ title: t("household.section") }} />
       <Stack.Screen name="table-management" options={{ title: t("tables") }} />
       <Stack.Screen name="tables" options={{ title: t("tablesPlanScreen") }} />
