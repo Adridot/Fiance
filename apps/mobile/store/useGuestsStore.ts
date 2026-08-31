@@ -27,6 +27,7 @@ import {
   persistSeatingConstraints,
   persistMealSelections,
 } from "@/lib/persistence";
+import { reconcileGuests } from "@/lib/guest-import";
 import { notifySync } from "@/lib/starfish";
 import { maybeRequestReview } from "@/lib/store-review";
 import {
@@ -82,8 +83,18 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
     maybeRequestReview("guests", get().guests.length);
   },
   importGuestData: ({ guests, groups, tables }) => {
+    const { toAdd, toUpdate } = reconcileGuests(get().guests, guests);
+    const updateById = new Map(toUpdate.map((u) => [u.id, u.updates]));
+    const stamp = new Date().toISOString();
+
     set((s) => ({
-      guests: [...s.guests, ...guests],
+      guests: [
+        ...s.guests.map((g) => {
+          const updates = updateById.get(g.id);
+          return updates ? { ...g, ...updates, updatedAt: stamp } : g;
+        }),
+        ...toAdd,
+      ],
       groups: [...s.groups, ...groups],
       tables: [...s.tables, ...tables],
     }));
