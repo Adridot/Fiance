@@ -62,6 +62,11 @@ import {
   type Session,
   type ObjectNode,
   type NodeDescriptor,
+  // MODIFICATION LOCALE — pour neutraliser les caches avant une poussée (D3).
+  clearNodeAccessCache,
+  getSpaceAccessEntry,
+  getSpacesConfig,
+  getSyncNamespace,
 } from '@fiance/sdk';
 import { StarfishHttpError } from '@drakkar.software/starfish-client';
 import { useWeddingStore } from '@/store/useWeddingStore';
@@ -635,12 +640,53 @@ async function pushCollectionDoc(
   }
 }
 
+// ─── MODIFICATION LOCALE — la fusion se décide contre le SERVEUR ─────────────
+//
+// `handle.push` prend un chemin rapide dès qu'un cache lui rend un hash pour ce
+// document : il appelle alors son mutateur avec `null`, et la fusion devient un
+// REMPLACEMENT du document entier par l'instantané local. Le serveur accepte
+// sans conflit — le hash est bon — et le travail d'un pair disparaît.
+//
+// Deux caches le lui fournissent, et il faut les deux :
+//   – une Map de module dans starfish-spaces, PAR FENÊTRE, alimentée par
+//     CHAQUE poussée réussie (rapide comme lente) : dès la deuxième poussée
+//     d'une page, le chemin rapide s'impose ;
+//   – `starfish.pullcache.*` dans le stockage local, PARTAGÉE entre fenêtres et
+//     valable 30 jours, écrite par `client.pull` ET par `client.push`.
+//
+// C'est la seconde qui explique l'écrasement entre fenêtres : l'onglet B pousse
+// et y inscrit le hash réellement courant ; l'onglet A le lit au chargement,
+// part du chemin rapide avec un hash valide, et remplace.
+//
+// `fiance-db` ne vide que la seconde, et cela lui suffit : c'est un CLI, chaque
+// invocation est un processus neuf. Recopier son geste ici ne protégerait que la
+// première poussée de chaque chargement de page.
+//
+// UNE FOIS PAR SALVE, et non par collection : `clearNodeAccessCache` vide aussi
+// les caches d'accès aux nœuds et d'encrypteurs, donc le `getNodeAccess` suivant
+// repaie une lecture du trousseau de l'espace. En tête de `pushSpaceSnapshot`,
+// c'est une réouverture par débouncement — au pire toutes les 2 s — au lieu
+// d'une par collection.
+export function neutraliserCachesDePoussée(spaceId: string, nodeIds: string[]): void {
+  try { clearNodeAccessCache(); } catch { /* rien à vider */ }
+  try {
+    const kv = (getSpacesConfig() as { kvAdapter?: { removeItem?: (k: string) => unknown } }).kvAdapter;
+    if (!kv?.removeItem) return;
+    const ns = getSyncNamespace();
+    for (const nodeId of nodeIds) {
+      kv.removeItem(`starfish.pullcache./v1/${ns}${objDocPull(spaceId, nodeId)}`);
+    }
+  } catch { /* adaptateur absent : le vidage mémoire ci-dessus reste acquis */ }
+}
+
+/** Rend `true` si TOUT ce qui devait partir est arrivé au serveur. */
 export async function pushSpaceSnapshot(
   session: Session,
   spaceId: string,
   weddingNodeId: string,
 ): Promise<boolean> {
   const now = Date.now();
+  _lastPushWriteDenied = false;
   // Content is one doc per collection (+ the wedding singleton). No per-entity content docs.
   const weddingBuilt = buildWeddingNode(weddingNodeId, now);
   const { nodes: collectionNodes, built } = buildCollectionDocs(weddingNodeId, now);
@@ -649,6 +695,9 @@ export async function pushSpaceSnapshot(
   if (!allNodes.length) return true; // truly empty state — nothing to sync
 
   const localById = new Map(allNodes.map((n) => [n.id, n]));
+
+  // Avant toute poussée : que la fusion parte d'une lecture réelle.
+  neutraliserCachesDePoussée(spaceId, allNodes.map((n) => n.id));
 
   // ── Push content FIRST, update the index second ──────────────────────────────
   // Pushing a space+enc content doc is index-independent (access resolves from local caps +
