@@ -706,3 +706,26 @@ export function newGuestDraft(input: NewGuestInput): Guest {
   };
 }
 
+// ─── Foyer enchaîné ──────────────────────────────────────────────────────────
+
+export interface ChainedHousehold {
+  householdId: string | null;
+  /** Le précédent n'avait pas de foyer : il entre dans le foyer frais. */
+  attachPrevious: boolean;
+}
+
+/**
+ * Le foyer que reprend une création enchaînée. Le `mintedId` vient de
+ * l'appelant : le SDK ne tire pas d'aléa. Aucune entité n'est créée —
+ * l'appartenance seule fait le foyer.
+ */
+export function resolveChainedHousehold(
+  guests: readonly Pick<Guest, "id" | "householdId">[],
+  previousId: string | null | undefined,
+  mintedId: string,
+): ChainedHousehold {
+  const previous = previousId ? guests.find((g) => g.id === previousId) : undefined;
+  if (!previous) return { householdId: null, attachPrevious: false };
+  if (previous.householdId) return { householdId: previous.householdId, attachPrevious: false };
+  return { householdId: mintedId, attachPrevious: true };
+}

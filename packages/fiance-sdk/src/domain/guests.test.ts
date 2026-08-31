@@ -21,6 +21,7 @@ import {
   selectRange,
   adjacentGuestId,
   newGuestDraft,
+  resolveChainedHousehold,
 } from './guests.js';
 import type { GuestGroup, GuestGroupSide } from './schema.js';
 
@@ -887,3 +888,35 @@ describe('newGuestDraft — le gabarit de création', () => {
   });
 });
 
+describe('resolveChainedHousehold — le foyer que reprend une création enchaînée', () => {
+  const guests = [
+    { id: 'a', householdId: 'foyer-1' },
+    { id: 'b', householdId: null },
+  ];
+
+  it('reprend le foyer du précédent quand il en a un', () => {
+    expect(resolveChainedHousehold(guests, 'a', 'frais')).toEqual({
+      householdId: 'foyer-1',
+      attachPrevious: false,
+    });
+  });
+
+  it('bat un foyer frais et y fait entrer le précédent quand il n\'en a pas', () => {
+    expect(resolveChainedHousehold(guests, 'b', 'frais')).toEqual({
+      householdId: 'frais',
+      attachPrevious: true,
+    });
+  });
+
+  it('rend « pas de foyer » quand le précédent a disparu ou n\'existe pas', () => {
+    const aucun = { householdId: null, attachPrevious: false };
+    expect(resolveChainedHousehold(guests, 'envolé', 'frais')).toEqual(aucun);
+    expect(resolveChainedHousehold(guests, null, 'frais')).toEqual(aucun);
+    expect(resolveChainedHousehold([], 'a', 'frais')).toEqual(aucun);
+  });
+
+  it('ne rend qu\'un identifiant et un booléen — aucune entité de foyer', () => {
+    const r = resolveChainedHousehold(guests, 'b', 'frais');
+    expect(Object.keys(r).sort()).toEqual(['attachPrevious', 'householdId']);
+  });
+});
