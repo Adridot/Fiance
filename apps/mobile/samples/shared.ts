@@ -1058,7 +1058,8 @@ export function buildWeddingSnapshot(profile: SampleProfile): WeddingSnapshot {
 }
 
 export function buildWeddingBackup(profile: SampleProfile): BackupData {
-  return createBackupDocument(buildWeddingSnapshot(profile));
+  // Figé : samples.test.ts réécrit les fixtures à chaque exécution.
+  return { ...createBackupDocument(buildWeddingSnapshot(profile)), timestamp: TS };
 }
 
 export function backupToJson(backup: BackupData): string {
