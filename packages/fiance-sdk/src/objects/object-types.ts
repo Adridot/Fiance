@@ -13,6 +13,7 @@ export const FIANCE_TYPES = {
   wedding:        'wedding',
   guestGroup:     'guestGroup',
   guest:          'guest',
+  household:      'household',
   table:          'table',
   vendor:         'vendor',
   quotePricing:   'quotePricing',
