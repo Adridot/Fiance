@@ -5,6 +5,7 @@ import { Search, Check } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { useGuestsStore } from "@/store/useGuestsStore";
 import { Sheet } from "@fiance/ui/components";
+import { formatGuestName } from "@fiance/sdk";
 
 interface CompanionPickerModalProps {
   visible: boolean;
@@ -101,7 +102,7 @@ export function CompanionPickerModal({
                 </Text>
               </View>
               <Text className="flex-1 text-base text-ink">
-                {g.firstName} {g.lastName}
+                {formatGuestName(g)}
               </Text>
               {selected === g.id && <Check size={18} color="#EC4899" />}
             </Pressable>

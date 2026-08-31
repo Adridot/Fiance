@@ -8,14 +8,15 @@ import { FileSpreadsheet, Users, Lock } from "lucide-react-native";
 import { toast } from "@/lib/toast/sonner";
 import { useGuestsStore } from "@/store/useGuestsStore";
 import { pickSpreadsheetFile } from "@/lib/export-import";
-import { parseSpreadsheet, mapRowsToGuests, type GuestImportResult } from "@/lib/guest-import";
+import { parseSpreadsheet, mapRowsToGuests, reconcileGuests, type GuestImportResult } from "@/lib/guest-import";
+import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
 import { analytics } from "@/lib/analytics";
 import { SectionTitle, FormCard, FormActions } from "@/components/FormSection";
 import { SettingsRow, WebFilePickRow } from "@/components/SettingsRow";
 import { useCan } from "@/lib/permissions/usePermissions";
 import { useIsPremium } from "@/lib/premium";
 import { FREE_LIMITS } from "@/lib/limits";
-import { wouldExceedFreeLimit } from "@fiance/sdk";
+import { wouldExceedFreeLimit, formatGuestName } from "@fiance/sdk";
 import { useShowPaywall } from "@/components/PaywallProvider";
 
 export default function ImportFileScreen() {
@@ -30,6 +31,9 @@ export default function ImportFileScreen() {
   const groups = useGuestsStore((s) => s.groups);
   const tables = useGuestsStore((s) => s.tables);
   const existingGuestCount = useGuestsStore((s) => s.guests.length);
+  const existingGuests = useGuestsStore((s) => s.guests);
+  const invitationTypes = useInvitationTypesStore((s) => s.invitationTypes);
+  const addInvitationType = useInvitationTypesStore((s) => s.addInvitationType);
   const importGuestData = useGuestsStore((s) => s.importGuestData);
   const premium = useIsPremium();
 
@@ -47,7 +51,7 @@ export default function ImportFileScreen() {
     (bytes: Uint8Array, name: string) => {
       try {
         const sheet = parseSpreadsheet(bytes);
-        const result = mapRowsToGuests(sheet, { groups, tables }, { makeId: () => Crypto.randomUUID() });
+        const result = mapRowsToGuests(sheet, { groups, tables, invitationTypes }, { makeId: () => Crypto.randomUUID() });
         if (result.guests.length === 0) {
           toast.error(t("importNoGuestsFound"));
           return;
@@ -58,7 +62,7 @@ export default function ImportFileScreen() {
         toast.error(t("importParseError"));
       }
     },
-    [groups, tables, t]
+    [groups, tables, invitationTypes, t]
   );
 
   const handlePickNative = useCallback(() => {
@@ -69,6 +73,11 @@ export default function ImportFileScreen() {
       .catch(() => toast.error(t("importParseError")));
   }, [handleFile, t]);
 
+  const reconciliation = React.useMemo(
+    () => (preview ? reconcileGuests(existingGuests, preview.guests) : null),
+    [preview, existingGuests],
+  );
+
   const doImport = useCallback(() => {
     if (!preview) return;
     if (wouldExceedLimit) {
@@ -76,6 +85,7 @@ export default function ImportFileScreen() {
       openPaywall(limitMessage);
       return;
     }
+    for (const type of preview.invitationTypes) addInvitationType(type);
     importGuestData(preview);
     analytics.capture("import_data", {
       source: isMariagesNet ? "mariagesnet" : "spreadsheet",
@@ -83,7 +93,7 @@ export default function ImportFileScreen() {
     });
     toast.success(t("importGuestsSuccess", { count: preview.guests.length }));
     router.back();
-  }, [preview, importGuestData, isMariagesNet, t, router, wouldExceedLimit, limitMessage, openPaywall]);
+  }, [preview, importGuestData, addInvitationType, isMariagesNet, t, router, wouldExceedLimit, limitMessage, openPaywall]);
 
   return (
     <ScrollView className="flex-1 bg-accent-paper" showsVerticalScrollIndicator={false}>
@@ -133,6 +143,26 @@ export default function ImportFileScreen() {
             })}
             {preview.skippedRows > 0 ? ` · ${t("importPreviewSkipped", { count: preview.skippedRows })}` : ""}
           </Text>
+          {/* The summary above counts file rows; this one counts what will be written. */}
+          <Text className="text-sm text-mute leading-5 mb-3 -mt-2">
+            {[
+              reconciliation ? t("importPreviewNew", { count: reconciliation.toAdd.length }) : null,
+              reconciliation && reconciliation.matched > 0
+                ? t("importPreviewExisting", { count: reconciliation.matched })
+                : null,
+              preview.invitationTypes.length > 0
+                ? t("importPreviewInvitationTypes", { count: preview.invitationTypes.length })
+                : null,
+              preview.withoutInvitationType > 0
+                ? t("importPreviewUndetermined", { count: preview.withoutInvitationType })
+                : null,
+              preview.duplicateNames.length > 0
+                ? t("importPreviewDuplicates", { count: preview.duplicateNames.length })
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </Text>
           <FormCard>
             {preview.guests.slice(0, 50).map((guest, index) => {
               const groupName = guest.groupId
@@ -148,7 +178,7 @@ export default function ImportFileScreen() {
                   </View>
                   <View className="flex-1">
                     <Text className="text-base text-ink">
-                      {`${guest.firstName} ${guest.lastName}`.trim()}
+                      {formatGuestName(guest)}
                     </Text>
                     {groupName && <Text className="text-xs text-mute mt-0.5">{groupName}</Text>}
                   </View>

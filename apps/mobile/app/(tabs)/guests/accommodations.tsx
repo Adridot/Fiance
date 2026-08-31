@@ -16,6 +16,7 @@ import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
 import { analytics } from "@/lib/analytics";
 import { Sprig } from "@/components/Sprig";
 import type { Accommodation } from "@/db/schema";
+import { formatGuestName } from "@fiance/sdk";
 
 type FormState = {
   name: string;
@@ -291,7 +292,7 @@ export default function AccommodationsScreen() {
                       </Text>
                     </View>
                     <Text className="text-sm text-ink-soft flex-1">
-                      {g.firstName} {g.lastName}
+                      {formatGuestName(g)}
                     </Text>
                     {g.roomNumber && (
                       <Text className="text-xs text-mute">#{g.roomNumber}</Text>

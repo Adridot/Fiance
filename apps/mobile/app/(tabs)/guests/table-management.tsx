@@ -5,7 +5,7 @@ import { Stack, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, LayoutGrid, Trash2, Map as MapIcon, Ban } from "lucide-react-native";
 import * as Crypto from "expo-crypto";
-import { validateSeatingPlan } from "@fiance/sdk";
+import { validateSeatingPlan, formatGuestName } from "@fiance/sdk";
 import { useGuestsStore } from "@/store/useGuestsStore";
 import { useSeatingConstraintsStore } from "@/store/useSeatingConstraintsStore";
 import { DIET_LABELS } from "@/db/types";
@@ -270,7 +270,8 @@ export default function TableManagementScreen() {
                         </Text>
                       </View>
                       <Text className="text-sm text-ink-soft flex-1">
-                        {g.firstName} {g.lastName}
+                        {/* MODIFICATION LOCALE — nom composé, particule comprise. */}
+                        {formatGuestName(g)}
                       </Text>
                       {conflictedGuestIds.has(g.id) && (
                         <View className="flex-row items-center gap-1 mr-2">

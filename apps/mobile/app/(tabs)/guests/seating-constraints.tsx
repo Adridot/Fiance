@@ -8,6 +8,7 @@ import {
   SeatingConstraintType,
   SEATING_CONSTRAINT_TYPE_LABELS,
   getConstraintViolations,
+  formatGuestName,
 } from "@fiance/sdk";
 import { useSeatingConstraintsStore } from "@/store/useSeatingConstraintsStore";
 import { useGuestsStore } from "@/store/useGuestsStore";
@@ -55,7 +56,8 @@ export default function SeatingConstraintsScreen() {
 
   const guestName = (id: string) => {
     const g = guests.find((x) => x.id === id);
-    return g ? `${g.firstName} ${g.lastName}` : "?";
+    // MODIFICATION LOCALE — nom composé, particule comprise.
+    return g ? formatGuestName(g) : "?";
   };
 
   const handleSave = () => {

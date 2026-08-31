@@ -4,6 +4,7 @@ import { Check } from "lucide-react-native";
 import { SearchBar } from "@/components/SearchBar";
 import { Avatar } from "@/components/Avatar";
 import type { Guest } from "@/db/schema";
+import { formatGuestName, guestNameMatches } from "@fiance/sdk";
 
 /** Searchable, checkable guest list — embedded inline inside add/edit forms. */
 export function GuestSelectList({
@@ -23,7 +24,7 @@ export function GuestSelectList({
   const filtered = useMemo(() => {
     if (!search) return guests;
     const q = search.toLowerCase();
-    return guests.filter((g) => `${g.firstName} ${g.lastName}`.toLowerCase().includes(q));
+    return guests.filter((g) => guestNameMatches(g, q));
   }, [guests, search]);
 
   return (
@@ -45,7 +46,7 @@ export function GuestSelectList({
               <View className="flex-row items-center gap-2.5 flex-1">
                 <Avatar ini={`${g.firstName[0] ?? ""}${g.lastName[0] ?? ""}`} size={28} />
                 <Text className={`text-sm flex-1 ${selected ? "text-primary-600 font-medium" : "text-ink"}`} numberOfLines={1}>
-                  {g.firstName} {g.lastName}
+                  {formatGuestName(g)}
                 </Text>
               </View>
               {selected && <Check size={18} color="#6e7a4a" />}

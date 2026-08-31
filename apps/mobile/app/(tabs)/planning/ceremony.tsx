@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Church, Lock } from "lucide-react-native";
 import { useHasFeature } from "@/lib/limits";
 import { useShowPaywall } from "@/components/PaywallProvider";
-import { CEREMONY_ITEM_KIND_LABELS } from "@fiance/sdk";
+import { CEREMONY_ITEM_KIND_LABELS, formatGuestName } from "@fiance/sdk";
 import type { CeremonyItemKind } from "@fiance/sdk";
 import { useCeremonyStore } from "@/store/useCeremonyStore";
 import { useWeddingEventsStore } from "@/store/useWeddingEventsStore";
@@ -32,7 +32,8 @@ export default function CeremonyScreen() {
   const { openPaywall } = useShowPaywall();
 
   const guestMap = useMemo(
-    () => new Map(guests.map((g) => [g.id, `${g.firstName} ${g.lastName}`.trim()])),
+    // MODIFICATION LOCALE — nom composé, particule comprise.
+    () => new Map(guests.map((g) => [g.id, formatGuestName(g)])),
     [guests]
   );
   const eventMap = useMemo(() => new Map(weddingEvents.map((e) => [e.id, e.title])), [weddingEvents]);

@@ -4,6 +4,9 @@
  */
 
 import { Platform } from "react-native";
+// MODIFICATION LOCALE — la composition du nom vit dans le SDK : un document
+// imprimé doit nommer un invité exactement comme la liste le nomme.
+import { formatGuestName } from "@fiance/sdk";
 import type { Guest, Table, GuestGroup, Vendor, DayOfItem, Wedding, VendorPayment, GuestMealSelection, WeddingEvent, CeremonyItem, Speech, PlaylistTrack, WeddingRole } from "@/db/schema";
 import type { BudgetSummary } from "@/store/useBudgetStore";
 
@@ -62,7 +65,7 @@ export function buildGuestListHtml(
     .map(
       (g) => `
     <tr>
-      <td>${escapeHtml(g.lastName)} ${escapeHtml(g.firstName)}</td>
+      <td>${escapeHtml(formatGuestName(g))}</td>
       <td><span class="badge ${RSVP_CLASS[g.rsvpStatus ?? "PENDING"]}">${g.rsvpStatus}</span></td>
       <td>${g.diet ?? "—"}</td>
       <td>${g.tableId ? escapeHtml(tableMap.get(g.tableId) ?? "") : "—"}</td>
@@ -111,7 +114,7 @@ export function buildMenuSummaryHtml(
       const detailRows = selections
         .map((s) => {
           const g = guestMap.get(s.guestId);
-          const name = g ? `${escapeHtml(g.firstName)} ${escapeHtml(g.lastName)}` : "—";
+          const name = g ? escapeHtml(formatGuestName(g)) : "—";
           return `<tr><td>${name}</td><td>${escapeHtml(mealChoiceLabels[s.mealChoice] ?? s.mealChoice)}</td></tr>`;
         })
         .join("");
@@ -382,7 +385,7 @@ export function buildCeremonyBookletHtml(
   kindLabels: Record<string, string>,
   labels: { programOf: string; performedBy: string },
 ): string {
-  const guestMap = new Map(guests.map((g) => [g.id, `${g.firstName} ${g.lastName}`.trim()]));
+  const guestMap = new Map(guests.map((g) => [g.id, formatGuestName(g)]));
   const roleMap = new Map(roles.map((r) => [r.id, r.name]));
   const sorted = [...items].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 
@@ -436,7 +439,7 @@ export function buildDjWitnessPackHtml(
   roles: WeddingRole[],
   momentLabels: Record<string, string>,
 ): string {
-  const guestMap = new Map(guests.map((g) => [g.id, `${g.firstName} ${g.lastName}`.trim()]));
+  const guestMap = new Map(guests.map((g) => [g.id, formatGuestName(g)]));
   const roleMap = new Map(roles.map((r) => [r.id, r.name]));
   const dayOfMap = new Map(dayOfItems.map((d) => [d.id, d.time]));
 
@@ -615,7 +618,7 @@ export function buildGuestLogisticsCsv(guests: Guest[], vendors: Vendor[]): stri
   const header = ["Nom", "Transport", "Navette", "Lieu de prise en charge", "Heure", "Parking", "Notes d'arrivée"].join(";");
   const rows = sorted.map((g) =>
     [
-      `${g.lastName} ${g.firstName}`,
+      formatGuestName(g),
       g.transportMode ?? "",
       g.shuttleVendorId ? (vendorMap.get(g.shuttleVendorId) ?? "") : "",
       g.shuttlePickupLocation ?? "",

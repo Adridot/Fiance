@@ -9,7 +9,7 @@ import Animated, {
 import { useTranslation } from "react-i18next";
 import { Ban } from "lucide-react-native";
 import { Sheet } from "@fiance/ui/components";
-import { validateSeatingPlan } from "@fiance/sdk";
+import { validateSeatingPlan, formatGuestName } from "@fiance/sdk";
 import type { Table, Guest, SeatingConstraint } from "@/db/schema";
 
 const CANVAS_W = 700;
@@ -272,7 +272,7 @@ export function PlanView({ tables, guests, seatingConstraints = [], updateTable 
                           </Text>
                         </View>
                         <Text className="flex-1 text-base text-ink">
-                          {guest.firstName} {guest.lastName}
+                          {formatGuestName(guest)}
                         </Text>
                         {conflictedGuestIds.has(guest.id) && (
                           <View className="flex-row items-center gap-1 mr-2">
