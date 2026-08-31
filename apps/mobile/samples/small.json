@@ -1705,7 +1705,7 @@
       "category": "TABLE_DECOR",
       "vendorId": "small-v-001",
       "isFavorite": true,
-      "colorPalette": "[\"#f2ece0\",\"#b96a4a\",\"#6e7a4a\"]",
+      "colorPalette": "[\"#fdf4ef\",\"#00916e\",\"#0a6b53\"]",
       "createdAt": "2026-07-01T10:00:00.000Z",
       "updatedAt": "2026-07-01T10:00:00.000Z"
     },
@@ -1721,7 +1721,7 @@
       "category": "VENUE_DECOR",
       "vendorId": null,
       "isFavorite": false,
-      "colorPalette": "[\"#f2ece0\",\"#b96a4a\",\"#6e7a4a\"]",
+      "colorPalette": "[\"#fdf4ef\",\"#00916e\",\"#0a6b53\"]",
       "createdAt": "2026-07-01T10:00:00.000Z",
       "updatedAt": "2026-07-01T10:00:00.000Z"
     },
@@ -1737,7 +1737,7 @@
       "category": "CEREMONY_DECOR",
       "vendorId": "small-v-002",
       "isFavorite": true,
-      "colorPalette": "[\"#f2ece0\",\"#b96a4a\",\"#6e7a4a\"]",
+      "colorPalette": "[\"#fdf4ef\",\"#00916e\",\"#0a6b53\"]",
       "createdAt": "2026-07-01T10:00:00.000Z",
       "updatedAt": "2026-07-01T10:00:00.000Z"
     },
@@ -1753,7 +1753,7 @@
       "category": "BOUQUET",
       "vendorId": null,
       "isFavorite": false,
-      "colorPalette": "[\"#f2ece0\",\"#b96a4a\",\"#6e7a4a\"]",
+      "colorPalette": "[\"#fdf4ef\",\"#00916e\",\"#0a6b53\"]",
       "createdAt": "2026-07-01T10:00:00.000Z",
       "updatedAt": "2026-07-01T10:00:00.000Z"
     }
