@@ -8,6 +8,7 @@ function emptySnapshot(overrides: Partial<WeddingSnapshot> = {}): WeddingSnapsho
     guests: [],
     tables: [],
     guestGroups: [],
+    households: [],
     vendors: [],
     quotePricings: [],
     tasks: [],

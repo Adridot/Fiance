@@ -4,7 +4,15 @@
  */
 import { describe, it, expect } from "vitest";
 import type { Guest } from '../domain/schema.js';
-import { buildRsvpRoster, mergeSubmissions, type RsvpRoster, type RsvpSubmission } from './rsvp.js';
+import {
+  buildRsvpRoster,
+  mergeSubmissions,
+  buildHouseholdRsvpDoc,
+  mergeHouseholdSubmission,
+  householdRsvpUpdates,
+  type RsvpRoster,
+  type RsvpSubmission,
+} from './rsvp.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -160,5 +168,118 @@ describe("mergeSubmissions", () => {
     const { guests: result } = mergeSubmissions(original, subs);
     expect(result).not.toBe(original);
     expect(original[0].rsvpStatus).toBe("PENDING"); // original unchanged
+  });
+});
+
+// ─── Household RSVP document ─────────────────────────────────────────────────
+
+describe("household RSVP document", () => {
+  const m = (id: string, over: Partial<Guest> = {}): Guest =>
+    ({
+      id,
+      firstName: id.toUpperCase(),
+      lastName: "FONTAINES",
+      nameParticle: null,
+      invitationType: "FULL",
+      rsvpStatus: "PENDING",
+      rsvpDate: null,
+      diet: "STANDARD",
+      dietNotes: null,
+      isChild: null,
+      ...over,
+    }) as Guest;
+
+  const five = ["a", "b", "c", "d", "e"].map((id) => m(id));
+
+  it("a household of five carries FIVE members, none of them privileged", () => {
+    const doc = buildHouseholdRsvpDoc("h1", five);
+    expect(doc.members).toHaveLength(5);
+    expect(doc.members.map((x) => x.guestId)).toEqual(["a", "b", "c", "d", "e"]);
+    expect(new Set(doc.members.map((x) => Object.keys(x).sort().join(",")))).toHaveLength(1);
+  });
+
+  it("a household of ONE has the SAME shape, with no empty companion slot", () => {
+    const alone = buildHouseholdRsvpDoc(null, [m("z")]);
+    const household = buildHouseholdRsvpDoc("h1", five);
+    expect(alone.members).toHaveLength(1);
+    expect(Object.keys(alone).sort()).toEqual(Object.keys(household).sort());
+    expect(Object.keys(alone.members[0]).sort()).toEqual(Object.keys(household.members[0]).sort());
+  });
+
+  it("carries EACH member's invitation type — they may differ within a household", () => {
+    const doc = buildHouseholdRsvpDoc("h1", [m("a"), m("b", { invitationType: "COCKTAIL" })]);
+    expect(doc.members.map((x) => x.invitationType)).toEqual(["FULL", "COCKTAIL"]);
+  });
+
+  it("a member flagged as a child appears by name, like the others", () => {
+    const doc = buildHouseholdRsvpDoc("h1", [m("a"), m("kid", { isChild: true })]);
+    const child = doc.members.find((x) => x.guestId === "kid")!;
+    expect(child.isChild).toBe(true);
+    expect(child.firstName).toBe("KID");
+    expect("rsvpStatus" in child && "diet" in child).toBe(true);
+    expect(JSON.stringify(doc)).not.toContain("childrenCount");
+  });
+
+  it("a household accepts for two and declines for the third", () => {
+    const doc = buildHouseholdRsvpDoc("h1", [m("a"), m("b"), m("c")]);
+    const next = mergeHouseholdSubmission(doc, {
+      submittedAt: "2026-09-01T10:00:00.000Z",
+      members: [
+        { guestId: "a", rsvpStatus: "ACCEPTED", diet: "VEGETARIAN" },
+        { guestId: "b", rsvpStatus: "ACCEPTED" },
+        { guestId: "c", rsvpStatus: "DECLINED" },
+      ],
+    });
+    expect(next.members.map((x) => x.rsvpStatus)).toEqual(["ACCEPTED", "ACCEPTED", "DECLINED"]);
+    expect(next.members.map((x) => x.diet)).toEqual(["VEGETARIAN", "STANDARD", "STANDARD"]);
+  });
+
+  it("a PARTIAL submission leaves untouched the members it does not fill in", () => {
+    const doc = buildHouseholdRsvpDoc("h1", [m("a"), m("b"), m("c"), m("d")]);
+    const next = mergeHouseholdSubmission(doc, {
+      submittedAt: "2026-09-01T10:00:00.000Z",
+      members: [
+        { guestId: "a", rsvpStatus: "ACCEPTED" },
+        { guestId: "b", rsvpStatus: "ACCEPTED" },
+      ],
+    });
+    expect(next.members[2].rsvpStatus).toBe("PENDING");
+    expect(next.members[3].rsvpStatus).toBe("PENDING");
+    expect(next.members[2].rsvpStatus).not.toBe("DECLINED");
+    const updates = householdRsvpUpdates(next);
+    expect(updates.map((u) => u.guestId)).toEqual(["a", "b"]);
+  });
+
+  it("a NEW submission replaces the answer of the members it fills in, and only those", () => {
+    const doc = buildHouseholdRsvpDoc("h1", [m("a"), m("b"), m("c")]);
+    const first = mergeHouseholdSubmission(doc, {
+      submittedAt: "2026-09-01T10:00:00.000Z",
+      members: [
+        { guestId: "a", rsvpStatus: "ACCEPTED" },
+        { guestId: "b", rsvpStatus: "ACCEPTED" },
+        { guestId: "c", rsvpStatus: "ACCEPTED" },
+      ],
+    });
+    const second = mergeHouseholdSubmission(first, {
+      submittedAt: "2026-09-05T18:00:00.000Z",
+      members: [{ guestId: "b", rsvpStatus: "DECLINED" }],
+    });
+    expect(second.members.map((x) => x.rsvpStatus)).toEqual(["ACCEPTED", "DECLINED", "ACCEPTED"]);
+    expect(second.members[0].respondedAt).toBe("2026-09-01T10:00:00.000Z");
+    expect(second.members[1].respondedAt).toBe("2026-09-05T18:00:00.000Z");
+  });
+
+  it("reports back only the members who ACTUALLY answered", () => {
+    const doc = buildHouseholdRsvpDoc("h1", [m("a"), m("silent", { rsvpStatus: null })]);
+    const next = mergeHouseholdSubmission(doc, {
+      submittedAt: "2026-09-01T10:00:00.000Z",
+      members: [{ guestId: "a", rsvpStatus: "ACCEPTED", diet: "VEGAN" }],
+    });
+    const updates = householdRsvpUpdates(next);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({
+      guestId: "a",
+      updates: { rsvpStatus: "ACCEPTED", rsvpDate: "2026-09-01T10:00:00.000Z", diet: "VEGAN" },
+    });
   });
 });

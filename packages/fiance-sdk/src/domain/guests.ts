@@ -22,7 +22,20 @@ export interface GuestCounts {
   //    screen's invitation-type filter counts exactly.
   inv_by_type: Record<string, number>;
   inv_by_type_all: Record<string, number>;
+  // The head counts are a PARTITION: the per-invitation-type counters hold
+  // ADULTS only, the children counters hold the flagged records across all
+  // types, and every guest falls into exactly one of them —
+  //
+  //     Σ(inv_by_type)     + children_count     = billable_count
+  //     Σ(inv_by_type_all) + children_count_all = total
   children_count: number;
+  children_count_all: number;
+  // Children broken down by type. No quote uses them — the child rate is flat —
+  // they only make the partition readable next to the adult-only type counts.
+  children_by_type: Record<string, number>;
+  children_by_type_all: Record<string, number>;
+  /** The pool a quote is computed on — what `inv_by_type` splits up. */
+  billable_count: number;
   vegetarian_count: number;
   sleeping_count: number;
   response_rate: number;
@@ -40,9 +53,21 @@ export function computeCounts(guests: Guest[]): GuestCounts {
   // For per-invitation-type pricing: bill accepted guests of each exact type. Before any
   // RSVP (no accepted), estimate from non-declined guests so previews aren't all zero.
   const invPool = acceptedCount > 0 ? accepted : guests.filter((g) => g.rsvpStatus !== "DECLINED");
+  // One filter point, so no per-type counter can forget to exclude children.
+  const isChild = (g: Guest): boolean => g.isChild === true;
+  const adults = (pool: Guest[]): Guest[] => pool.filter((g) => !isChild(g));
+  const groupChildrenByType = (pool: Guest[]): Record<string, number> => {
+    const map: Record<string, number> = {};
+    for (const g of pool.filter(isChild)) {
+      const key = g.invitationType;
+      if (key == null) continue;
+      map[key] = (map[key] ?? 0) + 1;
+    }
+    return map;
+  };
   const groupByType = (pool: Guest[]): Record<string, number> => {
     const map: Record<string, number> = {};
-    for (const g of pool) {
+    for (const g of adults(pool)) {
       const key = g.invitationType;
       if (key == null) continue;
       map[key] = (map[key] ?? 0) + 1;
@@ -56,17 +81,22 @@ export function computeCounts(guests: Guest[]): GuestCounts {
     declined: declinedCount,
     pending: guests.filter((g) => g.rsvpStatus === "PENDING").length,
     maybe: guests.filter((g) => g.rsvpStatus === "MAYBE").length,
-    cocktail_count: accepted.filter((g) =>
+    cocktail_count: adults(accepted).filter((g) =>
       ["COCKTAIL", "FULL", "BOTH_DAYS"].includes(g.invitationType)
     ).length,
-    dinner_count: accepted.filter((g) =>
+    dinner_count: adults(accepted).filter((g) =>
       ["FULL", "BOTH_DAYS"].includes(g.invitationType)
     ).length,
-    full_count: accepted.filter((g) => g.invitationType === "FULL").length,
-    both_days_count: accepted.filter((g) => g.invitationType === "BOTH_DAYS").length,
+    full_count: adults(accepted).filter((g) => g.invitationType === "FULL").length,
+    both_days_count: adults(accepted).filter((g) => g.invitationType === "BOTH_DAYS").length,
     inv_by_type: groupByType(invPool),
     inv_by_type_all: groupByType(guests),
-    children_count: accepted.reduce((sum, g) => sum + (g.childrenCount ?? 0), 0),
+    // Flagged records, never a sum of the inert `childrenCount` (see schema).
+    children_count: invPool.filter(isChild).length,
+    children_count_all: guests.filter(isChild).length,
+    children_by_type: groupChildrenByType(invPool),
+    children_by_type_all: groupChildrenByType(guests),
+    billable_count: invPool.length,
     vegetarian_count: accepted.filter((g) =>
       ["VEGETARIAN", "VEGAN"].includes(g.diet || "")
     ).length,
