@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { Users, ChevronDown, ChevronUp, ChevronRight, AlertTriangle, Check, Pencil, Plus } from "lucide-react-native";
 import { useGuestsStore, computeCounts } from "@/store/useGuestsStore";
 // MODIFICATION LOCALE — l'état « lecture impossible » (D5 du changement des époques).
+import { useAccesChiffreStore } from "@/store/useAccesChiffreStore";
 import {
   countDuplicateGuests,
   guestNameMatches,
@@ -290,6 +291,9 @@ function GroupHeader({
 
 function GuestsView() {
   const { t } = useTranslation("guests");
+  const { t: tRéglages } = useTranslation("settings");
+  // MODIFICATION LOCALE — une liste illisible n'est pas une liste vide.
+  const listeIllisible = useAccesChiffreStore((s) => "guest" in s.illisibles);
   const router = useRouter();
   const params = useLocalSearchParams<{ saisieGroupId?: string }>();
   const isWide = useIsWideScreen();
@@ -1105,7 +1109,16 @@ function GuestsView() {
     <View className="relative flex-1">
       {/* Guest list — big CTA only when there are truly no guests; a search/filter that
           matches none keeps the search bar + filters visible with an inline message. */}
-      {guests.length === 0 ? (
+      {guests.length === 0 && listeIllisible ? (
+        // MODIFICATION LOCALE — « 0 invité » reste réservé à un espace qui n'en
+        // contient effectivement aucun. Un contenu qu'on ne sait pas déchiffrer
+        // se dit, il ne se présente pas comme une absence.
+        <EmptyState
+          icon={Users}
+          title={tRéglages("chiffrementListeIllisible")}
+          description={tRéglages("chiffrementListeIllisibleDetail")}
+        />
+      ) : guests.length === 0 ? (
         <EmptyState
           icon={Users}
           title={t("noGuests")}
