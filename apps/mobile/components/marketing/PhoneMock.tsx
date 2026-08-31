@@ -89,7 +89,7 @@ export function PhoneMock() {
               width: 260,
               borderRadius: 48,
               padding: 11,
-              backgroundColor: "#201a12",
+              backgroundColor: GP.cardDark,
               shadowColor: GP.ink,
               shadowOffset: { width: 0, height: 40 },
               shadowOpacity: 0.4,
@@ -109,7 +109,7 @@ export function PhoneMock() {
                 width: 80,
                 height: 22,
                 borderRadius: 999,
-                backgroundColor: "#141009",
+                backgroundColor: GP.paperDark,
                 zIndex: 4,
               }}
             />
@@ -138,14 +138,14 @@ export function PhoneMock() {
                   <Text style={{ fontFamily: "Fraunces_700Bold", fontSize: 15, color: GP.clay, lineHeight: 15 }}>
                     {t("landing.hero.phone.countdown")}
                   </Text>
-                  <Text style={{ fontSize: 8, color: "#b08468", letterSpacing: 0.5, marginTop: 1 }}>
+                  <Text style={{ fontSize: 8, color: GP.mute, letterSpacing: 0.5, marginTop: 1 }}>
                     {t("landing.hero.phone.date")}
                   </Text>
                 </View>
               </View>
 
               {/* Budget card */}
-              <View style={{ backgroundColor: "#f6ecdf", borderRadius: 16, padding: 14 }}>
+              <View style={{ backgroundColor: GP.paper, borderRadius: 16, padding: 14 }}>
                 <View className="flex-row items-center justify-between" style={{ marginBottom: 7 }}>
                   <Text style={{ fontFamily: "Inter_700Bold", fontSize: 9, letterSpacing: 1.4, textTransform: "uppercase", color: GP.mustard }}>
                     {t("landing.hero.peek.budgetLabel")}
@@ -158,7 +158,7 @@ export function PhoneMock() {
                   </Text>
                   <Text style={{ fontFamily: "Inter_500Medium", fontSize: 11, color: GP.mute }}>/ {formatMoney(BUDGET_MAX)}</Text>
                 </View>
-                <View style={{ height: 6, borderRadius: 4, backgroundColor: "rgba(42,36,24,0.08)", overflow: "hidden" }}>
+                <View style={{ height: 6, borderRadius: 4, backgroundColor: "rgba(17,36,31,0.08)", overflow: "hidden" }}>
                   <Animated.View style={[barStyle, { height: "100%", borderRadius: 4, backgroundColor: GP.clay }]} />
                 </View>
                 <Text style={{ fontSize: 10, color: GP.mute, marginTop: 7 }}>
@@ -168,7 +168,7 @@ export function PhoneMock() {
 
               {/* Guests + Planning */}
               <View className="flex-row" style={{ gap: 9 }}>
-                <View style={{ flex: 1, backgroundColor: "#f7f2e8", borderRadius: 14, padding: 12 }}>
+                <View style={{ flex: 1, backgroundColor: GP.paper, borderRadius: 14, padding: 12 }}>
                   <Text style={{ fontFamily: "Inter_700Bold", fontSize: 8.5, letterSpacing: 1.2, textTransform: "uppercase", color: GP.olive, marginBottom: 8 }}>
                     {t("landing.hero.peek.guestsLabel")}
                   </Text>
@@ -189,7 +189,7 @@ export function PhoneMock() {
                     <Text style={{ fontSize: 9.5, color: GP.inkSoft }}>{t("landing.hero.peek.rsvp")}</Text>
                   </View>
                 </View>
-                <View style={{ flex: 1, backgroundColor: "#f7f2e8", borderRadius: 14, padding: 12, alignItems: "center" }}>
+                <View style={{ flex: 1, backgroundColor: GP.paper, borderRadius: 14, padding: 12, alignItems: "center" }}>
                   <Text style={{ fontFamily: "Inter_700Bold", fontSize: 8.5, letterSpacing: 1.2, textTransform: "uppercase", color: GP.blue, marginBottom: 8, alignSelf: "flex-start" }}>
                     {t("landing.hero.phone.planningLabel")}
                   </Text>
@@ -207,7 +207,7 @@ export function PhoneMock() {
             {/* Tab bar */}
             <View
               className="flex-row justify-around items-center"
-              style={{ paddingHorizontal: 10, paddingTop: 9, paddingBottom: 4, borderTopWidth: 1, borderTopColor: "rgba(42,36,24,0.07)" }}
+              style={{ paddingHorizontal: 10, paddingTop: 9, paddingBottom: 4, borderTopWidth: 1, borderTopColor: "rgba(17,36,31,0.07)" }}
             >
               {TABS.map((tab, i) => {
                 const Icon = tab.icon;

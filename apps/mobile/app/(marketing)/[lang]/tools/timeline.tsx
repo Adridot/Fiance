@@ -18,7 +18,7 @@ interface TimelineEvent {
   notes: string;
 }
 
-const DOTS = [GP.clay, GP.mustard, GP.olive, GP.blue, "#a3502f", "#8ea36f", "#d9a441", "#7d9bb3"];
+const DOTS = [GP.clay, GP.mustard, GP.olive, GP.blue, GP.strawberry, "#15c199", "#c99a12", "#4bb3c4"];
 
 function uid() {
   return Math.random().toString(36).slice(2, 9);
@@ -45,7 +45,7 @@ function EventCard({
       {/* Timeline dot + connector */}
       <View className="items-center" style={{ width: 14 }}>
         <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: dot, marginTop: 6, shadowColor: dot, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 1 }} />
-        {index < total - 1 && <View style={{ flex: 1, width: 2, backgroundColor: "rgba(42,36,24,0.1)", marginTop: 4, marginBottom: 4 }} />}
+        {index < total - 1 && <View style={{ flex: 1, width: 2, backgroundColor: "rgba(17,36,31,0.1)", marginTop: 4, marginBottom: 4 }} />}
       </View>
       {/* Card */}
       <View className="flex-1 bg-white rounded-2xl p-4 border border-accent-rose-light mb-4">
