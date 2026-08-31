@@ -591,9 +591,6 @@ export function resetDirtyPushBaseline(): void {
   _pushRetryAttempt = 0;
   _pushDeferred = false;
   _lastPushWriteDenied = false;
-  // Avant de décider ce qui reste à pousser : sans ce réamorçage, un démarrage
-  // considère les 352 invités comme modifiés et bat les `rev` de tous les pairs.
-  amorcerRéférencesDePoussée();
   // L'arriéré appartient au mariage qu'on quitte, la note durable aussi.
   effacerPousséeEnAttente();
   useSyncPendingStore.getState().setUnsavedChanges(false);
@@ -851,6 +848,9 @@ export async function pushSpaceSnapshot(
 ): Promise<boolean> {
   const now = Date.now();
   _lastPushWriteDenied = false;
+  // Avant de décider ce qui reste à pousser : sans ce réamorçage, un démarrage
+  // considère les 352 invités comme modifiés et bat les `rev` de tous les pairs.
+  amorcerRéférencesDePoussée();
   // Content is one doc per collection (+ the wedding singleton). No per-entity content docs.
   const weddingBuilt = buildWeddingNode(weddingNodeId, now);
   const { nodes: collectionNodes, built } = buildCollectionDocs(weddingNodeId, now);
@@ -1129,28 +1129,85 @@ export async function hydrateFromSpace(
     const collectionDocsByType = await pullCollectionDocs(session, spaceId, sentinelNodes);
     // Reset to fresh remote truth: a type with no pulled doc gets no carried state, so a
     // locally-deleted-but-still-legacy entity re-hydrates rather than sticking.
-    _collectionState.clear();
+    //
+    // MODIFICATION LOCALE — RETENU, pas encore appliqué.
+    //
+    // Ce réamorçage avait lieu ICI, donc AVANT le point d'abandon plus bas. Une
+    // lecture écartée laissait ainsi l'appareil porteur des `rev` DU SERVEUR
+    // pour des valeurs qui, elles, n'avaient pas été appliquées. Sa poussée
+    // suivante présentait donc son ancienne valeur sous la version du serveur —
+    // et l'égalité de version se tranche en faveur du local. Une fenêtre restée
+    // en retard écrasait ainsi le travail d'une autre, sans conflit et sans
+    // trace. C'est le mécanisme constaté le 21 août 2026.
+    //
+    // On retient donc le réamorçage, et on ne l'applique qu'avec le reste, une
+    // fois l'abandon écarté : une lecture qui n'est pas appliquée ne doit RIEN
+    // laisser derrière elle.
+    const réamorçageRetenu = new Map<string, CollectionState>();
     for (const [type, doc] of collectionDocsByType) {
-      _collectionState.set(type, { rev: { ...doc.rev }, tombstones: { ...doc.tombstones } });
+      réamorçageRetenu.set(type, { rev: { ...doc.rev }, tombstones: { ...doc.tombstones } });
     }
 
     // Union a collection's legacy per-entity docs with its collection doc: collection live items
     // win, tombstoned ids are removed. During the transition an old-build device may write only
     // a per-entity node, so a legacy-only entity (absent from the collection doc) is preserved.
+    // MODIFICATION LOCALE — les collections effectivement RECOUVERTES.
+    //
+    // Chaque setter plus bas est gardé par `if (xxxDocs.length)`, et chaque
+    // `xxxDocs` est très exactement le résultat de `pullCollection(type)`. Noter
+    // ici les types au résultat non vide donne donc, sans le dupliquer, le même
+    // critère que celui des setters — c'est ce qui permet au réamorçage des
+    // références de ne couvrir que ce qui a réellement été appliqué (voir plus
+    // bas), au lieu de déclarer « déjà poussé » ce que le serveur ignore.
+    const typesRecouverts = new Set<string>();
     const pullCollection = async (type: string): Promise<Record<string, unknown>[]> => {
       const legacy = await pullAllBatch(type);
       const cdoc = collectionDocsByType.get(type);
-      if (!cdoc) return legacy;
-      const byId = new Map<string, Record<string, unknown>>();
-      for (const e of legacy) {
-        const id = (e as { id?: unknown }).id;
-        if (typeof id === 'string') byId.set(id, e);
-      }
-      for (const [id, entity] of Object.entries(cdoc.items)) {
-        if (cdoc.tombstones[id] === undefined) byId.set(id, entity); // collection live wins
-      }
-      for (const id of Object.keys(cdoc.tombstones)) byId.delete(id); // tombstone removes
-      return [...byId.values()];
+      const résultat = (() => {
+        if (!cdoc) return legacy;
+        const byId = new Map<string, Record<string, unknown>>();
+        for (const e of legacy) {
+          const id = (e as { id?: unknown }).id;
+          if (typeof id === 'string') byId.set(id, e);
+        }
+        // MODIFICATION LOCALE — l'invariant anti-régression, par ENTITÉ.
+        //
+        // Une lecture peut rapporter du PASSÉ : réponse tardive, lecture partie
+        // avant notre propre écriture, ou — c'est ce qui est arrivé le 21 août
+        // 2026 — servie depuis un cache. Appliquer ce passé efface à l'écran une
+        // modification pourtant enregistrée sur le serveur, puis la fait
+        // repousser périmée. On refuse donc d'appliquer, pour une entité
+        // donnée, une version antérieure à celle que CET appareil a poussée.
+        //
+        // Par entité, jamais par collection : un filigrane par collection
+        // rejetterait la modification légitime d'un pair sur une AUTRE entité,
+        // dès que cet appareil aurait poussé quoi que ce soit.
+        //
+        // On SUBSTITUE l'entité locale, on ne se contente pas de sauter le
+        // `set` : les setters plus bas sont de gros remplacements, et une
+        // entité absente du tableau se ferait tombstoner à la poussée suivante.
+        const versionsPoussées = revPousséesPour(type);
+        const localesParId = new Map<string, Record<string, unknown>>();
+        if (Object.keys(versionsPoussées).length) {
+          for (const src of collectionSources()) {
+            if (src.type !== type) continue;
+            for (const e of src.items) localesParId.set(e.id, e as unknown as Record<string, unknown>);
+          }
+        }
+        for (const [id, entity] of Object.entries(cdoc.items)) {
+          if (cdoc.tombstones[id] !== undefined) continue; // la pierre tombale tranche plus bas
+          const poussée = versionsPoussées[id];
+          if (poussée !== undefined && (cdoc.rev[id] ?? 0) < poussée) {
+            const locale = localesParId.get(id);
+            if (locale) { byId.set(id, locale); continue; }
+          }
+          byId.set(id, entity); // collection live wins
+        }
+        for (const id of Object.keys(cdoc.tombstones)) byId.delete(id); // tombstone removes
+        return [...byId.values()];
+      })();
+      if (résultat.length) typesRecouverts.add(type);
+      return résultat;
     };
 
     // Select the active wedding node at index level (node ids are available here but
@@ -1232,6 +1289,38 @@ export async function hydrateFromSpace(
       console.warn(`[space-sync] decrypted 0/${totalGuestNodes} guest nodes — check space-access credential`);
     }
 
+    // ─── MODIFICATION LOCALE — l'abandon ────────────────────────────────────
+    //
+    // Dernier instant avant d'écrire dans les magasins. Si une modification
+    // locale est survenue depuis l'entrée, l'appliquer l'effacerait : on sort.
+    //
+    // La vérification tient parce qu'il n'y a AUCUN `await` entre elle et le
+    // bloc de setters ci-dessous — rien ne peut s'y glisser. Toute insertion
+    // d'un `await` dans ce bloc rouvrirait la fenêtre.
+    //
+    // Ce qu'on laisse derrière soi est exactement ce qu'il faut, sans rien
+    // défaire :
+    //   – `_collectionState` n'est PAS réamorcé — le réamorçage est RETENU plus
+    //     haut et n'est appliqué que juste après cette garde. Il l'était avant
+    //     elle, et c'était le défaut : l'appareil se retrouvait porteur des
+    //     `rev` du serveur pour des valeurs qu'il n'avait pas appliquées, et sa
+    //     poussée suivante présentait son ancienne valeur sous la version du
+    //     serveur. À égalité de version, le local l'emporte — une fenêtre en
+    //     retard écrasait donc le travail d'une autre ;
+    //   – `_collectionEntityJson` n'est PAS réamorcé, donc la modification
+    //     locale reste marquée comme changée, son `rev` sera relevé à la
+    //     construction du document, et elle gagnera l'arbitrage ;
+    //   – `_lastPushedCollectionJson` n'est PAS réamorcé, donc la collection
+    //     reste sale et la poussée partira réellement.
+    // L'abandon est un `return` anticipé, pas un défaissage.
+    if (_localEditEpoch !== époqueÀLEntrée) {
+      return nodes.length;
+    }
+
+    // La lecture est appliquée : le réamorçage retenu plus haut l'est aussi.
+    _collectionState.clear();
+    for (const [type, état] of réamorçageRetenu) _collectionState.set(type, état);
+
     // Feed into stores — setters do NOT call notifySync, so no circular dispatch.
     // readSingletonEntity unwraps the 1-item CollectionDoc (or tolerates a legacy raw, or
     // rollout-window hybrid, remote — see its doc comment) before it reaches the store.
@@ -1288,15 +1377,42 @@ export async function hydrateFromSpace(
     // already seeded from the pulled docs above. A collection that gained a legacy-only entity
     // (rev absent) will show as dirty on the next push — that is the intended one-shot migration
     // that folds the straggler into the collection doc.
+    //
+    // MODIFICATION LOCALE — ne réamorcer que ce qui a été RECOUVERT.
+    //
+    // Ce réamorçage lisait `collectionSources()`, c'est-à-dire les magasins APRÈS
+    // hydratation, et déclarait tout ce qu'il y trouvait « déjà poussé ». Or les
+    // setters ci-dessus sont gardés par `if (xxxDocs.length)` : une collection que
+    // le serveur ignore n'est pas recouverte, ses données locales survivent — et
+    // se trouvaient donc marquées transmises alors qu'elles ne l'étaient pas.
+    // Elles ne repartaient PLUS JAMAIS, jusqu'à une prochaine modification.
+    //
+    // Laisser une collection non recouverte hors des deux références la garde
+    // sale : ses entités sont absentes de `_collectionEntityJson` donc réputées
+    // changées (leur `rev` sera relevé), et son document est absent de
+    // `_lastPushedCollectionJson` donc la poussée partira.
     _collectionEntityJson.clear();
     _lastPushedCollectionJson.clear();
-    for (const { items } of collectionSources()) {
+    for (const { type, items } of collectionSources()) {
+      if (!typesRecouverts.has(type)) continue;
       for (const e of items) _collectionEntityJson.set(e.id, stableStringify(e));
     }
     const { built: builtCollections } = buildCollectionDocs(weddingNodeId, Date.now());
     for (const b of builtCollections) {
+      if (!typesRecouverts.has(b.type)) continue;
       _lastPushedCollectionJson.set(b.node.id, stableStringify(b.doc));
     }
+    // MODIFICATION LOCALE — et on le rend DURABLE ici aussi, pas seulement au
+    // succès d'une poussée.
+    //
+    // Sans cette ligne, une session qui n'a fait que LIRE ne laisse rien
+    // derrière elle : le démarrage suivant, s'il porte une saisie en attente,
+    // trouve les quatorze collections « sales » et REPOUSSE TOUT — en
+    // réestampillant les `rev` de toutes les entités, ce que la durabilité de
+    // ce suivi existe précisément pour éviter. Constaté en production le 21 août
+    // 2026 à 21:47. Le coût n'est pas visible à l'usage (c'est après la
+    // peinture), mais la réestampille, elle, bat les `rev` de tous les pairs.
+    persisterDernièresPoussées();
 
     _lastHydrateApplied = true;
     return nodes.length;
