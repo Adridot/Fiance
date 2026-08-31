@@ -10,6 +10,7 @@ import {
   buildGuestListData,
   isFirstNameToComplete,
   computeGroupProgress,
+  groupFamiliesToComplete,
   formatGuestName,
   removeGuest,
   removeGuests,
@@ -478,6 +479,62 @@ describe('first name still to be filled in', () => {
 
     it('ignores guests with no category', () => {
       expect(computeGroupProgress([r('', 'ARDOUIN', null, 'PENDING')]).size).toBe(0);
+    });
+  });
+
+  describe('groupFamiliesToComplete', () => {
+    const f = (firstName: string, lastName: string, groupId: string | null = 'g1', nameParticle: string | null = null) =>
+      ({ firstName, lastName, groupId, nameParticle });
+
+    it('returns the whole family — the named ones with the anonymous ones', () => {
+      const [fam] = groupFamiliesToComplete(
+        [f('Francois', 'AUGIER D\'IVRY'), f('', 'AUGIER D\'IVRY')],
+        'g1',
+      );
+      expect(fam.lastName).toBe('AUGIER D\'IVRY');
+      expect(fam.named.map((g) => g.firstName)).toEqual(['Francois']);
+      expect(fam.missing).toHaveLength(1);
+    });
+
+    it('drops families where nothing is missing any more', () => {
+      const out = groupFamiliesToComplete([f('Luc', 'ARDOUIN'), f('', 'MERY')], 'g1');
+      expect(out.map((x) => x.lastName)).toEqual(['MERY']);
+    });
+
+    it('a family where nobody is named still shows up, without a landmark', () => {
+      const [fam] = groupFamiliesToComplete([f('', 'MERY'), f('', 'MERY')], 'g1');
+      expect(fam.named).toEqual([]);
+      expect(fam.missing).toHaveLength(2);
+    });
+
+    it('does not cross the category boundary', () => {
+      const out = groupFamiliesToComplete(
+        [f('', 'ARDOUIN', 'g1'), f('Luc', 'ARDOUIN', 'g2')],
+        'g1',
+      );
+      expect(out[0].named).toEqual([]);
+    });
+
+    it('the particle is part of the family identity', () => {
+      const out = groupFamiliesToComplete(
+        [f('', 'PRESLE', 'g1', 'de la'), f('Jean', 'PRESLE', 'g1', null)],
+        'g1',
+      );
+      expect(out).toHaveLength(1);
+      expect(out[0].lastName).toBe('DE LA PRESLE');
+      expect(out[0].named).toEqual([]);
+    });
+
+    it('sorts families by last name, particle excluded from the ordering', () => {
+      const out = groupFamiliesToComplete(
+        [f('', 'SIMON'), f('', 'AUBREE'), f('', 'PRESLE', 'g1', 'de la')],
+        'g1',
+      );
+      expect(out.map((x) => x.lastName)).toEqual(['AUBREE', 'DE LA PRESLE', 'SIMON']);
+    });
+
+    it('returns an empty array for a completed category', () => {
+      expect(groupFamiliesToComplete([f('Luc', 'ARDOUIN')], 'g1')).toEqual([]);
     });
   });
 });

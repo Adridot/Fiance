@@ -429,6 +429,56 @@ export function computeGroupProgress(
   return out;
 }
 
+function byName(a: IncompleteGuest, b: IncompleteGuest): number {
+  return `${a.lastName}${a.firstName}`.localeCompare(`${b.lastName}${b.firstName}`, "fr");
+}
+
+export interface FamilyToComplete<T> {
+  lastName: string;
+  named: T[];
+  missing: T[];
+}
+
+/**
+ * The families of a category with at least one first name to find, with ALL
+ * their members — those already named included.
+ *
+ * That is what makes the correction answerable: « AUGIER D'IVRY, ___ » cannot
+ * be answered, « AUGIER D'IVRY: François, and ___ » can — the blank is his
+ * spouse. Listing the unnamed on their own asks for a first name without
+ * saying whose.
+ */
+export function groupFamiliesToComplete<T extends IncompleteGuest & Pick<Guest, "nameParticle">>(
+  guests: T[],
+  groupId: string,
+): FamilyToComplete<T>[] {
+  const families = new Map<string, T[]>();
+  for (const g of guests) {
+    if (g.groupId !== groupId) continue;
+    const key = formatGuestLastName(g as NamedGuest).toLocaleLowerCase("fr");
+    const bucket = families.get(key);
+    if (bucket) bucket.push(g);
+    else families.set(key, [g]);
+  }
+
+  const out: (FamilyToComplete<T> & { sortKey: string })[] = [];
+  for (const members of families.values()) {
+    const missing = members.filter(isFirstNameToComplete).sort(byName);
+    if (missing.length === 0) continue;
+    out.push({
+      lastName: formatGuestLastName(members[0] as NamedGuest),
+      // The particle stays out of the sort key, as in the guest list:
+      // « de la Presle » files under P, not D.
+      sortKey: (members[0].lastName ?? "").trim(),
+      named: members.filter((g) => !isFirstNameToComplete(g)).sort(byName),
+      missing,
+    });
+  }
+  return out
+    .sort((a, b) => a.sortKey.localeCompare(b.sortKey, "fr", { sensitivity: "base" }))
+    .map(({ sortKey: _sortKey, ...family }) => family);
+}
+
 export interface GuestGroupSideSection {
   side: GuestGroupSide | null;
   groups: GuestGroup[];
