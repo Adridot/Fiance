@@ -26,7 +26,6 @@ import {
 } from "@/lib/starfish";
 import { activateSync } from "@/lib/providers";
 import { needsNamespaceResync, resyncWeddingToCurrentNamespace } from "@/lib/space-resync";
-import { generatePassphrase } from "@/lib/identity";
 import { resolveServerUrl } from "@/lib/server";
 import { createInviteLink } from "@/lib/invite-link";
 import { usePlanningStore } from "@/store/usePlanningStore";
@@ -68,7 +67,6 @@ export default function SettingsScreen() {
   const updateDate = currentlyRunning?.createdAt ?? null;
 
   const registry = useWeddingRegistryStore((s) => s.registry);
-  const createWedding = useWeddingRegistryStore((s) => s.createWedding);
   const deleteWedding = useWeddingRegistryStore((s) => s.deleteWedding);
   const updateRegistryWedding = useWeddingRegistryStore((s) => s.updateWedding);
 
@@ -203,16 +201,6 @@ export default function SettingsScreen() {
     (roleId?: string, name?: string) => createInviteLink(activeEntry!, roleId, name),
     [activeEntry],
   );
-
-  const [showCreateConfirm, setShowCreateConfirm] = useState(false);
-
-  const doCreateWedding = useCallback(async () => {
-    setShowCreateConfirm(false);
-    const passphrase = generatePassphrase();
-    await createWedding(t("myWedding"), passphrase);
-    analytics.capture("wedding_created", { method: "new" });
-    router.replace("/(tabs)");
-  }, [createWedding, t, router]);
 
   const [showJoinScanner, setShowJoinScanner] = useState(false);
 
@@ -539,19 +527,25 @@ export default function SettingsScreen() {
             </View>
           );
         })}
-        <Pressable
-          onPress={() => setShowCreateConfirm(true)}
-          className="bg-accent-card rounded-2xl p-4 mb-2 border border-hair dark:border-hair flex-row items-center active:opacity-80"
-        >
+        {/* MODIFICATION LOCALE — instance à mariage unique (mariage.didot.io).
+            La ligne « créer un nouveau mariage » devient un encart explicatif :
+            le blocage réel vit dans createWedding (le seul passage obligé), mais
+            laisser un bouton qui échoue serait incompréhensible. La ligne
+            « rejoindre » juste en dessous reste intacte — c'est par elle que la
+            famille accède au mariage. */}
+        <View className="bg-accent-card rounded-2xl p-4 mb-2 border border-hair dark:border-hair flex-row items-center opacity-60">
           <View className="w-10 h-10 rounded-xl items-center justify-center mr-3 bg-accent-paper">
             <PlusCircle size={20} color="#9CA3AF" />
           </View>
           <View className="flex-1">
             <Text className="text-base font-medium text-mute">
-              {t("createNewWedding")}
+              {t("singleWeddingInstance")}
+            </Text>
+            <Text className="text-xs text-mute mt-0.5">
+              {t("singleWeddingInstanceHint")}
             </Text>
           </View>
-        </Pressable>
+        </View>
         <Pressable
           onPress={() => setShowJoinScanner(true)}
           className="bg-accent-card rounded-2xl p-4 mb-2 border border-hair dark:border-hair flex-row items-center active:opacity-80"
@@ -749,14 +743,6 @@ export default function SettingsScreen() {
         setDeleteWeddingId(null);
       }}
       onCancel={() => setDeleteWeddingId(null)}
-    />
-
-    <ConfirmSheet
-      visible={showCreateConfirm}
-      title={t("createNewWedding")}
-      message={t("newWeddingConfirm", { count: registry?.weddings.length ?? 0 })}
-      onConfirm={doCreateWedding}
-      onCancel={() => setShowCreateConfirm(false)}
     />
 
     <ConfirmSheet

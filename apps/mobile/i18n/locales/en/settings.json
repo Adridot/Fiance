@@ -33,6 +33,8 @@
   "tapToSwitch": "Tap to switch",
   "createNewWedding": "Create a new wedding",
   "newWeddingConfirm": "You already have {{count}} wedding(s). Create a new wedding? You can switch between weddings at any time.",
+  "singleWeddingInstance": "Single-wedding instance",
+  "singleWeddingInstanceHint": "This server hosts a single wedding. Joining a wedding from an invitation link is still available below.",
   "myWedding": "My wedding",
   "security": "Security",
   "appLock": "App lock",
