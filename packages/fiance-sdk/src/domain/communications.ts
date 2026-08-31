@@ -1,4 +1,5 @@
-import type { Communication } from './schema.js';
+import type { Communication, Guest, Household } from './schema.js';
+import { recipients as householdRecipients, type Recipient } from './households.js';
 
 export function addCommunication(communications: Communication[], communication: Communication): Communication[] {
   return [...communications, communication];
@@ -75,4 +76,54 @@ export function removeGuestFromAll(communications: Communication[], guestId: str
     if (!had) return c;
     return { ...c, recipients: c.recipients.filter((r) => r.guestId !== guestId), updatedAt: now };
   });
+}
+
+
+// ─── The recipient is the HOUSEHOLD ──────────────────────────────────────────
+//
+// Storage stays PER GUEST: `Communication.recipients` is unchanged, and the two
+// functions below FOLD the per-guest operations instead of rewriting them, so a
+// send to a household and four sends to its four members cannot diverge.
+
+export interface HouseholdRecipientRow<G> extends Recipient<G> {
+  sent: boolean;
+  /** Sent for some members only — a household formed after the send. */
+  partial: boolean;
+  sentAt: string | null;
+}
+
+export function communicationRecipientRows<
+  G extends Pick<Guest, 'id' | 'firstName' | 'lastName' | 'nameParticle' | 'householdId'>,
+>(
+  households: Household[],
+  guests: G[],
+  communication: Pick<Communication, 'recipients'>,
+): HouseholdRecipientRow<G>[] {
+  const byGuest = new Map(communication.recipients.map((r) => [r.guestId, r.sentAt]));
+  return householdRecipients(households, guests).map((dest) => {
+    const sentMembers = dest.members.filter((m) => byGuest.has(m.id));
+    const dates = new Set(sentMembers.map((m) => byGuest.get(m.id) ?? null));
+    return {
+      ...dest,
+      sent: sentMembers.length === dest.members.length && dest.members.length > 0,
+      partial: sentMembers.length > 0 && sentMembers.length < dest.members.length,
+      sentAt: dates.size === 1 ? [...dates][0] : null,
+    };
+  });
+}
+
+/**
+ * Toggles the send for a WHOLE household.
+ *
+ * A partially sent household carries `sent: false`, so it completes rather than
+ * clears — the expected gesture once the shortfall is noticed.
+ */
+export function toggleHouseholdRecipients(
+  communications: Communication[],
+  commId: string,
+  memberIds: string[],
+  today: string,
+  { sent }: { sent: boolean },
+): Communication[] {
+  return bulkSetRecipients(communications, commId, memberIds, sent ? null : today);
 }

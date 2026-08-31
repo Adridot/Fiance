@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import type { Guest, Table, GuestGroup } from "@fiance/sdk";
+import * as Crypto from "expo-crypto";
+import type { Guest, Table, GuestGroup, Household } from "@fiance/sdk";
 import {
   computeCounts,
   addGuest as sdkAddGuest,
@@ -16,6 +17,14 @@ import {
   removeGroup as sdkRemoveGroup,
   getGuestsByTable as sdkGetGuestsByTable,
   getUnassignedGuests as sdkGetUnassignedGuests,
+  createHousehold as sdkCreateHousehold,
+  updateHousehold as sdkUpdateHousehold,
+  materializeHousehold as sdkMaterializeHousehold,
+  attachToHousehold as sdkAttachToHousehold,
+  detachFromHousehold as sdkDetachFromHousehold,
+  splitHousehold as sdkSplitHousehold,
+  removeHousehold as sdkRemoveHousehold,
+  pruneEmptyHouseholds as sdkPruneEmptyHouseholds,
 } from "@fiance/sdk";
 export type { GuestCounts } from "@fiance/sdk";
 import { getStorage } from "@/lib/kv-storage";
@@ -23,6 +32,7 @@ import {
   persistGuests,
   persistTables,
   persistGroups,
+  persistHouseholds,
   persistCommunications,
   persistWeddingRoleAssignments,
   persistSeatingConstraints,
@@ -44,13 +54,37 @@ import { useMealSelectionsStore } from "@/store/useMealSelectionsStore";
 // Re-export computeCounts so existing callers of the store module still work
 export { computeCounts };
 
+function persistHouseholdsAndGuests(): void {
+  const storage = getStorage();
+  if (storage) {
+    persistHouseholds(storage);
+    persistGuests(storage);
+  }
+  notifySync();
+}
+
 interface GuestsState {
   guests: Guest[];
   tables: Table[];
   groups: GuestGroup[];
+  // Membership is carried by the guest (`Guest.householdId`); this list only
+  // holds household names and addresses.
+  households: Household[];
   setGuests: (guests: Guest[]) => void;
   setTables: (tables: Table[]) => void;
   setGroups: (groups: GuestGroup[]) => void;
+  setHouseholds: (households: Household[]) => void;
+  createHousehold: (memberIds: string[], fields?: { name?: string | null; address?: string | null }) => string;
+  updateHousehold: (id: string, updates: Partial<Household>) => void;
+  /** Gives a household its entity on first edit, keeping the id its members already carry. */
+  materializeHousehold: (
+    memberIds: string[],
+    fields: { name?: string | null; address?: string | null },
+  ) => string;
+  attachToHousehold: (guestIds: string[], householdId: string) => void;
+  detachFromHousehold: (guestIds: string[]) => void;
+  splitHousehold: (memberIds: string[]) => string;
+  removeHousehold: (id: string) => void;
   addGuest: (guest: Guest) => void;
   importGuestData: (data: { guests: Guest[]; groups: GuestGroup[]; tables: Table[] }) => void;
   updateGuest: (id: string, updates: Partial<Guest>) => void;
@@ -74,9 +108,61 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
   guests: [],
   tables: [],
   groups: [],
+  households: [],
   setGuests: (guests) => set({ guests }),
   setTables: (tables) => set({ tables }),
+  setHouseholds: (households) => set({ households }),
+  // Hydration yields groups in serialization order, which differs from device to
+  // device, so the order is settled on write. Only the declared side is known here:
+  // screens sort again once they have projected the deduced one (`resolveGroupSides`).
   setGroups: (groups) => set({ groups: sortGroups(groups) }),
+
+  createHousehold: (memberIds, fields = {}) => {
+    const id = Crypto.randomUUID();
+    set((s) => sdkCreateHousehold(s.households, s.guests, memberIds, id, fields));
+    persistHouseholdsAndGuests();
+    return id;
+  },
+  // A plain map, never an upsert: creating an entity is `materializeHousehold`.
+  updateHousehold: (id, updates) => {
+    set((s) => ({ households: sdkUpdateHousehold(s.households, id, updates) }));
+    const storage = getStorage();
+    if (storage) persistHouseholds(storage);
+    notifySync();
+  },
+  // The fresh id only serves the case where no member carries one yet: reusing the
+  // members' `householdId` is what keeps the new entity from being orphaned.
+  materializeHousehold: (memberIds, fields) => {
+    const fresh = Crypto.randomUUID();
+    let id = fresh;
+    set((s) => {
+      const r = sdkMaterializeHousehold(s.households, s.guests, memberIds, fields, fresh);
+      id = r.id;
+      return { households: r.households, guests: r.guests };
+    });
+    persistHouseholdsAndGuests();
+    return id;
+  },
+  attachToHousehold: (guestIds, householdId) => {
+    set((s) => ({ guests: sdkAttachToHousehold(s.guests, guestIds, householdId) }));
+    // Attaching may have emptied the households the moved members came from.
+    set((s) => ({ households: sdkPruneEmptyHouseholds(s.households, s.guests) }));
+    persistHouseholdsAndGuests();
+  },
+  detachFromHousehold: (guestIds) => {
+    set((s) => sdkDetachFromHousehold(s.households, s.guests, guestIds));
+    persistHouseholdsAndGuests();
+  },
+  splitHousehold: (memberIds) => {
+    const id = Crypto.randomUUID();
+    set((s) => sdkSplitHousehold(s.households, s.guests, memberIds, id));
+    persistHouseholdsAndGuests();
+    return id;
+  },
+  removeHousehold: (id) => {
+    set((s) => sdkRemoveHousehold(s.households, s.guests, id));
+    persistHouseholdsAndGuests();
+  },
   addGuest: (guest) => {
     set((s) => ({ guests: sdkAddGuest(s.guests, guest) }));
     const storage = getStorage();
@@ -128,9 +214,12 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
     mealStore.setMealSelections(
       ids.reduce((ms, id) => removeMealSelectionsForGuest(ms, id), mealStore.mealSelections),
     );
+    // Cascade: a household emptied of its last member disappears, address included
+    set((s) => ({ households: sdkPruneEmptyHouseholds(s.households, s.guests) }));
     const storage = getStorage();
     if (storage) {
       persistGuests(storage);
+      persistHouseholds(storage);
       persistCommunications(storage);
       persistWeddingRoleAssignments(storage);
       persistSeatingConstraints(storage);

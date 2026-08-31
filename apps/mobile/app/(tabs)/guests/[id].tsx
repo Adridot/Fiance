@@ -17,6 +17,10 @@ import { useSeatingConstraintsStore } from "@/store/useSeatingConstraintsStore";
 import { useCommunicationsStore } from "@/store/useCommunicationsStore";
 import {
   rsvpStatusUpdate,
+  formatGuestName,
+  formatGuestLastName,
+  resolveHousehold,
+  householdName,
   MEAL_CHOICE_LABELS,
   SEATING_CONSTRAINT_TYPE_LABELS,
   COMMUNICATION_CHANNEL_LABELS,
@@ -52,6 +56,7 @@ import {
   Gift,
   FileText,
   UsersRound,
+  Home,
   Ban,
   type LucideIcon,
 } from "lucide-react-native";
@@ -62,6 +67,8 @@ import { useCanAddMore, FREE_LIMITS } from "@/lib/limits";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { CompanionPickerModal } from "@/components/CompanionPickerModal";
+import { HouseholdFields } from "@/components/HouseholdFields";
+import { HouseholdMemberPicker } from "@/components/HouseholdMemberPicker";
 import {
   SectionTitle,
   FormCard,
@@ -89,7 +96,7 @@ const DIETS: Diet[] = [
   "ALLERGY",
 ];
 
-type SheetKey = "role" | "contact" | "rsvp" | "placement" | "meal" | "transport" | "postWedding" | "notes";
+type SheetKey = "role" | "contact" | "household" | "rsvp" | "placement" | "meal" | "transport" | "postWedding" | "notes";
 
 export default function GuestDetailScreen() {
   const { t } = useTranslation("guests");
@@ -99,6 +106,10 @@ export default function GuestDetailScreen() {
   const guests = useGuestsStore((s) => s.guests);
   const tables = useGuestsStore((s) => s.tables);
   const groups = useGuestsStore((s) => s.groups);
+  const households = useGuestsStore((s) => s.households);
+  const detachFromHousehold = useGuestsStore((s) => s.detachFromHousehold);
+  const attachToHousehold = useGuestsStore((s) => s.attachToHousehold);
+  const createHousehold = useGuestsStore((s) => s.createHousehold);
   const addGuest = useGuestsStore((s) => s.addGuest);
   const updateGuest = useGuestsStore((s) => s.updateGuest);
   const removeGuest = useGuestsStore((s) => s.removeGuest);
@@ -144,7 +155,7 @@ export default function GuestDetailScreen() {
   const [rsvpStatus, setRsvpStatus] = useState<RsvpStatus>(
     (existing?.rsvpStatus as RsvpStatus) || "PENDING"
   );
-  const [childrenCount, setChildrenCount] = useState(existing?.childrenCount ?? 0);
+  const [isChild, setIsChild] = useState(existing?.isChild === true);
   const [diet, setDiet] = useState<Diet>((existing?.diet as Diet) || "STANDARD");
   const [dietNotes, setDietNotes] = useState(existing?.dietNotes || "");
   const [email, setEmail] = useState(existing?.email || "");
@@ -169,6 +180,7 @@ export default function GuestDetailScreen() {
   const [showDelete, setShowDelete] = useState(false);
   const [showCompanionPicker, setShowCompanionPicker] = useState(false);
   const [showCompanionConfirm, setShowCompanionConfirm] = useState(false);
+  const [showMemberPicker, setShowMemberPicker] = useState(false);
   const [pendingCompanionId, setPendingCompanionId] = useState("");
   const [activeSheet, setActiveSheet] = useState<SheetKey | null>(null);
   const rsvpUrl = useGuestRsvpUrl(isNew ? undefined : id, activeEntry);
@@ -198,7 +210,7 @@ export default function GuestDetailScreen() {
         rsvpStatus,
         now,
       ),
-      childrenCount,
+      isChild,
       diet,
       dietNotes: dietNotes || null,
       email: email || null,
@@ -289,6 +301,15 @@ export default function GuestDetailScreen() {
 
   const contactSummary = [email, phone].filter(Boolean).join(" · ") || t("sections.contactEmpty");
 
+  const resolved = isNew ? null : resolveHousehold(households, guests, id!);
+  const members = resolved?.members ?? [];
+  const otherMembers = members.filter((m) => m.id !== id);
+  const householdSummary = resolved
+    ? members.length > 1
+      ? `${householdName(resolved.household, members)} · ${t("household.memberCount", { count: members.length })}`
+      : t("household.alone")
+    : t("household.alone");
+
   const invitationTypeLabel = invitationTypes.find((it) => it.id === invitationType)?.label ?? invitationType;
   const rsvpSummary = `${t(RSVP_STATUS_LABELS[rsvpStatus])} · ${invitationTypeLabel}`;
 
@@ -319,7 +340,7 @@ export default function GuestDetailScreen() {
     <View className="flex-1 bg-accent-paper">
       <Stack.Screen
         options={{
-          title: firstName || lastName ? `${firstName} ${lastName}`.trim() : "",
+          title: formatGuestName({ firstName, lastName, nameParticle }),
           headerRight: () => (
             <SaveHeaderButton label={t("common:save")} enabled={canSave} onPress={handleSave} />
           ),
@@ -331,12 +352,12 @@ export default function GuestDetailScreen() {
             <PageHeader
               eyebrow={t("guest")}
               title={firstName || t("guest")}
-              tagline={lastName || undefined}
+              tagline={formatGuestLastName({ firstName, lastName, nameParticle }) || undefined}
               titleSize={26}
               style={{ paddingHorizontal: 0, paddingTop: 0 }}
             />
             {rsvpStatus === "ACCEPTED" && (
-              <Seal label="✓" sublabel={t("confirmed").toLowerCase()} color="#6e7a4a" size={40} angle={-8} style={{ position: "absolute", top: -8, right: 8 }} />
+              <Seal label="✓" sublabel={t("confirmed").toLowerCase()} color={GP.olive} size={40} angle={-8} style={{ position: "absolute", top: -8, right: 8 }} />
             )}
           </View>
         )}
@@ -381,6 +402,14 @@ export default function GuestDetailScreen() {
           summary={contactSummary}
           onPress={() => setActiveSheet("contact")}
         />
+        {!isNew && (
+          <GuestSectionRow
+            icon={Home}
+            title={t("household.section")}
+            summary={householdSummary}
+            onPress={() => setActiveSheet("household")}
+          />
+        )}
         <GuestSectionRow
           icon={CheckCircle2}
           title={t("sections.rsvpInvitation")}
@@ -504,8 +533,8 @@ export default function GuestDetailScreen() {
           const target = guests.find((g) => g.id === pendingCompanionId);
           const old = guests.find((g) => g.id === target?.companionId);
           return t("companionConflictMessage", {
-            name: target ? `${target.firstName} ${target.lastName}` : "",
-            currentCompanion: old ? `${old.firstName} ${old.lastName}` : "",
+            name: target ? formatGuestName(target) : "",
+            currentCompanion: old ? formatGuestName(old) : "",
           });
         })()}
         onConfirm={() => {
@@ -524,8 +553,92 @@ export default function GuestDetailScreen() {
       <GuestSheet title={t("sections.contact")} visible={activeSheet === "contact"} onDismiss={() => setActiveSheet(null)}>
         <InputRow label={t("email")} value={email} onChangeText={setEmail} keyboardType="email-address" />
         <InputRow label={t("phone")} value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
-        <InputRow label={t("address")} value={address} onChangeText={setAddress} />
+        <Pressable
+          onPress={() => { setActiveSheet(null); setActiveSheet("household"); }}
+          className="flex-row items-center justify-between py-3 border-b border-hair"
+        >
+          <Text className="text-base text-ink-soft">{t("address")}</Text>
+          <View className="flex-row items-center gap-1">
+            <Text className="text-sm text-mute">
+              {resolved?.household?.address?.trim() || t("household.addressEmpty")}
+            </Text>
+            <ChevronRight size={16} color="#9CA3AF" />
+          </View>
+        </Pressable>
       </GuestSheet>
+
+      {!isNew && (
+        <GuestSheet title={t("household.section")} visible={activeSheet === "household"} onDismiss={() => setActiveSheet(null)}>
+          <Text className="text-sm text-mute mb-3">{t("household.explain")}</Text>
+          <Text className="text-xs text-mute mb-2 font-medium">
+            {householdName(resolved?.household ?? null, members)}
+          </Text>
+          {members.map((m) => (
+            <View key={m.id} className="flex-row items-center justify-between py-2 border-b border-hair">
+              <Text className="text-sm text-ink">{formatGuestName(m)}</Text>
+              {m.id !== id && canEdit && (
+                <Pressable onPress={() => detachFromHousehold([m.id])}>
+                  <XCircle size={16} color="#9CA3AF" />
+                </Pressable>
+              )}
+            </View>
+          ))}
+          {otherMembers.length === 0 && (
+            <Text className="text-sm text-mute py-2">{t("household.aloneExplain")}</Text>
+          )}
+
+          <View className="mt-3">
+            <HouseholdFields household={resolved?.household ?? null} members={members} />
+          </View>
+
+          {canEdit && (
+            <Pressable
+              onPress={() => setShowMemberPicker(true)}
+              className="flex-row items-center gap-2 py-3 mt-1"
+            >
+              <UserPlus size={16} color={GP.clay} />
+              <Text className="text-sm font-semibold text-primary-500">{t("household.addMember")}</Text>
+            </Pressable>
+          )}
+
+          {existing?.householdId && (
+            <Pressable
+              onPress={() => {
+                setActiveSheet(null);
+                router.push(`/(tabs)/guests/household/${existing.householdId}`);
+              }}
+              className="flex-row items-center justify-between py-3"
+            >
+              <Text className="text-sm font-semibold text-primary-500">{t("household.openScreen")}</Text>
+              <ChevronRight size={16} color={GP.clay} />
+            </Pressable>
+          )}
+
+          <Pressable
+            onPress={() => {
+              setActiveSheet(null);
+              router.push(`/(tabs)/guests/households?groupId=${groupId || ""}`);
+            }}
+            className="flex-row items-center justify-between py-3"
+          >
+            <Text className="text-sm font-semibold text-primary-500">{t("household.constitute")}</Text>
+            <ChevronRight size={16} color={GP.clay} />
+          </Pressable>
+        </GuestSheet>
+      )}
+
+      {!isNew && (
+        <HouseholdMemberPicker
+          visible={showMemberPicker}
+          excludeIds={members.map((m) => m.id)}
+          onClose={() => setShowMemberPicker(false)}
+          onSelect={(guestId) => {
+            const targetHouseholdId = existing?.householdId ?? null;
+            if (targetHouseholdId) attachToHousehold([guestId], targetHouseholdId);
+            else createHousehold([id!, guestId]);
+          }}
+        />
+      )}
 
       {!isNew && (
         <GuestSheet title={t("sections.role")} visible={activeSheet === "role"} onDismiss={() => setActiveSheet(null)}>
@@ -633,11 +746,11 @@ export default function GuestDetailScreen() {
         >
           {companionId ? (
             <>
-              <UserPlus size={16} color="#b96a4a" />
+              <UserPlus size={16} color={GP.clay} />
               <Text className="text-sm text-primary-500 font-medium ml-2 flex-1">
                 {(() => {
                   const c = guests.find((g) => g.id === companionId);
-                  return c ? `${c.firstName} ${c.lastName}` : "";
+                  return c ? formatGuestName(c) : "";
                 })()}
               </Text>
               <Pressable
@@ -658,24 +771,7 @@ export default function GuestDetailScreen() {
             </>
           )}
         </Pressable>
-        <View className="flex-row items-center justify-between py-3 border-b border-hair mt-1">
-          <Text className="text-base text-ink-soft">{t("childrenLabel")}</Text>
-          <View className="flex-row items-center gap-3">
-            <Pressable
-              onPress={() => setChildrenCount(Math.max(0, childrenCount - 1))}
-              className="w-8 h-8 rounded-full bg-accent-paper items-center justify-center"
-            >
-              <Text className="text-lg text-mute">−</Text>
-            </Pressable>
-            <Text className="text-base font-semibold text-ink w-6 text-center">{childrenCount}</Text>
-            <Pressable
-              onPress={() => setChildrenCount(childrenCount + 1)}
-              className="w-8 h-8 rounded-full bg-accent-paper items-center justify-center"
-            >
-              <Text className="text-lg text-mute">+</Text>
-            </Pressable>
-          </View>
-        </View>
+        <ToggleRow label={t("isChildLabel")} value={isChild} onToggle={() => setIsChild(!isChild)} />
 
         {!isNew && (
           <>
@@ -689,7 +785,7 @@ export default function GuestDetailScreen() {
                     onPress={() => toggleRecipient(comm.id, id!, new Date().toISOString())}
                     className="flex-row items-center py-2 border-b border-hair"
                   >
-                    {sent ? <CheckCircle2 size={16} color="#6e7a4a" /> : <Circle size={16} color="#C0C0C8" />}
+                    {sent ? <CheckCircle2 size={16} color={GP.olive} /> : <Circle size={16} color="#C0C0C8" />}
                     <View className="flex-1 ml-2.5">
                       <Text className="text-sm text-ink" numberOfLines={1}>{comm.label}</Text>
                       {comm.channel && (
@@ -753,7 +849,7 @@ export default function GuestDetailScreen() {
                   .filter((gid) => gid !== id)
                   .map((gid) => {
                     const g = guests.find((gg) => gg.id === gid);
-                    return g ? `${g.firstName} ${g.lastName}` : "";
+                    return g ? formatGuestName(g) : "";
                   })
                   .filter(Boolean)
                   .join(", ");
@@ -955,7 +1051,7 @@ function GuestSectionRow({
       className="bg-accent-card rounded-2xl p-4 mb-2.5 border border-hair flex-row items-center active:opacity-70"
     >
       <View className="w-9 h-9 rounded-full bg-accent-clay-soft dark:bg-primary-900 items-center justify-center mr-3">
-        <Icon size={16} color="#b96a4a" />
+        <Icon size={16} color={GP.clay} />
       </View>
       <View className="flex-1">
         <Text className="text-sm font-semibold text-ink">{title}</Text>

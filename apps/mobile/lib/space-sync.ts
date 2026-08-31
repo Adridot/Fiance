@@ -87,7 +87,8 @@ import { useCeremonyStore } from '@/store/useCeremonyStore';
 import { useSpeechesMusicStore } from '@/store/useSpeechesMusicStore';
 import { usePermissionsStore } from '@/store/usePermissionsStore';
 import { getActiveSession, getActiveSpaceId, getActiveWeddingNodeId } from '@/lib/starfish';
-import { applyRsvpSubmissionsByGuestId, type RsvpSubmission } from '@/lib/rsvp-sync';
+// MODIFICATION LOCALE — un document par FOYER, plus une soumission par invité.
+import { applyHouseholdRsvpDocs, type HouseholdRsvpDoc } from '@/lib/rsvp-sync';
 import { withIndexLock } from '@/lib/index-lock';
 
 // ---------------------------------------------------------------------------
@@ -868,12 +869,15 @@ async function pullRsvpNodeContent(
   session: Session,
   spaceId: string,
   node: ObjectNode,
-): Promise<RsvpSubmission | null> {
+): Promise<HouseholdRsvpDoc | null> {
   try {
     const handle = await getNodeAccess(spaceId, node.id, { access: 'invite', enc: false }, session, null);
     const result = await handle.client.pull(objInvPull(spaceId, node.id)) as { data: unknown } | null;
-    const data = result?.data as RsvpSubmission | null;
-    if (!data?.guestId) return null;
+    const data = result?.data as HouseholdRsvpDoc | null;
+    // MODIFICATION LOCALE — un document de foyer se reconnaît à ses MEMBRES.
+    // Les anciens nœuds, à deux emplacements nommés, n'en ont pas : ils sont
+    // ignorés plutôt que migrés, aucun lien n'ayant été envoyé.
+    if (!Array.isArray(data?.members)) return null;
     return data;
   } catch {
     return null;
@@ -887,8 +891,8 @@ async function pullAndApplyRsvpNodes(
 ): Promise<void> {
   if (!rsvpNodes.length) return;
   const results = await Promise.all(rsvpNodes.map((n) => pullRsvpNodeContent(session, spaceId, n)));
-  const submissions = results.filter((r): r is RsvpSubmission => r !== null);
-  if (submissions.length) applyRsvpSubmissionsByGuestId(submissions);
+  const docs = results.filter((r): r is HouseholdRsvpDoc => r !== null);
+  if (docs.length) applyHouseholdRsvpDocs(docs);
 }
 
 /**

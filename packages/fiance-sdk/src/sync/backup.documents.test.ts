@@ -1,8 +1,4 @@
-/**
- * Documents are metadata-only in backups — binaries never leave the device.
- * createBackupDocument must strip localUri; restoreFromBackup passes the
- * stripped value through untouched (the app UI prompts "re-attach" on "").
- */
+// Backups carry document metadata only — binaries never leave the device.
 import { describe, it, expect } from 'vitest';
 import { createBackupDocument, restoreFromBackup, type WeddingSnapshot } from './backup.js';
 
@@ -12,6 +8,7 @@ function emptySnapshot(overrides: Partial<WeddingSnapshot> = {}): WeddingSnapsho
     guests: [],
     tables: [],
     guestGroups: [],
+    households: [],
     vendors: [],
     quotePricings: [],
     tasks: [],
@@ -142,7 +139,6 @@ describe('v14 → v15 round trip — ceremonyItems, speeches, playlistTracks, Da
   it('defaults the 3 new collections to empty arrays for pre-v15 backups', () => {
     const snapshot = emptySnapshot();
     const backup = createBackupDocument(snapshot);
-    // Simulate a pre-v15 backup that never had these keys.
     delete (backup as any).ceremonyItems;
     delete (backup as any).speeches;
     delete (backup as any).playlistTracks;

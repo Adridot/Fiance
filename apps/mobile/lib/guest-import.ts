@@ -183,6 +183,7 @@ type GuestField =
   | "phoneMobile"
   | "phone"
   | "group"
+  | "children"
   | "rsvp"
   | "table"
   | "addressStreet"
@@ -197,6 +198,7 @@ const HEADER_SYNONYMS: Record<GuestField, string[]> = {
   phoneMobile: ["telephone portable", "portable", "mobile"],
   phone: ["telephone", "phone", "tel"],
   group: ["groupe", "group"],
+  children: ["enfant", "enfants", "children", "nb enfants"],
   rsvp: ["confirme", "statut", "rsvp", "reponse", "status"],
   table: ["table"],
   addressStreet: ["adresse", "address"],
@@ -294,6 +296,10 @@ export function mapRowsToGuests(
       }
     }
 
+    // The column says the person on this row IS a child, not that they bring one:
+    // reading it as a companion count gave every named child a phantom second one.
+    const isChild = cell(row, "children") !== "";
+
     const address = [cell(row, "addressStreet"), cell(row, "addressZip"), cell(row, "addressCity")]
       .filter(Boolean)
       .join(", ");
@@ -307,6 +313,7 @@ export function mapRowsToGuests(
       rsvpStatus: mapRsvpStatus(cell(row, "rsvp")),
       rsvpDate: null,
       isSleeping: null,
+      isChild,
       childrenCount: 0,
       diet: "STANDARD",
       dietNotes: null,
