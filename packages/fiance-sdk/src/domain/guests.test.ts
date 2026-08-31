@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { computeCounts, countDuplicateGuests } from './guests.js';
+import {
+  computeCounts,
+  countDuplicateGuests,
+  formatGuestName,
+  guestNameMatches,
+} from './guests.js';
 
 // Minimal guest factory — computeCounts only reads rsvpStatus + invitationType here.
 const g = (rsvpStatus: string, invitationType: string) =>
@@ -116,3 +121,90 @@ describe('countDuplicateGuests', () => {
     expect(countDuplicateGuests([])).toBe(0);
   });
 });
+
+describe('formatGuestName', () => {
+  const n = (firstName: string, lastName: string, nameParticle?: string) =>
+    ({ firstName, lastName, nameParticle }) as never;
+
+  it('adds no stray space when there is no particle', () => {
+    expect(formatGuestName(n('Adrien', 'DIDOT'))).toBe('DIDOT Adrien');
+    expect(formatGuestName(n('Adrien', 'DIDOT', ''))).toBe('DIDOT Adrien');
+    expect(formatGuestName(n('Adrien', 'DIDOT', '   '))).toBe('DIDOT Adrien');
+  });
+
+  it('puts the particle before the last name, in upper case', () => {
+    expect(formatGuestName(n('Nicole', 'FONTAINES', 'de'))).toBe('DE FONTAINES Nicole');
+    expect(formatGuestName(n('Marie', 'PRESLE', 'de la'))).toBe('DE LA PRESLE Marie');
+  });
+
+  it('keeps an elided particle glued to the last name', () => {
+    expect(formatGuestName(n('Jean', 'ORMESSON', "d'"))).toBe("D'ORMESSON Jean");
+  });
+
+  it('composes a placeholder first name like any other', () => {
+    expect(formatGuestName(n('Invité 2', 'GRUAU'))).toBe('GRUAU Invité 2');
+  });
+
+  it('stays readable when a part is missing', () => {
+    expect(formatGuestName(n('Adrien', ''))).toBe('Adrien');
+    expect(formatGuestName(n('', 'DIDOT'))).toBe('DIDOT');
+  });
+});
+
+describe('guestNameMatches — searching what you read', () => {
+  const n = (firstName: string, lastName: string, nameParticle?: string) =>
+    ({ firstName, lastName, nameParticle }) as never;
+  const mayeul = n('Mayeul', 'FONTAINE DE FONTENAY', 'de la');
+
+  it('matches on the particle, which used to be unsearchable', () => {
+    expect(guestNameMatches(mayeul, 'de la')).toBe(true);
+    expect(guestNameMatches(mayeul, 'DE LA FONTAINE')).toBe(true);
+  });
+
+  it('matches the whole name copied exactly as displayed', () => {
+    expect(guestNameMatches(mayeul, 'DE LA FONTAINE DE FONTENAY Mayeul')).toBe(true);
+    expect(guestNameMatches(mayeul, 'fontenay mayeul')).toBe(true);
+  });
+
+  it('still matches on first name alone or last name alone', () => {
+    expect(guestNameMatches(mayeul, 'mayeul')).toBe(true);
+    expect(guestNameMatches(mayeul, 'fontaine')).toBe(true);
+  });
+
+  it('a guest without a particle is searched as before', () => {
+    const adrien = n('Adrien', 'DIDOT');
+    expect(guestNameMatches(adrien, 'didot')).toBe(true);
+    expect(guestNameMatches(adrien, 'DIDOT Adrien')).toBe(true);
+    expect(guestNameMatches(adrien, 'fontaine')).toBe(false);
+  });
+
+  it('an empty term filters nothing', () => {
+    expect(guestNameMatches(mayeul, '')).toBe(true);
+    expect(guestNameMatches(mayeul, '   ')).toBe(true);
+  });
+
+  it('does not match two unrelated guests', () => {
+    expect(guestNameMatches(n('Adrien', 'DIDOT'), 'presle')).toBe(false);
+  });
+});
+
+describe('sorting — the particle is excluded from it', () => {
+  // Mirrors the guest list's own sort key verbatim: the contract is that the
+  // particle must NOT change it. Nothing in the sort reads it.
+  const key = (g: { lastName: string; firstName: string }) => `${g.lastName}${g.firstName}`;
+  const n = (firstName: string, lastName: string, nameParticle?: string) =>
+    ({ firstName, lastName, nameParticle });
+
+  it('a guest with a particle sorts on the last name, between its alphabetical neighbours', () => {
+    const guests = [
+      n('Jean', 'PONCHON'),
+      n('Marie', 'PRESLE', 'de la'),
+      n('Luc', 'PORTIER'),
+      n('Anne', 'PRUNELE'),
+    ];
+    const sorted = [...guests].sort((a, b) => key(a).localeCompare(key(b)));
+    expect(sorted.map((g) => g.lastName)).toEqual(['PONCHON', 'PORTIER', 'PRESLE', 'PRUNELE']);
+    expect(formatGuestName(sorted[2] as never)).toBe('DE LA PRESLE Marie');
+  });
+});
+
