@@ -17,6 +17,7 @@ import {
   applyGuestUpdates,
   rsvpStatusUpdate,
   guestNameMatches,
+  nextFirstNameToComplete,
   selectRange,
   adjacentGuestId,
 } from './guests.js';
@@ -712,6 +713,45 @@ describe('resolveGroupSides', () => {
     ));
     expect(out.map((x) => formatGuestGroupName(x.name)))
       .toEqual(['Didot', 'Mathieu', 'Amis communs']);
+  });
+});
+
+describe('nextFirstNameToComplete', () => {
+  const g = (id: string, lastName: string, firstName: string, groupId = 'gr1') =>
+    ({ id, lastName, firstName, groupId });
+
+  // Ordre d'affichage : ALBERT, BOYER (blanc), CARON (fabriqué), DUPONT (blanc).
+  const guests = [
+    g('d', 'Dupont', ''),
+    g('a', 'Albert', 'Anne'),
+    g('c', 'Caron', 'Luc 2'),
+    g('b', 'Boyer', ''),
+  ];
+
+  it('rend le premier blanc de la catégorie', () => {
+    expect(nextFirstNameToComplete(guests, 'gr1')?.id).toBe('b');
+  });
+
+  it('enchaîne depuis celui qu’on vient de nommer, même s’il n’est plus à compléter', () => {
+    expect(nextFirstNameToComplete(guests, 'gr1', 'b')?.id).toBe('c');
+    expect(nextFirstNameToComplete(guests, 'gr1', 'c')?.id).toBe('d');
+  });
+
+  it('rend null après le dernier blanc', () => {
+    expect(nextFirstNameToComplete(guests, 'gr1', 'd')).toBeNull();
+  });
+
+  it('rend null sur une catégorie entièrement nommée', () => {
+    const nommés = [g('x', 'Albert', 'Anne'), g('y', 'Boyer', 'Bruno')];
+    expect(nextFirstNameToComplete(nommés, 'gr1')).toBeNull();
+  });
+
+  it('ignore les autres catégories', () => {
+    expect(nextFirstNameToComplete(guests, 'gr2')).toBeNull();
+  });
+
+  it('une ancre absente reprend au début', () => {
+    expect(nextFirstNameToComplete(guests, 'gr1', 'inconnu')?.id).toBe('b');
   });
 });
 

@@ -546,6 +546,29 @@ export function buildGuestListData<
   return { items, stickyIndices };
 }
 
+// ─── Séquencement de la saisie en place ──────────────────────────────────────
+
+/**
+ * Le prochain prénom à trouver d'une catégorie, dans l'ordre d'affichage.
+ *
+ * Le rang de `afterId` est cherché parmi TOUS les invités de la catégorie, pas
+ * seulement parmi ceux à compléter : l'invité qu'on vient de nommer ne l'est
+ * justement plus, et c'est depuis sa place qu'il faut repartir. Une ancre
+ * disparue reprend au début plutôt que de rendre `null`.
+ */
+export function nextFirstNameToComplete<T extends IncompleteGuest & Pick<Guest, "id">>(
+  guests: readonly T[],
+  groupId: string,
+  afterId?: string | null,
+): T | null {
+  const ordered = guests.filter((g) => g.groupId === groupId).sort(byName);
+  const from = afterId ? ordered.findIndex((g) => g.id === afterId) + 1 : 0;
+  for (let i = from; i < ordered.length; i++) {
+    if (isFirstNameToComplete(ordered[i])) return ordered[i];
+  }
+  return null;
+}
+
 // ─── Plage de sélection ──────────────────────────────────────────────────────
 
 /**
