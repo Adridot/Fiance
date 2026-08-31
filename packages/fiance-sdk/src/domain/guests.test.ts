@@ -17,6 +17,8 @@ import {
   applyGuestUpdates,
   rsvpStatusUpdate,
   guestNameMatches,
+  selectRange,
+  adjacentGuestId,
 } from './guests.js';
 import type { GuestGroup, GuestGroupSide } from './schema.js';
 
@@ -710,6 +712,56 @@ describe('resolveGroupSides', () => {
     ));
     expect(out.map((x) => formatGuestGroupName(x.name)))
       .toEqual(['Didot', 'Mathieu', 'Amis communs']);
+  });
+});
+
+describe('selectRange', () => {
+  const ids = ['a', 'b', 'c', 'd', 'e'];
+
+  it('coche la plage descendante, bornes incluses', () => {
+    expect(selectRange(ids, 'b', 'd')).toEqual(['b', 'c', 'd']);
+  });
+
+  it('coche la plage montante, bornes incluses', () => {
+    expect(selectRange(ids, 'd', 'b')).toEqual(['b', 'c', 'd']);
+  });
+
+  it('une ancre égale à la cible rend la seule cible', () => {
+    expect(selectRange(ids, 'c', 'c')).toEqual(['c']);
+  });
+
+  it('une ancre disparue de la liste rend la seule cible', () => {
+    expect(selectRange(ids, 'zz', 'c')).toEqual(['c']);
+    expect(selectRange(ids, null, 'c')).toEqual(['c']);
+  });
+
+  it('une cible absente ne coche rien', () => {
+    expect(selectRange(ids, 'a', 'zz')).toEqual([]);
+  });
+});
+
+describe('adjacentGuestId', () => {
+  const items = buildGuestListData<{ id: string }, { id: string; side: null }>(
+    [],
+    [
+      { group: { id: 'g1', side: null }, guests: [{ id: 'a' }, { id: 'b' }] },
+      { group: { id: 'g2', side: null }, guests: [{ id: 'c' }] },
+    ],
+    new Set(['g1', 'g2']),
+  ).items;
+
+  it('traverse les en-têtes intercalés', () => {
+    expect(adjacentGuestId(items, 'b', 'next')).toBe('c');
+    expect(adjacentGuestId(items, 'c', 'prev')).toBe('b');
+  });
+
+  it('rend null aux deux bornes', () => {
+    expect(adjacentGuestId(items, 'a', 'prev')).toBeNull();
+    expect(adjacentGuestId(items, 'c', 'next')).toBeNull();
+  });
+
+  it('rend null pour un invité absent de la liste visible', () => {
+    expect(adjacentGuestId(items, 'zz', 'next')).toBeNull();
   });
 });
 

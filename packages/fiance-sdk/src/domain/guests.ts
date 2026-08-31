@@ -546,3 +546,39 @@ export function buildGuestListData<
   return { items, stickyIndices };
 }
 
+// ─── Plage de sélection ──────────────────────────────────────────────────────
+
+/**
+ * Les identifiants entre l'ancre et la cible, bornes incluses, dans l'ordre
+ * fourni — celui que la liste montre. Une ancre absente rend la seule cible :
+ * un clic-Maj dont l'ancre a été filtrée reste un clic ordinaire.
+ */
+export function selectRange(
+  visibleIds: readonly string[],
+  anchorId: string | null | undefined,
+  targetId: string,
+): string[] {
+  const target = visibleIds.indexOf(targetId);
+  if (target < 0) return [];
+  const anchor = anchorId ? visibleIds.indexOf(anchorId) : -1;
+  if (anchor < 0) return [targetId];
+  return anchor <= target
+    ? visibleIds.slice(anchor, target + 1)
+    : visibleIds.slice(target, anchor + 1);
+}
+
+// ─── Voisin dans la liste affichée ───────────────────────────────────────────
+
+/** L'invité précédent ou suivant dans les items de `buildGuestListData`, en-têtes ignorés. */
+export function adjacentGuestId<G extends { id: string }, GR>(
+  items: readonly GuestListEntry<G, GR>[],
+  currentId: string,
+  direction: "prev" | "next",
+): string | null {
+  const ids: string[] = [];
+  for (const item of items) if (item.kind === "guest") ids.push(item.guest.id);
+  const at = ids.indexOf(currentId);
+  if (at < 0) return null;
+  return ids[direction === "next" ? at + 1 : at - 1] ?? null;
+}
+
