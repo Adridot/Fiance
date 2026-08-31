@@ -3,8 +3,8 @@ import type { Guest, Table, GuestGroup } from "@fiance/sdk";
 import {
   computeCounts,
   addGuest as sdkAddGuest,
-  updateGuest as sdkUpdateGuest,
-  removeGuest as sdkRemoveGuest,
+  removeGuests as sdkRemoveGuests,
+  applyGuestUpdates as sdkApplyGuestUpdates,
   linkCompanion as sdkLinkCompanion,
   unlinkCompanion as sdkUnlinkCompanion,
   addTable as sdkAddTable,
@@ -54,6 +54,8 @@ interface GuestsState {
   importGuestData: (data: { guests: Guest[]; groups: GuestGroup[]; tables: Table[] }) => void;
   updateGuest: (id: string, updates: Partial<Guest>) => void;
   removeGuest: (id: string) => void;
+  removeGuests: (ids: string[]) => void;
+  updateGuests: (ids: string[], updatesFor: (guest: Guest) => Partial<Guest>) => void;
   linkCompanion: (guestId: string, companionId: string) => void;
   unlinkCompanion: (guestId: string) => void;
   addTable: (table: Table) => void;
@@ -95,28 +97,36 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
     }
     notifySync();
   },
-  updateGuest: (id, updates) => {
-    set((s) => ({ guests: sdkUpdateGuest(s.guests, id, updates) }));
-    const storage = getStorage();
-    if (storage) persistGuests(storage);
-    notifySync();
-  },
-  removeGuest: (id) => {
-    set((s) => ({ guests: sdkRemoveGuest(s.guests, id) }));
-    // Cascade: strip this guest from all communications recipients
+  // The single-guest actions go through the batch ones so the two cannot diverge:
+  // there is only one body of cascades to keep up to date.
+  updateGuest: (id, updates) => get().updateGuests([id], () => updates),
+  removeGuest: (id) => get().removeGuests([id]),
+  removeGuests: (ids) => {
+    if (ids.length === 0) return;
+    set((s) => ({ guests: sdkRemoveGuests(s.guests, ids) }));
+    // Cascade: strip these guests from all communications recipients
     const commStore = useCommunicationsStore.getState();
-    commStore.setCommunications(removeGuestFromAll(commStore.communications, id));
-    // Cascade: a guest is gone, so drop their wedding-party role assignments
+    commStore.setCommunications(
+      ids.reduce((cs, id) => removeGuestFromAll(cs, id), commStore.communications),
+    );
+    // Cascade: the guests are gone, so drop their wedding-party role assignments
     const partyStore = useWeddingPartyStore.getState();
     partyStore.setWeddingRoleAssignments(
-      removeRoleAssignmentsForGuest(partyStore.weddingRoleAssignments, id),
+      ids.reduce(
+        (as, id) => removeRoleAssignmentsForGuest(as, id),
+        partyStore.weddingRoleAssignments,
+      ),
     );
-    // Cascade: strip this guest from seating constraints, dropping under-2 ones
+    // Cascade: strip these guests from seating constraints, dropping under-2 ones
     const seatingStore = useSeatingConstraintsStore.getState();
-    seatingStore.setSeatingConstraints(detachGuestFromConstraints(seatingStore.seatingConstraints, id));
-    // Cascade: remove this guest's meal selections
+    seatingStore.setSeatingConstraints(
+      ids.reduce((cs, id) => detachGuestFromConstraints(cs, id), seatingStore.seatingConstraints),
+    );
+    // Cascade: remove these guests' meal selections
     const mealStore = useMealSelectionsStore.getState();
-    mealStore.setMealSelections(removeMealSelectionsForGuest(mealStore.mealSelections, id));
+    mealStore.setMealSelections(
+      ids.reduce((ms, id) => removeMealSelectionsForGuest(ms, id), mealStore.mealSelections),
+    );
     const storage = getStorage();
     if (storage) {
       persistGuests(storage);
@@ -125,6 +135,13 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
       persistSeatingConstraints(storage);
       persistMealSelections(storage);
     }
+    notifySync();
+  },
+  updateGuests: (ids, updatesFor) => {
+    if (ids.length === 0) return;
+    set((s) => ({ guests: sdkApplyGuestUpdates(s.guests, ids, updatesFor) }));
+    const storage = getStorage();
+    if (storage) persistGuests(storage);
     notifySync();
   },
   linkCompanion: (guestId, companionId) => {
