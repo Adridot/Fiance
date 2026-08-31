@@ -79,6 +79,7 @@ function makeSnapshot(overrides: Partial<WeddingSnapshot> = {}): WeddingSnapshot
   return {
     wedding: { id: 1, partner1Name: 'Alice', partner2Name: 'Bob' } as never,
     guestGroups: [{ id: 'gg1', name: 'Famille' } as never],
+    households: [],
     guests: [
       { id: 'g1', firstName: 'Alice', lastName: 'Dupont', groupId: 'gg1' } as never,
       { id: 'g2', firstName: 'Bob', lastName: 'Martin', groupId: null } as never,

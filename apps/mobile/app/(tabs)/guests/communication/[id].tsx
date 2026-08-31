@@ -4,6 +4,13 @@ import { LegendList } from "@legendapp/list";
 import { useLocalSearchParams } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { Check } from "lucide-react-native";
+import {
+  formatGuestName,
+  guestNameMatches,
+  communicationRecipientRows,
+  toggleHouseholdRecipients,
+  type HouseholdRecipientRow,
+} from "@fiance/sdk";
 import { useCommunicationsStore } from "@/store/useCommunicationsStore";
 import { useGuestsStore } from "@/store/useGuestsStore";
 import { useCan } from "@/lib/permissions/usePermissions";
@@ -24,6 +31,9 @@ export default function CommunicationRosterScreen() {
   const setRecipientDate = useCommunicationsStore((s) => s.setRecipientDate);
   const bulkSetRecipients = useCommunicationsStore((s) => s.bulkSetRecipients);
   const guests = useGuestsStore((s) => s.guests);
+  const households = useGuestsStore((s) => s.households);
+  const setCommunications = useCommunicationsStore((s) => s.setCommunications);
+  const communications = useCommunicationsStore((s) => s.communications);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "SENT" | "NOT_SENT">("ALL");
@@ -34,17 +44,22 @@ export default function CommunicationRosterScreen() {
     [comm?.recipients]
   );
 
-  const filteredGuests = useMemo(() => {
-    return guests.filter((g) => {
-      if (statusFilter === "SENT" && !recipientIds.has(g.id)) return false;
-      if (statusFilter === "NOT_SENT" && recipientIds.has(g.id)) return false;
+  const rows = useMemo(
+    () => (comm ? communicationRecipientRows(households, guests, comm) : []),
+    [households, guests, comm],
+  );
+
+  const filteredRows = useMemo(() => {
+    return rows.filter((row) => {
+      if (statusFilter === "SENT" && !row.sent) return false;
+      if (statusFilter === "NOT_SENT" && row.sent) return false;
       if (search) {
         const q = search.toLowerCase();
-        return `${g.firstName} ${g.lastName}`.toLowerCase().includes(q);
+        return row.members.some((m) => guestNameMatches(m, q));
       }
       return true;
     });
-  }, [guests, search, statusFilter, recipientIds]);
+  }, [rows, search, statusFilter]);
 
   if (!comm) {
     return (
@@ -54,14 +69,27 @@ export default function CommunicationRosterScreen() {
     );
   }
 
-  const sentCount = comm.recipients.length;
-  const notSentCount = guests.length - sentCount;
+  const sentCount = rows.filter((r) => r.sent).length;
+  const notSentCount = rows.length - sentCount;
 
   const statusTabs: { key: "ALL" | "SENT" | "NOT_SENT"; label: string; count: number }[] = [
-    { key: "ALL", label: t("all"), count: guests.length },
+    { key: "ALL", label: t("all"), count: rows.length },
     { key: "SENT", label: t("sent"), count: sentCount },
     { key: "NOT_SENT", label: t("notSent"), count: notSentCount },
   ];
+
+  const toggleRow = (row: HouseholdRecipientRow<Guest>) => {
+    if (!canEdit) return;
+    setCommunications(
+      toggleHouseholdRecipients(
+        communications,
+        comm.id,
+        row.members.map((m) => m.id),
+        today,
+        { sent: row.sent },
+      ),
+    );
+  };
 
   return (
     <View className="flex-1 bg-accent-paper">
@@ -86,25 +114,32 @@ export default function CommunicationRosterScreen() {
         />
       ) : (
         <LegendList
-          data={filteredGuests}
+          data={filteredRows}
           extraData={recipientIds}
-          renderItem={({ item: guest }: { item: Guest }) => {
-            const recipient = comm.recipients.find((r) => r.guestId === guest.id);
-            const received = !!recipient;
-            const initials = `${guest.firstName[0] ?? ""}${guest.lastName[0] ?? ""}`.toUpperCase();
+          renderItem={({ item: row }: { item: HouseholdRecipientRow<Guest> }) => {
+            const received = row.sent;
+            const initials = row.name.slice(0, 2).toUpperCase();
 
             return (
               <View className="px-4">
                 <View className="bg-accent-card rounded-2xl mb-2 border border-hair overflow-hidden">
                   <Pressable
-                    onPress={() => { if (canEdit) toggleRecipient(comm.id, guest.id, today); }}
+                    onPress={() => toggleRow(row)}
                     className="flex-row items-center p-3 active:opacity-70"
                   >
                     <Avatar ini={initials} size={36} />
                     <View className="flex-1 ml-3">
-                      <Text className="text-base font-medium text-ink">
-                        {guest.firstName} {guest.lastName}
+                      <Text className="text-base font-medium text-ink" numberOfLines={1}>
+                        {row.name}
                       </Text>
+                      <Text className="text-xs text-mute mt-0.5" numberOfLines={1}>
+                        {row.members.map(formatGuestName).join(" · ")}
+                      </Text>
+                      {row.partial && (
+                        <Text className="text-[11px] text-mute mt-0.5">
+                          {t("communicationPartialHousehold")}
+                        </Text>
+                      )}
                     </View>
                     <View
                       className="w-7 h-7 rounded-full items-center justify-center"
@@ -117,8 +152,10 @@ export default function CommunicationRosterScreen() {
                     <View className="px-3 pb-3 border-t border-hair">
                       <DateRow
                         label={t("communicationSentAt")}
-                        value={recipient.sentAt ?? ""}
-                        onChange={(v) => setRecipientDate(comm.id, guest.id, v || null)}
+                        value={row.sentAt ?? ""}
+                        onChange={(v) => {
+                          for (const m of row.members) setRecipientDate(comm.id, m.id, v || null);
+                        }}
                       />
                     </View>
                   ) : null}
@@ -126,8 +163,8 @@ export default function CommunicationRosterScreen() {
               </View>
             );
           }}
-          keyExtractor={(guest: Guest) => guest.id}
-          estimatedItemSize={68}
+          keyExtractor={(row: HouseholdRecipientRow<Guest>) => row.id}
+          estimatedItemSize={80}
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingTop: 24 }}
           showsVerticalScrollIndicator={false}
@@ -164,16 +201,16 @@ export default function CommunicationRosterScreen() {
                 })}
               </ScrollView>
 
-              {canEdit && filteredGuests.length > 0 && (
+              {canEdit && filteredRows.length > 0 && (
                 <View className="flex-row gap-2 px-4 mt-2">
                   <Pressable
-                    onPress={() => bulkSetRecipients(comm.id, filteredGuests.map((g) => g.id), today)}
+                    onPress={() => bulkSetRecipients(comm.id, filteredRows.flatMap((r) => r.members.map((m) => m.id)), today)}
                     className="flex-1 bg-accent-card py-2 rounded-xl items-center border border-hair active:opacity-70"
                   >
                     <Text className="text-xs font-semibold text-ink-soft">{t("markAllSent")}</Text>
                   </Pressable>
                   <Pressable
-                    onPress={() => bulkSetRecipients(comm.id, filteredGuests.map((g) => g.id), null)}
+                    onPress={() => bulkSetRecipients(comm.id, filteredRows.flatMap((r) => r.members.map((m) => m.id)), null)}
                     className="flex-1 bg-accent-card py-2 rounded-xl items-center border border-hair active:opacity-70"
                   >
                     <Text className="text-xs font-semibold text-ink-soft">{t("markAllNotSent")}</Text>
@@ -182,7 +219,7 @@ export default function CommunicationRosterScreen() {
               )}
 
               <Text className="text-xs font-semibold text-mute uppercase tracking-wider mt-5 mb-1 px-4">
-                {t("communicationRecipients")} — {comm.recipients.length}/{guests.length}
+                {t("communicationRecipients")} — {sentCount}/{rows.length}
               </Text>
             </>
           }

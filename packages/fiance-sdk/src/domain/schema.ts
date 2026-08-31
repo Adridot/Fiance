@@ -20,9 +20,37 @@ export interface Wedding {
   premium?: boolean;
 }
 
+/** Which side of the wedding a category attaches its guests to. */
+export type GuestGroupSide = "PARTNER_1" | "PARTNER_2" | "BOTH";
+
 export interface GuestGroup {
   id: string;
   name: string;
+  // The side lives on the category, never on the guest: a guest moved between
+  // categories changes side with no write of their own, and the two values
+  // cannot diverge. Additive fields — `BACKUP_VERSION` is NOT bumped.
+  side?: GuestGroupSide | null;
+  sortOrder?: number | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+/**
+ * An ENVELOPE: what an invitation is addressed to, and what a reply is expected
+ * from. Neither kinship nor cohabitation defines it.
+ *
+ * Deliberately holds no member list — membership is carried by the guest
+ * (`Guest.householdId`). Sync merge is last-writer-wins per entity, so a member
+ * list would lose a concurrent add by overwriting the whole list.
+ *
+ * New entity, optional membership — `BACKUP_VERSION` is NOT bumped.
+ */
+export interface Household {
+  id: string;
+  /** Addressing label. Empty, it is DERIVED from the members on display. */
+  name: string | null;
+  /** The household's postal address — the one place a mailing address is entered. */
+  address: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -30,12 +58,28 @@ export interface GuestGroup {
 export interface Guest {
   id: string;
   firstName: string;
+  // Name particle, stored apart from the surname and deliberately OUT of the
+  // sort key: sorting on `lastName` files « de la Presle » under P with no sort
+  // code touched. Additive field — `BACKUP_VERSION` is NOT bumped.
+  nameParticle?: string | null;
   lastName: string;
   side: string | null;
   invitationType: string;
+  // `householdId`: absence is not an invalid state — it MEANS a one-person
+  // household everywhere one is expected (see `resolveHousehold`).
+  //
+  // `isChild`: one tier only, and orthogonal to `invitationType` — a child may
+  // be at the cocktail or the full day, so the type never carries two
+  // dimensions. Absent means adult.
+  //
+  // Additive fields — `BACKUP_VERSION` is NOT bumped.
+  householdId?: string | null;
+  isChild?: boolean | null;
   rsvpStatus: string | null;
   rsvpDate: string | null;
   isSleeping: boolean | null;
+  // INERT: a headcount of companions WITHOUT a record, superseded by `isChild`.
+  // Kept so an older backup stays restorable; ignored by every counter.
   childrenCount: number | null;
   diet: string | null;
   dietNotes: string | null;
@@ -51,6 +95,8 @@ export interface Guest {
   rsvpToken: string | null;
   email: string | null;
   phone: string | null;
+  // INERT for mailing: the mailing address is carried by the HOUSEHOLD
+  // (`Household.address`). Kept so an older backup stays restorable.
   address: string | null;
   notes: string | null;
   shuttleVendorId: string | null;

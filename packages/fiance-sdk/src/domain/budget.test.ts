@@ -30,9 +30,12 @@ const baseCounts: GuestCounts = {
   dinner_count: 60,
   full_count: 60,
   both_days_count: 40,
-  // All-invited pool (matches the guest-screen filter counts) vs confirmed-only (ACCEPTED) pool.
   inv_by_type_all: { CEREMONY: 25, COCKTAIL: 35, FULL: 30, BOTH_DAYS: 45, [TWO_DAYS]: 12 },
   inv_by_type: { CEREMONY: 20, COCKTAIL: 30, FULL: 25, BOTH_DAYS: 40, [TWO_DAYS]: 8 },
+  children_count_all: 0,
+  children_by_type: {},
+  children_by_type_all: {},
+  billable_count: 80,
   children_count: 5,
   vegetarian_count: 8,
   sleeping_count: 30,

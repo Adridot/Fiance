@@ -2,6 +2,7 @@
 export * from './domain/types.js';
 export * from './domain/schema.js';
 export * from './domain/guests.js';
+export * from './domain/households.js';
 export * from './domain/communications.js';
 export * from './domain/budget.js';
 export * from './domain/planning.js';
@@ -21,6 +22,7 @@ export * from './domain/honeymoon.js';
 export * from './domain/ceremony.js';
 export * from './domain/speeches.js';
 export * from './domain/playlist.js';
+export * from './domain/inline-menu.js';
 
 // ─── Fiancé object model ──────────────────────────────────────────────────────
 export * from './objects/object-types.js';

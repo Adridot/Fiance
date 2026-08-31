@@ -1,3 +1,7 @@
+// MODIFICATION LOCALE — PREMIER import du point d'entrée, à dessein : les
+// imports s'évaluent dans l'ordre, et ce module pose sa marque à
+// l'évaluation. Le déplacer plus bas daterait un instant postérieur.
+import "@/lib/demarrage-marques";
 import "react-native-get-random-values";
 import "../global.css";
 import "@/i18n";
@@ -64,6 +68,8 @@ import { FeatureWelcomeHost } from "@/lib/feature-welcomes";
 import { PaywallProvider } from "@/components/PaywallProvider";
 import { useFeatureTrialsStore } from "@/store/useFeatureTrialsStore";
 import { ObserveRoot, useObserve } from "expo-observe";
+// MODIFICATION LOCALE — l'indicateur de chargement du prérendu.
+import { masquerIndicateurDeChargement } from "@/lib/indicateur-de-chargement";
 
 // Configure octospaces-sdk at module load so deriveSession/buildSession are
 // available before any screen renders (home, settings, public-page all call
@@ -257,6 +263,14 @@ function RootLayout() {
   }, [colorScheme, systemScheme]);
 
   const handleUnlock = useCallback(() => setLocked(false), []);
+
+  // MODIFICATION LOCALE — l'indicateur de chargement du prérendu cède la place.
+  //
+  // Ici, et non plus bas : `RootLayout` est le premier composant à monter, quel
+  // que soit ce qui suit — l'écran de verrouillage, le repli d'erreur, ou
+  // l'application. Un indicateur congédié depuis un écran particulier
+  // resterait posé par-dessus tous les autres.
+  useEffect(() => { masquerIndicateurDeChargement(); }, []);
 
   return (
     <SafeAreaProvider>
