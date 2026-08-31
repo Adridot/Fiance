@@ -1,5 +1,5 @@
-import { writeFileSync } from "fs";
-import { join } from "path";
+import { mkdirSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
 import {
   BLOG_CONTENT_UPDATED,
   getBlogPublishDate,
@@ -110,6 +110,7 @@ export function writeSitemapFile(options?: { asOf?: string; distDir?: string }):
   const asOf = options?.asOf ?? getBuildDate();
   const xml = buildSitemapXml(asOf);
   const distPath = join(options?.distDir ?? join(__dirname, "..", "dist"), "sitemap.xml");
+  mkdirSync(dirname(distPath), { recursive: true });
   writeFileSync(distPath, xml, "utf8");
   return distPath;
 }
