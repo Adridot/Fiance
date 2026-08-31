@@ -56,6 +56,8 @@ import { DatabaseProvider, useDatabaseSwitching } from "@/db/provider";
 import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { ReadOnlyBanner } from "@/components/ReadOnlyBanner";
+// MODIFICATION LOCALE — un contenu illisible n'est pas un mariage vide.
+import { BandeauLectureImpossible } from "@/components/BandeauLectureImpossible";
 import { FeatureWelcomeHost } from "@/lib/feature-welcomes";
 import { PaywallProvider } from "@/components/PaywallProvider";
 import { useFeatureTrialsStore } from "@/store/useFeatureTrialsStore";
@@ -148,6 +150,7 @@ function AppContent() {
     <DatabaseProvider dbFileName={activeWedding?.dbFileName}>
       {activeWedding && <ActiveWeddingRuntime wedding={activeWedding} />}
       <View style={{ flex: 1 }}>
+        {activeWedding && <BandeauLectureImpossible />}
         {activeWedding && <ReadOnlyBanner />}
         <View style={{ flex: 1 }}>
           <Stack screenOptions={{ headerShown: false }}>

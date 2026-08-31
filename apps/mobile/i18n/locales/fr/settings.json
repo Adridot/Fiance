@@ -312,5 +312,9 @@
   "inviteNamePlaceholder": "ex. Maman, Julie, wedding planner",
   "inviteNameRequired": "Indiquez un nom pour générer le lien",
   "roleFullAccess": "Accès complet",
-  "roleNoAccessSummary": "Aucun accès"
+  "roleNoAccessSummary": "Aucun accès",
+  "chiffrementHorsDePortee": "Votre invitation ne donne pas accès au contenu de ce mariage",
+  "chiffrementHorsDePorteeGeste": "Demandez une invitation à jour aux mariés — le contenu existant est scellé sous une clé que la vôtre n'ouvre pas.",
+  "chiffrementListeIllisible": "Liste illisible sur cet appareil",
+  "chiffrementListeIllisibleDetail": "Ce mariage n'est pas vide : votre invitation n'ouvre pas le contenu déjà écrit. Demandez-en une nouvelle."
 }

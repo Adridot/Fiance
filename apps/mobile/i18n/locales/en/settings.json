@@ -312,5 +312,9 @@
   "inviteNamePlaceholder": "e.g. Mum, Julie, wedding planner",
   "inviteNameRequired": "Enter a name to generate the link",
   "roleFullAccess": "Full access",
-  "roleNoAccessSummary": "No access"
+  "roleNoAccessSummary": "No access",
+  "chiffrementHorsDePortee": "Your invitation doesn't grant access to this wedding's content",
+  "chiffrementHorsDePorteeGeste": "Ask the couple for an up-to-date invitation — the existing content is sealed under a key yours can't open.",
+  "chiffrementListeIllisible": "List unreadable on this device",
+  "chiffrementListeIllisibleDetail": "This wedding isn't empty: your invitation doesn't open the content already written. Ask for a new one."
 }
