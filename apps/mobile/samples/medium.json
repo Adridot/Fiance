@@ -1,6 +1,6 @@
 {
   "version": 16,
-  "timestamp": "2026-08-31T21:10:33.994Z",
+  "timestamp": "2026-07-01T10:00:00.000Z",
   "wedding": {
     "id": 1,
     "partner1Name": "Léa",
@@ -2728,6 +2728,7 @@
       "updatedAt": "2026-07-01T10:00:00.000Z"
     }
   ],
+  "households": [],
   "vendors": [
     {
       "id": "medium-v-001",
