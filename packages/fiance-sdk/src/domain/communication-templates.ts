@@ -28,6 +28,9 @@ const PLACEHOLDER_RE = /\{\{\s*([\w.]+)\s*\}\}/g;
 function placeholderValues(guest: Guest | null, wedding: Wedding | null): Record<string, string> {
   return {
     'guest.firstName': guest?.firstName ?? '',
+    // `guest.lastName` stays the BARE name: templates use it after a civility
+    // title, where a name particle does not belong. Hence `fullName` as an
+    // extra token rather than a change of meaning.
     'guest.lastName': guest?.lastName ?? '',
     'wedding.partner1Name': wedding?.partner1Name ?? '',
     'wedding.partner2Name': wedding?.partner2Name ?? '',

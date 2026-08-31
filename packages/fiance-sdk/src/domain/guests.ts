@@ -20,6 +20,12 @@ export interface GuestCounts {
   //    screen's invitation-type filter counts exactly.
   inv_by_type: Record<string, number>;
   inv_by_type_all: Record<string, number>;
+  // The head counts are a PARTITION: the per-invitation-type counters hold
+  // ADULTS only, the children counters hold the flagged records across all
+  // types, and every guest falls into exactly one of them —
+  //
+  //     Σ(inv_by_type)     + children_count     = billable_count
+  //     Σ(inv_by_type_all) + children_count_all = total
   children_count: number;
   vegetarian_count: number;
   sleeping_count: number;

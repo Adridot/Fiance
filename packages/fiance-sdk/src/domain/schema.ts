@@ -36,6 +36,8 @@ export interface Guest {
   rsvpStatus: string | null;
   rsvpDate: string | null;
   isSleeping: boolean | null;
+  // INERT: a headcount of companions WITHOUT a record, superseded by `isChild`.
+  // Kept so an older backup stays restorable; ignored by every counter.
   childrenCount: number | null;
   diet: string | null;
   dietNotes: string | null;
@@ -51,6 +53,8 @@ export interface Guest {
   rsvpToken: string | null;
   email: string | null;
   phone: string | null;
+  // INERT for mailing: the mailing address is carried by the HOUSEHOLD
+  // (`Household.address`). Kept so an older backup stays restorable.
   address: string | null;
   notes: string | null;
   shuttleVendorId: string | null;

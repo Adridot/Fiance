@@ -1,14 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { computeCounts, countDuplicateGuests } from './guests.js';
 
-// Minimal guest factory — computeCounts only reads rsvpStatus + invitationType here.
 const g = (rsvpStatus: string, invitationType: string) =>
   ({ rsvpStatus, invitationType }) as any;
 
-// Minimal guest factory for name-based duplicate detection.
 const named = (firstName: string, lastName: string) => ({ firstName, lastName }) as any;
 
-// A custom (user-created) invitation type carries a UUID id, NOT a hardcoded enum string.
+// A user-created invitation type carries a UUID id, never an enum literal.
 const TWO_DAYS = "b1f2c3d4-2days";
 
 describe('computeCounts — per-invitation-type pricing counts', () => {
@@ -35,7 +33,6 @@ describe('computeCounts — per-invitation-type pricing counts', () => {
       g('PENDING', TWO_DAYS),
     ];
     const c = computeCounts(guests);
-    // Mirrors the guest screen's typeCounts: group ALL guests by invitationType id, no RSVP filter.
     const guestScreenCount = (id: string) => guests.filter((x) => x.invitationType === id).length;
     expect(c.inv_by_type_all).toEqual({ FULL: 3, [TWO_DAYS]: 2 });
     expect(c.inv_by_type_all.FULL).toBe(guestScreenCount('FULL'));
@@ -49,7 +46,6 @@ describe('computeCounts — per-invitation-type pricing counts', () => {
       g('MAYBE', TWO_DAYS),
     ];
     const c = computeCounts(guests);
-    // Was 0 with the old hardcoded "BOTH_DAYS" enum key; now tracks the real id.
     expect(c.inv_by_type_all[TWO_DAYS]).toBe(3);
     expect(c.inv_by_type[TWO_DAYS]).toBe(1); // only the accepted one
   });
@@ -103,7 +99,6 @@ describe('countDuplicateGuests', () => {
       named('Marie', 'Curie'),
       named('Paul', 'Martin'),
     ];
-    // Dupont pair (2) + Curie trio (3) = 5; Martin is unique and excluded.
     expect(countDuplicateGuests(guests)).toBe(5);
   });
 
