@@ -317,5 +317,8 @@
   "chiffrementHorsDePortee": "Your invitation doesn't grant access to this wedding's content",
   "chiffrementHorsDePorteeGeste": "Ask the couple for an up-to-date invitation — the existing content is sealed under a key yours can't open.",
   "chiffrementListeIllisible": "List unreadable on this device",
-  "chiffrementListeIllisibleDetail": "This wedding isn't empty: your invitation doesn't open the content already written. Ask for a new one."
+  "chiffrementListeIllisibleDetail": "This wedding isn't empty: your invitation doesn't open the content already written. Ask for a new one.",
+  "rescellementEnCours": "Re-sealing content… {{fait}}/{{total}}",
+  "revocationAccomplie": "Collaborator evicted — content re-sealed",
+  "revocationIncomplete": "Revocation INCOMPLETE: {{restant}} could not be re-sealed. The removed link can still read that content. Run the removal again, or repair with `fiance-db reseal`."
 }
