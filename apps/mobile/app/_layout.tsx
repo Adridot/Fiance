@@ -56,6 +56,8 @@ import { DatabaseProvider, useDatabaseSwitching } from "@/db/provider";
 import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { ReadOnlyBanner } from "@/components/ReadOnlyBanner";
+// MODIFICATION LOCALE — le jumeau du bandeau de lecture seule.
+import { UnsavedChangesBanner } from "@/components/UnsavedChangesBanner";
 // MODIFICATION LOCALE — un contenu illisible n'est pas un mariage vide.
 import { BandeauLectureImpossible } from "@/components/BandeauLectureImpossible";
 import { FeatureWelcomeHost } from "@/lib/feature-welcomes";
@@ -152,6 +154,7 @@ function AppContent() {
       <View style={{ flex: 1 }}>
         {activeWedding && <BandeauLectureImpossible />}
         {activeWedding && <ReadOnlyBanner />}
+        {activeWedding && <UnsavedChangesBanner />}
         <View style={{ flex: 1 }}>
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="onboarding" />
