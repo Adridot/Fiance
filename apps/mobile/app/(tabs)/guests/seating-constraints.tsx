@@ -56,6 +56,7 @@ export default function SeatingConstraintsScreen() {
 
   const guestName = (id: string) => {
     const g = guests.find((x) => x.id === id);
+    // MODIFICATION LOCALE — nom composé, particule comprise.
     return g ? formatGuestName(g) : "?";
   };
 

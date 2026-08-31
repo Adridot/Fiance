@@ -4,9 +4,11 @@
  */
 
 import { Platform } from "react-native";
+// MODIFICATION LOCALE — la composition du nom vit dans le SDK : un document
+// imprimé doit nommer un invité exactement comme la liste le nomme.
+import { formatGuestName } from "@fiance/sdk";
 import type { Guest, Table, GuestGroup, Vendor, DayOfItem, Wedding, VendorPayment, GuestMealSelection, WeddingEvent, CeremonyItem, Speech, PlaylistTrack, WeddingRole } from "@/db/schema";
 import type { BudgetSummary } from "@/store/useBudgetStore";
-import { formatGuestName } from "@fiance/sdk";
 
 function escapeHtml(str: string): string {
   return str
@@ -63,7 +65,7 @@ export function buildGuestListHtml(
     .map(
       (g) => `
     <tr>
-      <td>${escapeHtml(g.lastName)} ${escapeHtml(g.firstName)}</td>
+      <td>${escapeHtml(formatGuestName(g))}</td>
       <td><span class="badge ${RSVP_CLASS[g.rsvpStatus ?? "PENDING"]}">${g.rsvpStatus}</span></td>
       <td>${g.diet ?? "—"}</td>
       <td>${g.tableId ? escapeHtml(tableMap.get(g.tableId) ?? "") : "—"}</td>
@@ -616,7 +618,7 @@ export function buildGuestLogisticsCsv(guests: Guest[], vendors: Vendor[]): stri
   const header = ["Nom", "Transport", "Navette", "Lieu de prise en charge", "Heure", "Parking", "Notes d'arrivée"].join(";");
   const rows = sorted.map((g) =>
     [
-      `${g.lastName} ${g.firstName}`,
+      formatGuestName(g),
       g.transportMode ?? "",
       g.shuttleVendorId ? (vendorMap.get(g.shuttleVendorId) ?? "") : "",
       g.shuttlePickupLocation ?? "",

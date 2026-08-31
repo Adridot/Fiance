@@ -58,6 +58,7 @@ export default function SpeechesMusicScreen() {
   const djVendor = useMemo(() => vendors.find((v) => v.type === "DJ") ?? null, [vendors]);
   const dayOfMap = useMemo(() => new Map(dayOfItems.map((d) => [d.id, d.time])), [dayOfItems]);
   const guestMap = useMemo(
+    // MODIFICATION LOCALE — nom composé, particule comprise.
     () => new Map(guests.map((g) => [g.id, formatGuestName(g)])),
     [guests]
   );

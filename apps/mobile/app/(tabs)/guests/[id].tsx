@@ -16,13 +16,13 @@ import { useVendorsStore } from "@/store/useVendorsStore";
 import { useSeatingConstraintsStore } from "@/store/useSeatingConstraintsStore";
 import { useCommunicationsStore } from "@/store/useCommunicationsStore";
 import {
+  formatGuestName,
   MEAL_CHOICE_LABELS,
   SEATING_CONSTRAINT_TYPE_LABELS,
   COMMUNICATION_CHANNEL_LABELS,
   type MealChoice,
   type SeatingConstraintType,
   type CommunicationChannel,
-  formatGuestName,
 } from "@fiance/sdk";
 import { useGuestRsvpUrl } from "@/lib/rsvp-sync";
 import {

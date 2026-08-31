@@ -270,6 +270,7 @@ export default function TableManagementScreen() {
                         </Text>
                       </View>
                       <Text className="text-sm text-ink-soft flex-1">
+                        {/* MODIFICATION LOCALE — nom composé, particule comprise. */}
                         {formatGuestName(g)}
                       </Text>
                       {conflictedGuestIds.has(g.id) && (

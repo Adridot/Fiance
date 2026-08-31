@@ -32,6 +32,7 @@ export default function CeremonyScreen() {
   const { openPaywall } = useShowPaywall();
 
   const guestMap = useMemo(
+    // MODIFICATION LOCALE — nom composé, particule comprise.
     () => new Map(guests.map((g) => [g.id, formatGuestName(g)])),
     [guests]
   );
