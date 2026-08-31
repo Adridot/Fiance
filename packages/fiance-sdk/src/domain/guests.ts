@@ -293,6 +293,62 @@ export function sortGroups(groups: GuestGroup[]): GuestGroup[] {
   });
 }
 
+// ─── Side deduced from the label prefix ──────────────────────────────────────
+//
+// Categories predating the `side` field still carry a bracketed prefix —
+// « [A] Didot », « [A&E] Amis communs ». Deducing the side from it avoids a
+// data migration and WRITES NOTHING: a category that declares `side` never
+// reaches this path, so it dies out on its own. Nothing is hardcoded — prefix
+// tokens are matched against the WEDDING's partner first names, and a prefix
+// that matches nobody deduces nothing rather than guessing.
+
+const SIDE_PREFIX = /^\s*\[([^\]]+)\]\s*/;
+
+/** Display-only: the STORED label keeps its prefix. */
+export function formatGuestGroupName(name: string): string {
+  return (name ?? "").replace(SIDE_PREFIX, "").trim() || (name ?? "").trim();
+}
+
+function sideFromPrefix(
+  name: string,
+  wedding: Pick<Wedding, "partner1Name" | "partner2Name"> | null | undefined,
+): GuestGroupSide | null {
+  const m = SIDE_PREFIX.exec(name ?? "");
+  if (!m) return null;
+  const tokens = m[1]
+    .split(/[&+,/]/)
+    .map((t) => t.trim().toLocaleLowerCase("fr"))
+    .filter(Boolean);
+  if (tokens.length === 0) return null;
+
+  const matches = (firstName: string | null | undefined) => {
+    const p = (firstName ?? "").trim().toLocaleLowerCase("fr");
+    return p !== "" && tokens.some((t) => p.startsWith(t));
+  };
+  const one = matches(wedding?.partner1Name);
+  const two = matches(wedding?.partner2Name);
+  if (one && two) return "BOTH";
+  if (one) return "PARTNER_1";
+  if (two) return "PARTNER_2";
+  return null;
+}
+
+/**
+ * Categories with their side resolved — declared if it is, deduced otherwise.
+ *
+ * A read PROJECTION: nothing is written, nothing is synced. Everything that
+ * orders or groups categories starts here, so one place decides what a
+ * category's side is.
+ */
+export function resolveGroupSides(
+  groups: GuestGroup[],
+  wedding: Pick<Wedding, "partner1Name" | "partner2Name"> | null | undefined,
+): GuestGroup[] {
+  return groups.map((g) =>
+    g.side ? g : { ...g, side: sideFromPrefix(g.name, wedding) },
+  );
+}
+
 /** Labels the app supplies to compose a side. */
 export interface GuestGroupSideLabels {
   /** Named template, `{name}` replaced by the partner's first name. */

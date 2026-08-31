@@ -5,6 +5,8 @@ import {
   sortGroups,
   formatGuestGroupSide,
   groupsBySide,
+  resolveGroupSides,
+  formatGuestGroupName,
   buildGuestListData,
   formatGuestName,
   removeGuest,
@@ -522,6 +524,75 @@ describe('buildGuestListData', () => {
     const { items, stickyIndices } = buildGuestListData([u('x')], [], new Set());
     expect(stickyIndices).toEqual([]);
     expect(items.filter((x) => x.kind === 'side-header')).toEqual([]);
+  });
+});
+
+describe('formatGuestGroupName', () => {
+  it('strips the side prefix', () => {
+    expect(formatGuestGroupName('[A] Didot')).toBe('Didot');
+    expect(formatGuestGroupName('[A&E] Amis communs')).toBe('Amis communs');
+  });
+
+  it('leaves a prefix-less label untouched', () => {
+    expect(formatGuestGroupName('Didot')).toBe('Didot');
+  });
+
+  it('does not empty a label that is ONLY its prefix', () => {
+    // An odd label beats a nameless row.
+    expect(formatGuestGroupName('[A]')).toBe('[A]');
+  });
+});
+
+describe('resolveGroupSides', () => {
+  const wedding = { partner1Name: 'Adrien', partner2Name: 'Emma' };
+  const g = (name: string, side?: GuestGroupSide): GuestGroup =>
+    ({ id: name, name, side, createdAt: null, updatedAt: null });
+
+  it('infers the side by matching the prefix against the wedding first names', () => {
+    const out = resolveGroupSides(
+      [g('[A] Didot'), g('[E] Mathieu'), g('[A&E] Amis communs')],
+      wedding,
+    );
+    expect(out.map((x) => x.side)).toEqual(['PARTNER_1', 'PARTNER_2', 'BOTH']);
+  });
+
+  it('hardcodes no first name — another couple is inferred the same way', () => {
+    const out = resolveGroupSides(
+      [g('[C] Famille Claire'), g('[B] Famille Basile'), g('[B&C] Communs')],
+      { partner1Name: 'Claire', partner2Name: 'Basile' },
+    );
+    expect(out.map((x) => x.side)).toEqual(['PARTNER_1', 'PARTNER_2', 'BOTH']);
+  });
+
+  it('a DECLARED side passes through, without being re-inferred', () => {
+    const [out] = resolveGroupSides([g('[A] Didot', 'PARTNER_2')], wedding);
+    expect(out.side).toBe('PARTNER_2');
+  });
+
+  it('a prefix matching nobody infers nothing, rather than guessing', () => {
+    expect(resolveGroupSides([g('[Z] Mystère')], wedding)[0].side).toBeNull();
+    expect(resolveGroupSides([g('Sans préfixe')], wedding)[0].side).toBeNull();
+  });
+
+  it('with no wedding on file, nothing is inferred', () => {
+    expect(resolveGroupSides([g('[A] Didot')], null)[0].side).toBeNull();
+    expect(resolveGroupSides([g('[A] Didot')], { partner1Name: null, partner2Name: null })[0].side)
+      .toBeNull();
+  });
+
+  it('does not mutate the categories it is given', () => {
+    const input = [g('[A] Didot')];
+    resolveGroupSides(input, wedding);
+    expect(input[0].side).toBeUndefined();
+  });
+
+  it('the projection makes the categories sortable and groupable as they are', () => {
+    const out = sortGroups(resolveGroupSides(
+      [g('[A&E] Amis communs'), g('[E] Mathieu'), g('[A] Didot')],
+      wedding,
+    ));
+    expect(out.map((x) => formatGuestGroupName(x.name)))
+      .toEqual(['Didot', 'Mathieu', 'Amis communs']);
   });
 });
 
