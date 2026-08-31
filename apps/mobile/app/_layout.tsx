@@ -1,3 +1,7 @@
+// MODIFICATION LOCALE — PREMIER import du point d'entrée, à dessein : les
+// imports s'évaluent dans l'ordre, et ce module pose sa marque à
+// l'évaluation. Le déplacer plus bas daterait un instant postérieur.
+import "@/lib/demarrage-marques";
 import "react-native-get-random-values";
 import "../global.css";
 import "@/i18n";
