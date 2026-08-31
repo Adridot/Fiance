@@ -42,6 +42,7 @@ export function clearAllStores(): void {
   useGuestsStore.getState().setGuests([]);
   useGuestsStore.getState().setTables([]);
   useGuestsStore.getState().setGroups([]);
+  useGuestsStore.getState().setHouseholds([]);
   useVendorsStore.getState().setVendors([]);
   useVendorsStore.getState().setQuotePricings([]);
   useVendorsStore.getState().setVendorPayments([]);
@@ -85,6 +86,7 @@ export function hydrateAllStores(_storage: SQLiteStorage): void {
   useGuestsStore.getState().setGroups(readCollection<any[]>("guestGroups") ?? []);
   useGuestsStore.getState().setTables(readCollection<any[]>("tables") ?? []);
   useGuestsStore.getState().setGuests(readCollection<any[]>("guests") ?? []);
+  useGuestsStore.getState().setHouseholds(readCollection<any[]>("households") ?? []);
 
   useVendorsStore.getState().setVendors(readCollection<any[]>("vendors") ?? []);
   useVendorsStore.getState().setQuotePricings(readCollection<any[]>("quotePricings") ?? []);
@@ -235,6 +237,10 @@ export function persistGroups(_storage: SQLiteStorage): void {
   writeCollection("guestGroups", useGuestsStore.getState().groups);
 }
 
+export function persistHouseholds(_storage: SQLiteStorage): void {
+  writeCollection("households", useGuestsStore.getState().households);
+}
+
 export function persistVendors(_storage: SQLiteStorage): void {
   writeCollection("vendors", useVendorsStore.getState().vendors);
 }
@@ -354,6 +360,7 @@ export function restoreAllTables(_storage: SQLiteStorage, data: {
   guests: any[];
   tables: any[];
   guestGroups: any[];
+  households?: any[];
   vendors: any[];
   quotePricings: any[];
   tasks: any[];
@@ -385,6 +392,7 @@ export function restoreAllTables(_storage: SQLiteStorage, data: {
 }): void {
   writeCollection("wedding", data.wedding);
   writeCollection("guestGroups", data.guestGroups);
+  writeCollection("households", data.households ?? []);
   writeCollection("tables", data.tables);
   writeCollection("accommodations", data.accommodations ?? []);
   writeCollection("guests", data.guests);
