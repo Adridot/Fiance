@@ -6,6 +6,7 @@ import * as Crypto from "expo-crypto";
 import { useSpeechesMusicStore } from "@/store/useSpeechesMusicStore";
 import { usePlanningStore } from "@/store/usePlanningStore";
 import { useGuestsStore } from "@/store/useGuestsStore";
+import { formatGuestName } from "@fiance/sdk";
 import { useWeddingPartyStore } from "@/store/useWeddingPartyStore";
 import { analytics } from "@/lib/analytics";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
@@ -110,7 +111,7 @@ export default function SpeechScreen() {
             <HorizontalChipSelect
               options={[
                 { key: "", label: t("common:none") },
-                ...guests.map((g) => ({ key: g.id, label: `${g.firstName} ${g.lastName}`.trim() })),
+                ...guests.map((g) => ({ key: g.id, label: formatGuestName(g) })),
               ]}
               activeKey={guestId}
               onSelect={setGuestId}
