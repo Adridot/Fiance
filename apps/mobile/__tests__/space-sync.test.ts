@@ -31,12 +31,42 @@ let mockClientPush: Mock = vi.fn(async () => ({ hash: "H_new" }));
 // handle.push mirrors the fixed NodeAccessHandle.push: pull → hash-gated decrypt → mutate → push.
 // baseHash uses `?? ""` (alpha.49 fix): preserves "" so the server's heal path is reachable.
 // "" is falsy so cur is still null for a missing/hash-less doc (Bug B: no decrypt({}) call).
-function makeHandlePush(pull: Mock, push: Mock, encryptor: { decrypt: Mock; encrypt: Mock } | null = null) {
+function makeHandlePush(
+  pull: Mock,
+  push: Mock,
+  encryptor: { decrypt: Mock; encrypt: Mock } | null = null,
+  cache?: Map<string, string>,
+  /** Le cache de pull PARTAGÉ entre fenêtres, consulté quand celui de la
+   *  fenêtre est vide — c'est `peekCache` du vrai `handle.push`. */
+  peek?: (cléDeDoc: string) => string | null,
+) {
   return vi.fn(async (
     pullPath: string,
     pushPath: string,
     mutator: (cur: Record<string, unknown> | null) => Record<string, unknown> | null,
   ) => {
+    // CHEMIN RAPIDE — la moitié du vrai `handle.push` que ce faux ne modélisait pas.
+    //
+    // Le vrai prend ce chemin dès que son cache lui rend un hash pour ce document
+    // (`cached && !currentHash`), et il appelle alors le mutateur avec `null` :
+    // la fusion devient un REMPLACEMENT. Sans cette branche ici, la suite est
+    // structurellement incapable de voir ce défaut — elle ne modélisait que le
+    // chemin lent, qui fusionne correctement.
+    //
+    // Le cache n'est passé QUE par les tests qui l'exercent : sans lui, ce faux
+    // se comporte exactement comme avant.
+    const cléDeDoc = docKey(pushPath);
+    const hashConnu = cache?.get(cléDeDoc) ?? peek?.(cléDeDoc) ?? null;
+    if (hashConnu) {
+      const remplacement = mutator(null);
+      if (remplacement === null) return;
+      const charge = encryptor ? await encryptor.encrypt(remplacement) : remplacement;
+      const rép = await push(pushPath, charge, hashConnu) as { hash?: string } | undefined;
+      // Le vrai ré-inscrit le hash rendu : le chemin rapide s'auto-entretient.
+      if (rép?.hash) cache?.set(cléDeDoc, rép.hash);
+      return;
+    }
+
     const res = await pull(pullPath).catch(() => null) as
       | { data: Record<string, unknown>; hash: string }
       | null;
@@ -47,9 +77,65 @@ function makeHandlePush(pull: Mock, push: Mock, encryptor: { decrypt: Mock; encr
     const next = mutator(cur);
     if (next !== null) {
       const payload = encryptor ? await encryptor.encrypt(next) : next;
-      await push(pushPath, payload, baseHash);
+      const rép = await push(pushPath, payload, baseHash) as { hash?: string } | undefined;
+      // Le vrai inscrit AUSSI le hash après une poussée par le chemin lent —
+      // c'est pourquoi, dès la deuxième poussée d'une même page, le chemin
+      // rapide s'impose.
+      if (cache && rép?.hash) cache.set(cléDeDoc, rép.hash);
     }
   });
+}
+
+/** Clé de document : le vrai cache efface le préfixe `/pull/` ou `/push/`, de
+ *  sorte que les deux chemins désignent la même entrée. La barre de tête est
+ *  optionnelle — les vrais `objDocPull`/`objDocPush` la portent, les faux de ce
+ *  fichier non. */
+function docKey(path: string): string {
+  return path.replace(/^\/?(pull|push)\//, "");
+}
+
+/**
+ * Faux serveur AVEC ÉTAT — un magasin par clé de document.
+ *
+ * `makeHandlePush` ci-dessus modélise la FORME d'une CAS, pas un serveur : son
+ * `pull` et son `push` sont deux espions sans mémoire commune. Deux fenêtres
+ * branchées dessus n'écriraient donc pas au même endroit, et une reproduction
+ * multi-fenêtres n'y voudrait rien dire.
+ *
+ * Le `baseHash` n'est PAS vérifié : ces reproductions portent sur l'arbitrage
+ * des versions, pas sur la gestion des conflits. Un serveur qui refuserait sur
+ * hash périmé ferait échouer les tests pour une raison étrangère au défaut visé
+ * — et le défaut observé en production passait justement SANS conflit.
+ */
+function makeStatefulServer() {
+  const docs = new Map<string, { data: Record<string, unknown>; hash: string }>();
+  let n = 0;
+  const pull = vi.fn(async (path: string) => docs.get(docKey(path)) ?? { data: null, hash: null });
+  const push = vi.fn(async (path: string, payload: Record<string, unknown>, _baseHash: string) => {
+    const hash = `H${++n}`;
+    docs.set(docKey(path), { data: payload, hash });
+    return { hash };
+  });
+  /** Ce que le serveur détient pour un nœud, tel que le verrait un pair.
+   *  Recherché par suffixe : la clé porte le chemin de stockage complet
+   *  (`spaces/{spaceId}/objects/docs/{nodeId}`), que le test n'a pas à connaître. */
+  const collection = (_spaceId: string, nodeId: string) => {
+    for (const [clé, doc] of docs) {
+      if (clé.endsWith(`/${nodeId}`)) {
+        return doc.data as {
+          items: Record<string, { id: string; name?: string }>;
+          rev: Record<string, number>;
+          tombstones: Record<string, number>;
+        };
+      }
+    }
+    return undefined;
+  };
+  /** Pose l'état initial d'un document, tel que le serveur le détiendrait. */
+  const seed = (spaceId: string, nodeId: string, data: Record<string, unknown>) => {
+    docs.set(`spaces/${spaceId}/objects/docs/${nodeId}`, { data, hash: "H0" });
+  };
+  return { pull, push, docs, collection, seed };
 }
 
 let mockHandlePush: Mock = makeHandlePush(mockClientPull, mockClientPush);
@@ -67,6 +153,17 @@ let mockGetNodeAccessImpl: () => Promise<{
 });
 
 const mockUpdateObjectIndex = vi.fn();
+/** Vidage du cache de documents en mémoire (par fenêtre) de starfish-spaces. */
+/** Le cache de documents en mémoire, PAR FENÊTRE — vidé par clearNodeAccessCache. */
+const mockCacheDeDocs = new Map<string, string>();
+const mockClearNodeAccessCache = vi.fn(() => { mockCacheDeDocs.clear(); });
+/** Cache de pull en stockage local, PARTAGÉ entre fenêtres. */
+const mockPullCacheKv = new Map<string, string>();
+const mockKvAdapter = {
+  getItem: (k: string) => mockPullCacheKv.get(k) ?? null,
+  setItem: (k: string, v: string) => { mockPullCacheKv.set(k, v); },
+  removeItem: (k: string) => { mockPullCacheKv.delete(k); },
+};
 let mockReadObjectTreeImpl: () => Promise<unknown[]> = async () => [];
 
 vi.mock("@drakkar.software/starfish-spaces", () => ({
@@ -227,14 +324,40 @@ vi.mock("@/lib/rsvp-sync", () => ({
   applyHouseholdRsvpDocs: vi.fn(),
 }));
 
-// Le KV local, où se range le marqueur de poussée en attente. Le vrai module
-// tire `react-native` et `expo-sqlite`, qui n'existent pas sous l'environnement
-// `node` de vitest — d'où ce faux, sur une Map que les tests peuvent inspecter.
+// `space-sync.ts` importe ses primitives de sync depuis `@fiance/sdk`, PAS depuis
+// `@drakkar.software/starfish-spaces` : c'est là qu'il faut intercepter le
+// vidage des caches. Mock partiel — le reste du SDK (fusion, construction des
+// documents, chemins) doit rester le vrai, sans quoi les tests ne prouveraient
+// plus rien sur l'arbitrage.
+vi.mock("@fiance/sdk", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  clearNodeAccessCache: () => mockClearNodeAccessCache(),
+  getSpacesConfig: () => ({ kvAdapter: mockKvAdapter }),
+  getSyncNamespace: () => "dk",
+}));
+
+// Le KV local, où se rangent le marqueur de poussée en attente et la table des
+// versions poussées. Le vrai module tire `react-native` et `expo-sqlite`, qui
+// n'existent pas sous l'environnement `node` de vitest — d'où ce faux, sur une
+// Map que les tests peuvent inspecter.
 //
 // Il SURVIT volontairement à `vi.resetModules()` : c'est une variable de ce
 // fichier de test, pas du module. C'est exactement ce qu'on veut modéliser —
 // le KV survit au rechargement d'une page, l'état de module non.
 const mockKvStore = new Map<string, unknown>();
+
+// `sessionStorage` n'existe pas sous l'environnement `node` de vitest. Il porte
+// la référence de dernière poussée PAR FENÊTRE : une Map par fenêtre, et
+// `nouvelleFenêtre()` modélise l'ouverture d'un onglet distinct. Comme le vrai,
+// elle survit à `vi.resetModules()` — un rechargement conserve sa session.
+let sessionActive = new Map<string, string>();
+const nouvelleFenêtre = () => { sessionActive = new Map<string, string>(); };
+vi.stubGlobal("sessionStorage", {
+  getItem: (k: string) => sessionActive.get(k) ?? null,
+  setItem: (k: string, v: string) => { sessionActive.set(k, v); },
+  removeItem: (k: string) => { sessionActive.delete(k); },
+  clear: () => { sessionActive.clear(); },
+});
 vi.mock("@/lib/kv-storage", () => ({
   readCollection: (clé: string) => (mockKvStore.has(clé) ? mockKvStore.get(clé) : null),
   writeCollection: (clé: string, données: unknown) => { mockKvStore.set(clé, données); },
@@ -251,6 +374,7 @@ vi.mock("@/lib/kv-storage", () => ({
 // sans quoi le suivi durable de ce qui reste à pousser fuit de l'un à l'autre.
 beforeEach(() => {
   mockKvStore.clear();
+  nouvelleFenêtre();
 });
 
 describe("scheduleSyncPush / _isHydrating timer guard", () => {
@@ -1473,5 +1597,1036 @@ describe("hydrateFromSpace — per-collection read + migration detection", () =>
     ];
     await hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
     expect(hydrateSawLegacyNodes()).toBe(false);
+  });
+});
+
+// ─── MODIFICATION LOCALE — durabilité des écritures ──────────────────────────
+//
+// Ces trois tests reproduisent trois façons dont une modification acceptée par
+// l'interface disparaît sans le moindre signal. Ils sont écrits AVANT la
+// correction et doivent échouer sur l'arbre non corrigé : sur un défaut
+// d'entrelacement, sans échec constaté, rien ne distingue « corrigé » de « la
+// fenêtre ne s'est pas présentée ».
+//
+// La séquence reproduite est celle qui a réellement perdu un foyer le 21 août
+// 2026 : une poussée réussie fait émettre au serveur un frame de changement, le
+// flux SSE déclenche une hydratation, et la modification suivante tombe dans sa
+// fenêtre.
+
+/** Espace minimal contenant une collection d'invités côté serveur. */
+function treeWithGuestCollection() {
+  return [
+    { id: "w1", type: "wedding", parentId: null, updatedAt: 1000, contentKind: "merge", access: "space", enc: false },
+    { id: "col:guest:w1", type: "guest", parentId: "w1", updatedAt: 1000, contentKind: "merge", access: "space", enc: false },
+  ];
+}
+
+describe("durabilité des écritures — une modification acceptée ne disparaît pas", () => {
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    mockUpdateObjectIndex.mockReset();
+    mockSetGuests = vi.fn();
+    mockWeddingData = { id: "w1", name: "Test Wedding" };
+    mockGuestsData = [];
+    const { resetDirtyPushBaseline } = await import("@/lib/space-sync");
+    resetDirtyPushBaseline();
+    mockClientPull = vi.fn(async () => ({ data: null, hash: null }));
+    mockClientPush = vi.fn(async () => ({ hash: "H2" }));
+    mockHandlePush = makeHandlePush(mockClientPull, mockClientPush);
+    mockGetNodeAccessImpl = async () => ({
+      encryptor: null,
+      client: {
+        pull: mockClientPull,
+        push: mockClientPush,
+        batchPullMany: vi.fn(async (_c: string, params: { objectId: string }[]) =>
+          params.map((p) =>
+            p.objectId === "col:guest:w1"
+              ? { data: { fmt: 2, items: { "g-serveur": { id: "g-serveur" } }, rev: { "g-serveur": 5 }, tombstones: {} } }
+              : { data: null },
+          ),
+        ),
+      } as never,
+      isOwnerOpen: false,
+      push: mockHandlePush,
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    mockReadObjectTreeImpl = async () => [];
+    mockWeddingData = null;
+    mockGuestsData = [];
+  });
+
+  it("1.1 — une modification faite pendant une hydratation n'est pas écrasée par l'état lu", async () => {
+    let libérerLecture!: () => void;
+    mockReadObjectTreeImpl = () =>
+      new Promise<unknown[]>((res) => { libérerLecture = () => res(treeWithGuestCollection()); });
+
+    const { hydrateFromSpace, scheduleSyncPush } = await import("@/lib/space-sync");
+    const hydratation = hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
+
+    // La modification locale survient pendant que la lecture est en vol : le
+    // magasin change, et notifySync() aboutit à scheduleSyncPush().
+    mockGuestsData = [{ id: "g-local" }];
+    scheduleSyncPush();
+
+    libérerLecture();
+    await hydratation;
+
+    // L'état lu ne doit PAS avoir été appliqué : l'appliquer effacerait g-local.
+    expect(mockSetGuests).not.toHaveBeenCalled();
+  });
+
+  it("1.2 — une collection que le serveur ignore reste à pousser après une hydratation", async () => {
+    // Le serveur ne connaît aucun invité ; le magasin local en détient un.
+    mockReadObjectTreeImpl = async () => [
+      { id: "w1", type: "wedding", parentId: null, updatedAt: 1000, contentKind: "merge", access: "space", enc: false },
+    ];
+    mockGuestsData = [{ id: "g-local" }];
+
+    const { hydrateFromSpace, pushSpaceSnapshot } = await import("@/lib/space-sync");
+    await hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
+
+    // L'hydratation n'a rien recouvert (aucun invité distant) : g-local est
+    // toujours là, et reste donc à pousser.
+    await pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
+
+    expect(collectionPushes(mockClientPush, "guest")).toHaveLength(1);
+  });
+
+  it("1.3 — une demande de poussée écartée pendant une hydratation part après elle", async () => {
+    let libérerLecture!: () => void;
+    mockReadObjectTreeImpl = () =>
+      new Promise<unknown[]>((res) => { libérerLecture = () => res(treeWithGuestCollection()); });
+
+    const { hydrateFromSpace, scheduleSyncPush } = await import("@/lib/space-sync");
+    const hydratation = hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
+
+    mockGuestsData = [{ id: "g-local" }];
+    scheduleSyncPush();
+
+    libérerLecture();
+    await hydratation;
+
+    // La demande a été retenue, pas abandonnée : elle part une fois la lecture finie.
+    await vi.advanceTimersByTimeAsync(2500);
+
+    expect(collectionPushes(mockClientPush, "guest")).toHaveLength(1);
+  });
+
+  it("2.4 — sans modification concurrente, l'hydratation applique normalement", async () => {
+    // Le cas courant ne doit rien perdre à la correction : sans mutation dans la
+    // fenêtre, l'état lu s'applique comme avant.
+    mockReadObjectTreeImpl = async () => treeWithGuestCollection();
+
+    const { hydrateFromSpace } = await import("@/lib/space-sync");
+    await hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
+
+    expect(mockSetGuests).toHaveBeenCalledTimes(1);
+    expect(mockSetGuests.mock.calls[0][0]).toEqual([{ id: "g-serveur" }]);
+  });
+
+  it("2.5 — après un abandon, une hydratation ultérieure aboutit", async () => {
+    let libérerLecture!: () => void;
+    mockReadObjectTreeImpl = () =>
+      new Promise<unknown[]>((res) => { libérerLecture = () => res(treeWithGuestCollection()); });
+
+    const { hydrateFromSpace, scheduleSyncPush } = await import("@/lib/space-sync");
+    const abandonnée = hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
+    mockGuestsData = [{ id: "g-local" }];
+    scheduleSyncPush();
+    libérerLecture();
+    await abandonnée;
+    expect(mockSetGuests).not.toHaveBeenCalled();
+
+    // La saisie s'interrompt : la lecture suivante n'est plus écartée.
+    mockReadObjectTreeImpl = async () => treeWithGuestCollection();
+    await hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
+
+    expect(mockSetGuests).toHaveBeenCalledTimes(1);
+  });
+
+  it("3.1 — une demande dont le MINUTEUR échoit pendant une hydratation part aussi après elle", async () => {
+    // Second point d'abandon : la demande est formulée AVANT l'hydratation, et
+    // c'est son minuteur qui échoit pendant. C'est le scénario du garde G1, dont
+    // la moitié manquante était la reprise.
+    let libérerLecture!: () => void;
+    mockReadObjectTreeImpl = () =>
+      new Promise<unknown[]>((res) => { libérerLecture = () => res(treeWithGuestCollection()); });
+
+    const { hydrateFromSpace, scheduleSyncPush } = await import("@/lib/space-sync");
+    mockGuestsData = [{ id: "g-local" }];
+    scheduleSyncPush();
+
+    const hydratation = hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
+    // Le minuteur échoit pendant l'hydratation : la demande est retenue (G1).
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(collectionPushes(mockClientPush, "guest")).toHaveLength(0);
+
+    libérerLecture();
+    await hydratation;
+    await vi.advanceTimersByTimeAsync(2500);
+
+    expect(collectionPushes(mockClientPush, "guest")).toHaveLength(1);
+  });
+
+  it("3.3 — cinq modifications pendant une hydratation ne donnent qu'une poussée", async () => {
+    let libérerLecture!: () => void;
+    mockReadObjectTreeImpl = () =>
+      new Promise<unknown[]>((res) => { libérerLecture = () => res(treeWithGuestCollection()); });
+
+    const { hydrateFromSpace, scheduleSyncPush } = await import("@/lib/space-sync");
+    const hydratation = hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
+
+    for (let i = 0; i < 5; i++) {
+      mockGuestsData = [...mockGuestsData, { id: `g-local-${i}` }];
+      scheduleSyncPush();
+    }
+
+    libérerLecture();
+    await hydratation;
+    await vi.advanceTimersByTimeAsync(2500);
+
+    const pushes = collectionPushes(mockClientPush, "guest");
+    expect(pushes).toHaveLength(1);
+    // Et elle porte bien les cinq.
+    expect(Object.keys(pushes[0].payload.items as Record<string, unknown>)).toHaveLength(5);
+  });
+
+  it("4.2 — une collection réellement recouverte cesse d'être à pousser", async () => {
+    // Le pendant du test 1.2 : la correction ne doit pas rendre TOUT sale. Ici le
+    // serveur connaît l'invité, l'hydratation le recouvre, donc plus rien à pousser.
+    mockGuestsData = [{ id: "g-serveur" }];
+    mockReadObjectTreeImpl = async () => treeWithGuestCollection();
+
+    const { hydrateFromSpace, pushSpaceSnapshot } = await import("@/lib/space-sync");
+    await hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
+    await pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
+
+    expect(collectionPushes(mockClientPush, "guest")).toHaveLength(0);
+  });
+});
+
+// ─── MODIFICATION LOCALE — réessai et signalement ────────────────────────────
+
+describe("réessai d'une poussée échouée, et son signalement", () => {
+  /** Chemins effectivement poussés SANS erreur. */
+  let réussites: string[];
+
+  /** Installe un client dont les `n` premières poussées de la collection guest échouent. */
+  function clientQuiÉchoue(n: number) {
+    let restant = n;
+    mockClientPush = vi.fn(async (path: string) => {
+      if (typeof path === "string" && path.includes("col:guest:") && restant > 0) {
+        restant--;
+        throw new Error("réseau coupé");
+      }
+      réussites.push(path as string);
+      return { hash: "H2" };
+    });
+    mockHandlePush = makeHandlePush(mockClientPull, mockClientPush);
+    mockGetNodeAccessImpl = async () => ({
+      encryptor: null,
+      client: { pull: mockClientPull, push: mockClientPush },
+      isOwnerOpen: false,
+      push: mockHandlePush,
+    });
+  }
+
+  const pousséesGuest = () => réussites.filter((p) => p.includes("col:guest:"));
+
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    mockUpdateObjectIndex.mockReset();
+    réussites = [];
+    mockWeddingData = { id: "w1", name: "Test Wedding" };
+    mockGuestsData = [{ id: "g1" }];
+    mockClientPull = vi.fn(async () => ({ data: null, hash: null }));
+    const { resetDirtyPushBaseline } = await import("@/lib/space-sync");
+    resetDirtyPushBaseline();
+    const { useSyncAccessStore } = await import("@/store/useSyncAccessStore");
+    useSyncAccessStore.getState().setWriteDenied(false);
+  });
+
+  afterEach(async () => {
+    const { resetDirtyPushBaseline } = await import("@/lib/space-sync");
+    resetDirtyPushBaseline();
+    vi.useRealTimers();
+    mockWeddingData = null;
+    mockGuestsData = [];
+  });
+
+  it("5.1 — une poussée qui échoue puis réussit ne demande AUCUN geste", async () => {
+    clientQuiÉchoue(1);
+    const { scheduleSyncPush } = await import("@/lib/space-sync");
+
+    scheduleSyncPush();
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(pousséesGuest()).toHaveLength(0); // première tentative : échec
+
+    // Personne ne retouche quoi que ce soit — le réessai part tout seul.
+    await vi.advanceTimersByTimeAsync(6000);
+
+    expect(pousséesGuest()).toHaveLength(1);
+  });
+
+  it("5.2 — un refus de droit d'écriture (403) n'est PAS réessayé en boucle", async () => {
+    const { StarfishHttpError } = await import("@drakkar.software/starfish-client");
+    let tentatives = 0;
+    mockHandlePush = vi.fn(async () => {
+      tentatives++;
+      throw new StarfishHttpError(403, "forbidden");
+    });
+    mockGetNodeAccessImpl = async () => ({
+      encryptor: null,
+      client: { pull: mockClientPull, push: mockClientPush },
+      isOwnerOpen: false,
+      push: mockHandlePush,
+    });
+
+    const { scheduleSyncPush } = await import("@/lib/space-sync");
+    scheduleSyncPush();
+    await vi.advanceTimersByTimeAsync(2500);
+    const aprèsPremière = tentatives;
+    expect(aprèsPremière).toBeGreaterThan(0);
+
+    // Longue attente : rien ne doit être retenté contre un mur.
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    expect(tentatives).toBe(aprèsPremière);
+    const { useSyncAccessStore } = await import("@/store/useSyncAccessStore");
+    expect(useSyncAccessStore.getState().writeDenied).toBe(true);
+  });
+
+  it("5.3 — les tentatives cessent dès la première réussite", async () => {
+    clientQuiÉchoue(2);
+    const { scheduleSyncPush } = await import("@/lib/space-sync");
+
+    scheduleSyncPush();
+    await vi.advanceTimersByTimeAsync(2500);   // échec 1
+    await vi.advanceTimersByTimeAsync(6000);   // échec 2 (réessai à 5 s)
+    await vi.advanceTimersByTimeAsync(11_000); // réussite (réessai à 10 s)
+    expect(pousséesGuest()).toHaveLength(1);
+
+    // Plus rien ne repart : la collection est propre et le réessai est éteint.
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(pousséesGuest()).toHaveLength(1);
+  });
+
+  it("6.1 — le drapeau se lève après épuisement des tentatives et retombe à la réussite", async () => {
+    clientQuiÉchoue(3);
+    const { scheduleSyncPush } = await import("@/lib/space-sync");
+    const { useSyncPendingStore } = await import("@/store/useSyncPendingStore");
+
+    scheduleSyncPush();
+    await vi.advanceTimersByTimeAsync(2500);   // échec 1
+    await vi.advanceTimersByTimeAsync(6000);   // échec 2
+    expect(useSyncPendingStore.getState().unsavedChanges).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(11_000); // échec 3 → on le dit
+    expect(useSyncPendingStore.getState().unsavedChanges).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(21_000); // réussite
+    expect(useSyncPendingStore.getState().unsavedChanges).toBe(false);
+  });
+
+  it("6.3 — un échec rattrapé à la tentative suivante ne signale RIEN", async () => {
+    clientQuiÉchoue(1);
+    const { scheduleSyncPush } = await import("@/lib/space-sync");
+    const { useSyncPendingStore } = await import("@/store/useSyncPendingStore");
+
+    const vues: boolean[] = [];
+    const désabonner = useSyncPendingStore.subscribe((s) => vues.push(s.unsavedChanges));
+
+    scheduleSyncPush();
+    await vi.advanceTimersByTimeAsync(2500);
+    await vi.advanceTimersByTimeAsync(6000);
+    désabonner();
+
+    expect(pousséesGuest()).toHaveLength(1);
+    // Le drapeau n'a jamais été levé, pas même le temps d'un clignotement.
+    expect(vues).not.toContain(true);
+    expect(useSyncPendingStore.getState().unsavedChanges).toBe(false);
+  });
+});
+
+// ─── Perte au départ de la page — reproduction du 21 août 2026 ────────────────
+//
+// Constaté en production : l'utilisateur renomme un invité, recharge dans la
+// seconde, et retrouve l'ancienne valeur. La saisie n'était pas écrasée — elle
+// n'avait JAMAIS quitté le navigateur. La poussée est débouncée à 2 s, et rien
+// ne la vide quand la page s'en va ; l'hydratation du démarrage suivant applique
+// alors l'état du serveur, plus ancien, par-dessus.
+//
+// Ce que ce bloc modélise et que la suite ne savait pas modéliser : un onglet
+// MEURT. Ses minuteurs meurent avec lui (`vi.clearAllTimers()` — sans quoi le
+// minuteur de l'instance morte tire quand même et pousse, ce qui ferait passer
+// le test en modélisant un rechargement qui n'existe pas), son état de module
+// repart de zéro (`vi.resetModules()`), mais le KV et les magasins persistés,
+// eux, survivent.
+describe("perte au départ de la page", () => {
+  let serveur: ReturnType<typeof makeStatefulServer>;
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.useFakeTimers();
+    mockUpdateObjectIndex.mockReset();
+    mockSetGuests = vi.fn();
+    mockWeddingData = { id: "w1", name: "Test Wedding" };
+    mockGuestsData = [];
+    mockKvStore.clear();
+    // Le chemin débouncé lit `getActiveWeddingNodeId()`, les appels directs
+    // reçoivent l'identifiant en paramètre : sans cette ligne, les deux visent
+    // des nœuds DIFFÉRENTS et les assertions portent sur deux documents.
+    mockGetActiveWeddingNodeId.mockReturnValue("w1");
+    mockReadObjectTreeImpl = async () => treeWithGuestCollection();
+
+    serveur = makeStatefulServer();
+    // L'état d'avant la saisie : le serveur ne connaît que « g-serveur ».
+    serveur.seed("space-1", "col:guest:w1", {
+      fmt: 2, items: { "g-serveur": { id: "g-serveur" } }, rev: { "g-serveur": 5 }, tombstones: {},
+    });
+    mockClientPull = serveur.pull;
+    mockClientPush = serveur.push;
+    mockHandlePush = makeHandlePush(mockClientPull, mockClientPush);
+    mockGetNodeAccessImpl = async () => ({
+      encryptor: null,
+      client: {
+        pull: mockClientPull,
+        push: mockClientPush,
+        // Lit le SERVEUR, pas une fixture figée : ce que l'hydratation rapporte
+        // doit refléter ce qui vient d'y être poussé, sinon la reproduction
+        // testerait un serveur qui n'écoute pas ses propres écritures.
+        batchPullMany: vi.fn(async (_c: string, params: { objectId: string }[]) =>
+          params.map((p) => ({ data: serveur.collection("space-1", p.objectId) ?? null })),
+        ),
+      } as never,
+      isOwnerOpen: false,
+      push: mockHandlePush,
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.resetModules();
+    mockGetActiveWeddingNodeId.mockReturnValue("wedding-node-1");
+    mockReadObjectTreeImpl = async () => [];
+    mockWeddingData = null;
+    mockGuestsData = [];
+  });
+
+  it("2.1 — la demande de poussée est notée dans le KV à la mutation, et effacée à la poussée", async () => {
+    const sync = await import("@/lib/space-sync");
+    expect(sync.pousséeEnAttenteAuDémarrage()).toBe(false);
+
+    mockGuestsData = [{ id: "g-local", name: "Liloux" }];
+    sync.scheduleSyncPush();
+    expect(
+      sync.pousséeEnAttenteAuDémarrage(),
+      "la mutation n'a laissé aucune trace durable : un rechargement l'oublierait",
+    ).toBe(true);
+
+    await sync.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
+    expect(
+      sync.pousséeEnAttenteAuDémarrage(),
+      "la note a survécu à une poussée réussie : le démarrage suivant repousserait pour rien",
+    ).toBe(false);
+  });
+
+  it("2.1b — la note survit au rechargement, contrairement à l'état de module", async () => {
+    const avant = await import("@/lib/space-sync");
+    mockGuestsData = [{ id: "g-local", name: "Liloux" }];
+    avant.scheduleSyncPush();
+
+    vi.clearAllTimers();
+    vi.resetModules();
+    const après = await import("@/lib/space-sync");
+
+    expect(après, "resetModules n'a pas rendu une instance neuve").not.toBe(avant);
+    expect(
+      après.pousséeEnAttenteAuDémarrage(),
+      "la note ne survit pas au rechargement — c'est tout ce qu'on lui demande",
+    ).toBe(true);
+  });
+
+  it("2.3 — un marqueur absent (version antérieure, première exécution) ne fait rien d'anormal", async () => {
+    mockKvStore.clear(); // aucun marqueur : l'appareil vient de recevoir la mise à jour
+    const sync = await import("@/lib/space-sync");
+
+    const rejoué = await sync.rejouerPousséeEnAttente({ userId: "u1" } as never, "space-1", "w1");
+
+    expect(rejoué).toBe(false);
+    expect(collectionPushes(serveur.push, "guest")).toHaveLength(0);
+    // et le démarrage se poursuit normalement
+    await expect(
+      sync.hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1"),
+    ).resolves.not.toThrow();
+  });
+
+  it("2.4 — un départ sans rien en attente ne produit aucune poussée", async () => {
+    mockGuestsData = [{ id: "g-local", name: "Liloux" }];
+    const avantLeDépart = await import("@/lib/space-sync");
+    avantLeDépart.scheduleSyncPush();
+    await vi.advanceTimersByTimeAsync(2500); // la poussée part et aboutit
+    expect(collectionPushes(serveur.push, "guest")).not.toHaveLength(0);
+    const pousséesAvant = collectionPushes(serveur.push, "guest").length;
+
+    vi.clearAllTimers();
+    vi.resetModules();
+    const aprèsLeRetour = await import("@/lib/space-sync");
+
+    await aprèsLeRetour.rejouerPousséeEnAttente({ userId: "u1" } as never, "space-1", "w1");
+
+    expect(
+      collectionPushes(serveur.push, "guest"),
+      "le démarrage a repoussé alors que tout était déjà arrivé",
+    ).toHaveLength(pousséesAvant);
+  });
+
+  it("3.1 — le vidage fait partir la poussée sans attendre le débouncement", async () => {
+    mockGuestsData = [{ id: "g-local", name: "Liloux" }];
+    const sync = await import("@/lib/space-sync");
+    sync.scheduleSyncPush();
+    expect(collectionPushes(serveur.push, "guest")).toHaveLength(0);
+
+    sync.viderPousséeEnAttente();
+    await vi.advanceTimersByTimeAsync(0); // laisser la poussée s'exécuter, sans avancer de 2 s
+
+    expect(
+      collectionPushes(serveur.push, "guest"),
+      "le vidage n'a pas fait partir la poussée retenue",
+    ).not.toHaveLength(0);
+  });
+
+  it("3.3 — le vidage ne retient pas la page : il ne rend rien à attendre", async () => {
+    mockGuestsData = [{ id: "g-local", name: "Liloux" }];
+    const sync = await import("@/lib/space-sync");
+    sync.scheduleSyncPush();
+
+    // Rend la main AVANT que la poussée soit partie : c'est ce qui garantit
+    // qu'un onglet qui se ferme n'est pas retenu par le réseau.
+    const rendu = sync.viderPousséeEnAttente();
+    expect(rendu).toBeUndefined();
+    expect(collectionPushes(serveur.push, "guest")).toHaveLength(0);
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(collectionPushes(serveur.push, "guest")).not.toHaveLength(0);
+  });
+
+  // 3.2 — RIEN NE REPOSE SUR LE VIDAGE. La reproduction 1.1 ci-dessous ne
+  // l'appelle jamais : elle modélise un onglet qui meurt sans que l'événement
+  // parte (coupure brutale, `pagehide` non émis, poussée coupée en vol). Elle
+  // doit passer quand même — la garantie est le marqueur durable, pas le vidage.
+  it("1.1 — une saisie suivie d'un rechargement immédiat est poussée, et survit à l'hydratation", async () => {
+    // ── L'onglet vit : la saisie arme le débouncement ───────────────────────
+    mockGuestsData = [{ id: "g-local", name: "Liloux" }];
+    const avantLeDépart = await import("@/lib/space-sync");
+    avantLeDépart.scheduleSyncPush();
+
+    await vi.advanceTimersByTimeAsync(1000); // moins de 2 s : rien n'est encore parti
+    expect(collectionPushes(serveur.push, "guest")).toHaveLength(0);
+
+    // ── L'onglet s'en va, et emporte ses minuteurs ──────────────────────────
+    vi.clearAllTimers();
+    vi.resetModules();
+
+    // ── L'onglet revient : état de module neuf, KV et magasins intacts ──────
+    const aprèsLeRetour = await import("@/lib/space-sync");
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    // Le démarrage : rejouer ce qui attendait, PUIS hydrater. C'est l'ordre que
+    // `providers.tsx` applique.
+    await aprèsLeRetour.rejouerPousséeEnAttente({ userId: "u1" } as never, "space-1", "w1");
+
+    expect(
+      collectionPushes(serveur.push, "guest"),
+      "la poussée en attente n'a jamais été rejouée après le rechargement",
+    ).not.toHaveLength(0);
+
+    // ── Et l'hydratation ne doit pas recouvrir la saisie ────────────────────
+    await aprèsLeRetour.hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
+
+    const appliqué = mockSetGuests.mock.calls.at(-1)?.[0] as Array<{ id: string }> | undefined;
+    expect(appliqué, "l'hydratation n'a rien appliqué au magasin").toBeDefined();
+    expect(
+      appliqué?.map((g) => g.id),
+      "la saisie « g-local » a disparu de l'écran : l'hydratation a appliqué l'état du serveur, antérieur à elle",
+    ).toContain("g-local");
+  });
+});
+
+// ─── Écrasement entre deux fenêtres — reproduction du 21 août 2026 ────────────
+//
+// Deux fenêtres ouvertes sur le même espace. L'une renomme un invité et sa
+// poussée aboutit ; l'autre, restée en retard, pousse ensuite et REMET son
+// ancienne valeur — le serveur régresse, sans le moindre conflit.
+//
+// Le mécanisme n'est pas la fusion, qui arbitre correctement par `rev`. Il est
+// en amont : quand l'hydratation d'une fenêtre est ABANDONNÉE (une modification
+// locale est survenue pendant qu'elle lisait), la fonction sort avant de
+// réamorcer ses références de poussée. Celles-ci restent vides, et
+// `buildCollectionDoc` réestampille alors TOUTES les entités avec son `now` —
+// qui bat le `rev` de la fenêtre à jour. La fenêtre en retard gagne parce
+// qu'elle est en retard.
+//
+// Deux instances réellement indépendantes du module : `vi.resetModules()` +
+// import dynamique. Les fabriques `vi.mock` ferment sur les variables de ce
+// fichier, donc les deux fenêtres partagent bien UN seul serveur.
+describe("écrasement entre deux fenêtres", () => {
+  let serveur: ReturnType<typeof makeStatefulServer>;
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.useFakeTimers();
+    mockUpdateObjectIndex.mockReset();
+    mockSetGuests = vi.fn();
+    mockWeddingData = { id: "w1", name: "Test Wedding" };
+    mockKvStore.clear();
+    // Le chemin débouncé lit `getActiveWeddingNodeId()`, les appels directs
+    // reçoivent l'identifiant en paramètre : sans cette ligne, les deux visent
+    // des nœuds DIFFÉRENTS et les assertions portent sur deux documents.
+    mockGetActiveWeddingNodeId.mockReturnValue("w1");
+    mockReadObjectTreeImpl = async () => treeWithGuestCollection();
+
+    serveur = makeStatefulServer();
+    // Les deux fenêtres partent du même état : g1 s'appelle « Lilou ».
+    serveur.seed("space-1", "col:guest:w1", {
+      fmt: 2, items: { g1: { id: "g1", name: "Lilou" } }, rev: { g1: 1000 }, tombstones: {},
+    });
+    mockClientPull = serveur.pull;
+    mockClientPush = serveur.push;
+    mockHandlePush = makeHandlePush(mockClientPull, mockClientPush);
+    mockGetNodeAccessImpl = async () => ({
+      encryptor: null,
+      client: {
+        pull: mockClientPull,
+        push: mockClientPush,
+        batchPullMany: vi.fn(async (_c: string, params: { objectId: string }[]) =>
+          params.map((p) => ({ data: serveur.collection("space-1", p.objectId) ?? null })),
+        ),
+      } as never,
+      isOwnerOpen: false,
+      push: mockHandlePush,
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.resetModules();
+    mockGetActiveWeddingNodeId.mockReturnValue("wedding-node-1");
+    mockReadObjectTreeImpl = async () => [];
+    mockWeddingData = null;
+    mockGuestsData = [];
+  });
+
+  /** Ce que le serveur détient pour l'invité g1, vu comme le verrait un pair. */
+  const nomAuServeur = () => {
+    const doc = serveur.collection("space-1", "col:guest:w1");
+    return doc?.items?.g1?.name;
+  };
+
+  it("1.2 — la fenêtre en retard ne remet pas son ancienne valeur par-dessus celle de l'autre", async () => {
+    // ── La fenêtre B ouvre d'abord, et pousse l'état initial ────────────────
+    //    Sa référence de dernière poussée à elle dit donc « g1 = Lilou ».
+    nouvelleFenêtre();
+    const sessionB = sessionActive;
+    const fenêtreB = await import("@/lib/space-sync");
+    mockGuestsData = [{ id: "g1", name: "Lilou" }];
+    await fenêtreB.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    // ── La fenêtre A renomme, et pousse ─────────────────────────────────────
+    nouvelleFenêtre();
+    vi.resetModules();
+    const fenêtreA = await import("@/lib/space-sync");
+    mockGuestsData = [{ id: "g1", name: "Liloux" }];
+    await fenêtreA.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
+
+    expect(nomAuServeur(), "la fenêtre A n'a pas réussi sa poussée").toBe("Liloux");
+
+    // ── Retour à la fenêtre B : son état de module et sa session à elle ─────
+    //    Elle est restée sur « Lilou » et n'a pas relu.
+    sessionActive = sessionB;
+    await vi.advanceTimersByTimeAsync(1000);
+
+    // Son hydratation est abandonnée par une saisie survenue pendant la lecture
+    // — c'est ce qui laissait ses références vides, et la faisait tout
+    // réestampiller.
+    let libérerLecture!: () => void;
+    mockReadObjectTreeImpl = () =>
+      new Promise<unknown[]>((res) => { libérerLecture = () => res(treeWithGuestCollection()); });
+
+    mockGuestsData = [{ id: "g1", name: "Lilou" }];
+    const hydratation = fenêtreB.hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
+    fenêtreB.scheduleSyncPush();
+    libérerLecture();
+    await hydratation;
+
+    await vi.advanceTimersByTimeAsync(2500);
+
+    expect(
+      nomAuServeur(),
+      "la fenêtre en retard a remis « Lilou » par-dessus le « Liloux » de l'autre : le serveur a reculé",
+    ).toBe("Liloux");
+  });
+});
+
+// ─── L'invariant anti-régression à la lecture ────────────────────────────────
+//
+// Une lecture peut rapporter du passé — réponse tardive, lecture partie avant
+// notre écriture, ou servie depuis un cache (c'est ce qui est arrivé le 21 août
+// 2026, cinq minutes durant). L'appliquer efface à l'écran une modification
+// pourtant enregistrée, puis la fait repousser périmée. L'appareil retient donc
+// ce qu'il a poussé, et refuse d'appliquer plus ancien.
+describe("l'hydratation n'applique pas une version antérieure à ce que cet appareil a poussé", () => {
+  let serveur: ReturnType<typeof makeStatefulServer>;
+
+  const docServeur = (nom: string, rev: number, autres: Record<string, unknown> = {}) => ({
+    fmt: 2,
+    items: { g1: { id: "g1", name: nom }, ...autres },
+    rev: { g1: rev, ...Object.fromEntries(Object.keys(autres).map((k) => [k, rev])) },
+    tombstones: {},
+  });
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.useFakeTimers();
+    mockUpdateObjectIndex.mockReset();
+    mockSetGuests = vi.fn();
+    mockWeddingData = { id: "w1", name: "Test Wedding" };
+    mockKvStore.clear();
+    // Le chemin débouncé lit `getActiveWeddingNodeId()`, les appels directs
+    // reçoivent l'identifiant en paramètre : sans cette ligne, les deux visent
+    // des nœuds DIFFÉRENTS et les assertions portent sur deux documents.
+    mockGetActiveWeddingNodeId.mockReturnValue("w1");
+    mockReadObjectTreeImpl = async () => treeWithGuestCollection();
+
+    serveur = makeStatefulServer();
+    serveur.seed("space-1", "col:guest:w1", docServeur("Lilou", 1000));
+    mockClientPull = serveur.pull;
+    mockClientPush = serveur.push;
+    mockHandlePush = makeHandlePush(mockClientPull, mockClientPush);
+    mockGetNodeAccessImpl = async () => ({
+      encryptor: null,
+      client: {
+        pull: mockClientPull,
+        push: mockClientPush,
+        batchPullMany: vi.fn(async (_c: string, params: { objectId: string }[]) =>
+          params.map((p) => ({ data: serveur.collection("space-1", p.objectId) ?? null })),
+        ),
+      } as never,
+      isOwnerOpen: false,
+      push: mockHandlePush,
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.resetModules();
+    mockGetActiveWeddingNodeId.mockReturnValue("wedding-node-1");
+    mockReadObjectTreeImpl = async () => [];
+    mockWeddingData = null;
+    mockGuestsData = [];
+  });
+
+  const nomAppliqué = () => {
+    const appliqué = mockSetGuests.mock.calls.at(-1)?.[0] as Array<{ id: string; name?: string }> | undefined;
+    return appliqué?.find((g) => g.id === "g1")?.name;
+  };
+
+  it("4.2 — une lecture ANTÉRIEURE à notre poussée n'est pas appliquée", async () => {
+    const sync = await import("@/lib/space-sync");
+    mockGuestsData = [{ id: "g1", name: "Liloux" }];
+    await sync.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
+
+    // Le serveur rapporte du passé (cache, réponse tardive, lecture antérieure).
+    serveur.seed("space-1", "col:guest:w1", docServeur("Lilou", 1000));
+    await sync.hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
+
+    expect(
+      nomAppliqué(),
+      "l'hydratation a appliqué une version antérieure à ce que cet appareil avait poussé",
+    ).toBe("Liloux");
+  });
+
+  it("4.2b — une lecture POSTÉRIEURE, elle, est appliquée normalement", async () => {
+    const sync = await import("@/lib/space-sync");
+    mockGuestsData = [{ id: "g1", name: "Liloux" }];
+    await sync.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
+
+    // Un pair a écrit après nous.
+    serveur.seed("space-1", "col:guest:w1", docServeur("Lilouxxx", Date.now() + 10_000));
+    await sync.hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
+
+    expect(nomAppliqué(), "l'invariant bloque aussi ce qui vient légitimement d'un pair").toBe("Lilouxxx");
+  });
+
+  it("4.3 — l'invariant survit au rechargement de la page", async () => {
+    const avant = await import("@/lib/space-sync");
+    mockGuestsData = [{ id: "g1", name: "Liloux" }];
+    await avant.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
+
+    vi.clearAllTimers();
+    vi.resetModules();
+    const après = await import("@/lib/space-sync");
+
+    serveur.seed("space-1", "col:guest:w1", docServeur("Lilou", 1000));
+    await après.hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
+
+    expect(
+      nomAppliqué(),
+      "ce que l'appareil avait poussé avant de s'arrêter n'est plus connu de lui après",
+    ).toBe("Liloux");
+  });
+
+  // 4.5 / 4.6 — LE RISQUE CRÉÉ PAR LE CORRECTIF LUI-MÊME.
+  //
+  // `buildCollectionDoc` tombstone tout identifiant présent dans les `rev`
+  // précédents et absent du magasin : la table des `rev` est donc à la fois le
+  // registre des versions ET celui de ce qui est réputé vivre. Réamorcer
+  // `_collectionState` depuis la table durable (tâche 6.1) réveille donc le
+  // tombstoneur — et ferait SUPPRIMER des entités que cet appareil ne détient
+  // plus localement mais qui vivent chez ses pairs.
+  //
+  // Un correctif contre la perte de données qui en provoque serait pire que le
+  // défaut. Ces deux tests posent le contrat AVANT que la ligne qui amorce soit
+  // écrite, et doivent tenir après elle.
+  it("4.5 — un magasin local VIDE ne fait pas tombstoner toute la collection", async () => {
+    const avant = await import("@/lib/space-sync");
+    mockGuestsData = [{ id: "g1", name: "Liloux" }, { id: "g2", name: "Pia" }];
+    await avant.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
+
+    // La page repart, et le magasin n'a pas fini de charger. Le rattrapage de
+    // poussée du démarrage a lieu AVANT l'hydratation : sans garde, le suivi
+    // restauré ferait tombstoner les 352 invités d'un coup.
+    vi.clearAllTimers();
+    vi.resetModules();
+    const après = await import("@/lib/space-sync");
+    mockGuestsData = [];
+
+    après.scheduleSyncPush();
+    await vi.advanceTimersByTimeAsync(2500);
+
+    const doc = serveur.collection("space-1", "col:guest:w1");
+    expect(
+      doc?.tombstones ?? {},
+      "un magasin non chargé a été pris pour une suppression en masse",
+    ).toEqual({});
+    expect(Object.keys(doc?.items ?? {}).sort()).toEqual(["g1", "g2"]);
+  });
+
+  it("4.5b — après un rechargement, une poussée ne porte que ce qui a RÉELLEMENT changé", async () => {
+    const avant = await import("@/lib/space-sync");
+    mockGuestsData = [{ id: "g1", name: "Liloux" }, { id: "g2", name: "Pia" }];
+    await avant.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
+    const revAprèsPremièrePoussée = { ...(serveur.collection("space-1", "col:guest:w1")?.rev ?? {}) };
+
+    vi.clearAllTimers();
+    vi.resetModules();
+    const après = await import("@/lib/space-sync");
+
+    // Une seule modification : g1. g2 n'a pas bougé.
+    mockGuestsData = [{ id: "g1", name: "Lilouxxx" }, { id: "g2", name: "Pia" }];
+    après.scheduleSyncPush();
+    await vi.advanceTimersByTimeAsync(2500);
+
+    const rev = serveur.collection("space-1", "col:guest:w1")?.rev ?? {};
+    expect(rev.g1, "g1 a changé : sa version doit avancer").toBeGreaterThan(revAprèsPremièrePoussée.g1);
+    expect(
+      rev.g2,
+      "g2 n'a pas changé, et sa version a pourtant été réestampillée : la poussée bat les `rev` de tous les pairs",
+    ).toBe(revAprèsPremièrePoussée.g2);
+  });
+
+  it("4.6 — une entité réellement supprimée continue d'être tombstonée", async () => {
+    const sync = await import("@/lib/space-sync");
+    mockGuestsData = [{ id: "g1", name: "Liloux" }, { id: "g2", name: "Pia" }];
+    await sync.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
+
+    // Suppression VRAIE, dans la même session : l'appareil sait que g2 vivait.
+    mockGuestsData = [{ id: "g1", name: "Liloux" }];
+    sync.scheduleSyncPush();
+    await vi.advanceTimersByTimeAsync(2500);
+
+    const doc = serveur.collection("space-1", "col:guest:w1");
+    expect(
+      doc?.tombstones?.g2,
+      "une suppression réelle n'est plus propagée : 4.5 a éteint le mécanisme au lieu de l'empêcher de se déclencher à faux",
+    ).toBeDefined();
+  });
+
+  it("9.1 — une session qui n'a fait que LIRE laisse un suivi utilisable au démarrage suivant", async () => {
+    serveur.seed("space-1", "col:guest:w1", docServeur("Liloux", 1000, { g2: { id: "g2", name: "Pia" } }));
+
+    // Session de lecture seule : on hydrate, on ne pousse rien.
+    const lectureSeule = await import("@/lib/space-sync");
+    mockGuestsData = [{ id: "g1", name: "Liloux" }, { id: "g2", name: "Pia" }];
+    await lectureSeule.hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
+    expect(collectionPushes(serveur.push, "guest")).toHaveLength(0);
+
+    // La page repart, et une seule entité est modifiée.
+    vi.clearAllTimers();
+    vi.resetModules();
+    const après = await import("@/lib/space-sync");
+    mockGuestsData = [{ id: "g1", name: "Lilouxxx" }, { id: "g2", name: "Pia" }];
+    après.scheduleSyncPush();
+    await vi.advanceTimersByTimeAsync(2500);
+
+    const rev = serveur.collection("space-1", "col:guest:w1")?.rev ?? {};
+    expect(rev.g1, "g1 a changé : sa version doit avancer").toBeGreaterThan(1000);
+    expect(
+      rev.g2,
+      "une session de lecture seule n'a rien laissé derrière elle : le démarrage suivant a tout repoussé et réestampillé les `rev` de tous les pairs",
+    ).toBe(1000);
+  });
+
+  it("4.4 — l'invariant est par ENTITÉ : la modification d'un pair sur une autre entité passe", async () => {
+    const sync = await import("@/lib/space-sync");
+    mockGuestsData = [{ id: "g1", name: "Liloux" }];
+    await sync.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
+
+    // Le pair ajoute g2, et laisse g1 dans un état antérieur au nôtre.
+    serveur.seed("space-1", "col:guest:w1", docServeur("Lilou", 1000, { g2: { id: "g2", name: "Pia" } }));
+    await sync.hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
+
+    const appliqué = mockSetGuests.mock.calls.at(-1)?.[0] as Array<{ id: string; name?: string }> | undefined;
+    expect(appliqué?.find((g) => g.id === "g1")?.name, "notre version de g1 a été recouverte").toBe("Liloux");
+    expect(
+      appliqué?.find((g) => g.id === "g2")?.name,
+      "l'invariant a rejeté la modification légitime d'un pair sur une AUTRE entité",
+    ).toBe("Pia");
+  });
+});
+
+// ─── La fusion se décide contre le serveur, pas contre un souvenir ───────────
+//
+// `handle.push` remplace au lieu de fusionner dès qu'un cache lui rend un hash.
+// Deux caches peuvent le lui rendre — celui de la fenêtre, et celui du stockage
+// local, partagé entre fenêtres et écrit par toute poussée. C'est le second qui
+// explique l'écrasement sans conflit : l'onglet B pousse et y inscrit le hash
+// courant, l'onglet A le lit et remplace avec un hash pourtant valide.
+describe("la fusion se décide contre l'état réel du serveur", () => {
+  let serveur: ReturnType<typeof makeStatefulServer>;
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.useFakeTimers();
+    mockUpdateObjectIndex.mockReset();
+    mockClearNodeAccessCache.mockClear();
+    mockSetGuests = vi.fn();
+    mockWeddingData = { id: "w1", name: "Test Wedding" };
+    mockKvStore.clear();
+    mockPullCacheKv.clear();
+    mockCacheDeDocs.clear();
+    mockGetActiveWeddingNodeId.mockReturnValue("w1");
+    mockReadObjectTreeImpl = async () => treeWithGuestCollection();
+
+    serveur = makeStatefulServer();
+    // g1 est à nous, g2 vient d'un pair que cette fenêtre n'a jamais lu.
+    serveur.seed("space-1", "col:guest:w1", {
+      fmt: 2,
+      items: { g1: { id: "g1", name: "Liloux" }, g2: { id: "g2", name: "Pia" } },
+      rev: { g1: 1000, g2: 2000 },
+      tombstones: {},
+    });
+    mockClientPull = serveur.pull;
+    mockClientPush = serveur.push;
+    mockHandlePush = makeHandlePush(
+      mockClientPull,
+      mockClientPush,
+      null,
+      mockCacheDeDocs,
+      (clé) => mockPullCacheKv.get(`starfish.pullcache./v1/dk/pull/${clé}`) ?? null,
+    );
+    mockGetNodeAccessImpl = async () => ({
+      encryptor: null,
+      client: {
+        pull: mockClientPull,
+        push: mockClientPush,
+        batchPullMany: vi.fn(async (_c: string, params: { objectId: string }[]) =>
+          params.map((p) => ({ data: serveur.collection("space-1", p.objectId) ?? null })),
+        ),
+      } as never,
+      isOwnerOpen: false,
+      push: mockHandlePush,
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.resetModules();
+    mockGetActiveWeddingNodeId.mockReturnValue("wedding-node-1");
+    mockReadObjectTreeImpl = async () => [];
+    mockWeddingData = null;
+    mockGuestsData = [];
+  });
+
+  it("5.1 — un cache chaud ne fait plus partir la poussée du chemin qui remplace", async () => {
+    // Une autre fenêtre vient de pousser : elle a inscrit dans le cache PARTAGÉ
+    // le hash réellement courant du serveur.
+    mockPullCacheKv.set(
+      "starfish.pullcache./v1/dk/pull/spaces/space-1/objects/docs/col:guest:w1",
+      "H0",
+    );
+
+    const sync = await import("@/lib/space-sync");
+    mockGuestsData = [{ id: "g1", name: "Liloux" }]; // g2 nous est inconnu
+    await sync.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
+
+    const doc = serveur.collection("space-1", "col:guest:w1");
+    expect(
+      Object.keys(doc?.items ?? {}).sort(),
+      "la poussée est partie du chemin qui remplace : l'invité d'un pair a disparu du serveur, sans conflit",
+    ).toEqual(["g1", "g2"]);
+  });
+
+  it("5.2 — une écriture après une écriture réussie ne remplace pas le travail d'un pair", async () => {
+    const sync = await import("@/lib/space-sync");
+    mockGuestsData = [{ id: "g1", name: "Liloux" }];
+    await sync.pushSpaceSnapshot({ userId: "u1" } as never, "space-1", "w1");
+
+    // Un pair écrit entre nos deux poussées.
+    const actuel = serveur.collection("space-1", "col:guest:w1");
+    serveur.seed("space-1", "col:guest:w1", {
+      ...actuel,
+      items: { ...(actuel?.items ?? {}), g3: { id: "g3", name: "Mathieu" } },
+      rev: { ...(actuel?.rev ?? {}), g3: Date.now() + 5000 },
+    } as never);
+
+    mockGuestsData = [{ id: "g1", name: "Liloux !" }];
+    sync.scheduleSyncPush();
+    await vi.advanceTimersByTimeAsync(2500);
+
+    const doc = serveur.collection("space-1", "col:guest:w1");
+    expect(
+      Object.keys(doc?.items ?? {}),
+      "notre seconde poussée a remplacé l'espace par l'état que nous avions retenu",
+    ).toContain("g3");
+  });
+
+  it("5.3 — une entité supprimée par un pair ne réapparaît pas du fait d'une poussée", async () => {
+    const sync = await import("@/lib/space-sync");
+    mockGuestsData = [{ id: "g1", name: "Liloux" }, { id: "g2", name: "Pia" }];
+    await sync.hydrateFromSpace({ userId: "u1" } as never, "space-1", "w1");
+
+    // Le pair supprime g2 : le serveur porte une pierre tombale postérieure.
+    serveur.seed("space-1", "col:guest:w1", {
+      fmt: 2,
+      items: { g1: { id: "g1", name: "Liloux" } },
+      rev: { g1: 1000 },
+      tombstones: { g2: Date.now() + 5000 },
+    });
+
+    mockGuestsData = [{ id: "g1", name: "Liloux !" }, { id: "g2", name: "Pia" }];
+    sync.scheduleSyncPush();
+    await vi.advanceTimersByTimeAsync(2500);
+
+    const doc = serveur.collection("space-1", "col:guest:w1");
+    expect(
+      Object.keys(doc?.items ?? {}),
+      "une entité supprimée par un pair a été ressuscitée par notre poussée",
+    ).not.toContain("g2");
   });
 });
