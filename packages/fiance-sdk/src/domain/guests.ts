@@ -318,3 +318,70 @@ export function formatGuestGroupSide(
   return labels.none;
 }
 
+export interface GuestGroupSideSection {
+  side: GuestGroupSide | null;
+  groups: GuestGroup[];
+}
+
+/**
+ * Categories grouped under their side. One sort only, `sortGroups`, so the
+ * category screen and the guest list show the same order.
+ */
+export function groupsBySide(groups: GuestGroup[]): GuestGroupSideSection[] {
+  const sections: GuestGroupSideSection[] = [];
+  for (const g of sortGroups(groups)) {
+    const side = g.side ?? null;
+    const last = sections[sections.length - 1];
+    if (last && last.side === side) last.groups.push(g);
+    else sections.push({ side, groups: [g] });
+  }
+  return sections;
+}
+
+// ─── List data and header positions ──────────────────────────────────────────
+//
+// Sticky headers are declared as a list of INDICES INTO the flattened items, so
+// a stale index pins the wrong row. Items and indices therefore come out of one
+// computation: producing them apart would be two sources for one truth.
+
+export type GuestListEntry<G, GR> =
+  | { kind: "guest"; guest: G }
+  | { kind: "side-header"; side: GuestGroupSide | null }
+  | { kind: "group-header"; group: GR; count: number; collapsed: boolean };
+
+export interface GuestListData<G, GR> {
+  items: GuestListEntry<G, GR>[];
+  stickyIndices: number[];
+}
+
+export function buildGuestListData<
+  G,
+  GR extends { id: string; side?: GuestGroupSide | null },
+>(
+  ungrouped: readonly G[],
+  sections: readonly { group: GR; guests: readonly G[] }[],
+  expandedGroupIds: ReadonlySet<string>,
+): GuestListData<G, GR> {
+  const items: GuestListEntry<G, GR>[] = ungrouped.map((guest) => ({ kind: "guest", guest }));
+  const stickyIndices: number[] = [];
+  // `sections` arrives sorted by side then rank, so a side header is needed
+  // only where the side CHANGES — no second ordering to diverge from the first.
+  let prevSide: GuestGroupSide | null | undefined;
+  for (const { group, guests } of sections) {
+    const side = group.side ?? null;
+    if (prevSide === undefined || side !== prevSide) {
+      items.push({ kind: "side-header", side });
+      prevSide = side;
+    }
+    const collapsed = !expandedGroupIds.has(group.id);
+    // Only CATEGORY headers stick: `LegendList` pins one item at a time, and
+    // the category is the one to keep in view while scrolling its guests.
+    stickyIndices.push(items.length);
+    items.push({ kind: "group-header", group, count: guests.length, collapsed });
+    if (!collapsed) {
+      for (const guest of guests) items.push({ kind: "guest", guest });
+    }
+  }
+  return { items, stickyIndices };
+}
+

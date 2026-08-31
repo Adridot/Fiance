@@ -4,6 +4,8 @@ import {
   countDuplicateGuests,
   sortGroups,
   formatGuestGroupSide,
+  groupsBySide,
+  buildGuestListData,
   formatGuestName,
   removeGuest,
   removeGuests,
@@ -415,6 +417,111 @@ describe('rsvpStatusUpdate — the guest-record rule, applied per guest', () => 
       rsvpStatus: 'PENDING',
       rsvpDate: EARLIER,
     });
+  });
+});
+
+describe('groupsBySide', () => {
+  const g = (name: string, side?: GuestGroupSide, sortOrder?: number): GuestGroup =>
+    ({ id: name, name, side, sortOrder, createdAt: null, updatedAt: null });
+
+  it('returns one section per side, in display order', () => {
+    const sections = groupsBySide([
+      g('Amis communs', 'BOTH', 1),
+      g('Amis Emma', 'PARTNER_2', 3),
+      g('Fontaines', 'PARTNER_1', 2),
+      g('Didot', 'PARTNER_1', 1),
+      g('Mathieu', 'PARTNER_2', 1),
+    ]);
+    expect(sections.map((s) => s.side)).toEqual(['PARTNER_1', 'PARTNER_2', 'BOTH']);
+    expect(sections[0].groups.map((x) => x.name)).toEqual(['Didot', 'Fontaines']);
+    expect(sections[1].groups.map((x) => x.name)).toEqual(['Mathieu', 'Amis Emma']);
+  });
+
+  it('a sideless category forms a last section rather than disappearing', () => {
+    const sections = groupsBySide([g('Orpheline'), g('Didot', 'PARTNER_1', 1)]);
+    expect(sections.map((s) => s.side)).toEqual(['PARTNER_1', null]);
+    expect(sections[1].groups.map((x) => x.name)).toEqual(['Orpheline']);
+  });
+
+  it('returns an empty array with no category', () => {
+    expect(groupsBySide([])).toEqual([]);
+  });
+});
+
+describe('buildGuestListData', () => {
+  const u = (id: string) => ({ id });
+  const sec = (id: string, n: number, side: GuestGroupSide | null = 'PARTNER_1') => ({
+    group: { id, side },
+    guests: Array.from({ length: n }, (_, i) => u(`${id}-${i}`)),
+  });
+
+  it('marks exactly the category headers as sticky, and nothing else', () => {
+    const { items, stickyIndices } = buildGuestListData(
+      [], [sec('a', 2), sec('b', 3)], new Set(['a', 'b']),
+    );
+    for (const i of stickyIndices) expect(items[i].kind).toBe('group-header');
+    expect(items.filter((x) => x.kind === 'group-header')).toHaveLength(stickyIndices.length);
+    // The list sticks only ONE header at a time, and the category is the one
+    // worth keeping in sight — so the side header is deliberately not sticky.
+    for (const i of stickyIndices) expect(items[i].kind).not.toBe('side-header');
+  });
+
+  it('inserts one side header at each side change, and only one', () => {
+    const { items } = buildGuestListData(
+      [],
+      [sec('a', 1, 'PARTNER_1'), sec('b', 1, 'PARTNER_1'), sec('c', 1, 'PARTNER_2'), sec('d', 1, 'BOTH')],
+      new Set(),
+    );
+    expect(items.filter((x) => x.kind === 'side-header')).toEqual([
+      { kind: 'side-header', side: 'PARTNER_1' },
+      { kind: 'side-header', side: 'PARTNER_2' },
+      { kind: 'side-header', side: 'BOTH' },
+    ]);
+  });
+
+  it('the side header precedes the first category of its side', () => {
+    const { items } = buildGuestListData([], [sec('a', 1, 'PARTNER_2')], new Set());
+    expect(items[0]).toEqual({ kind: 'side-header', side: 'PARTNER_2' });
+    expect(items[1].kind).toBe('group-header');
+  });
+
+  it('a sideless category gets its own side header', () => {
+    const { items } = buildGuestListData(
+      [], [sec('a', 1, 'PARTNER_1'), sec('z', 1, null)], new Set(),
+    );
+    expect(items.filter((x) => x.kind === 'side-header').map((x: any) => x.side))
+      .toEqual(['PARTNER_1', null]);
+  });
+
+  it('the sticky indices account for the side headers', () => {
+    const { items, stickyIndices } = buildGuestListData(
+      [], [sec('a', 2, 'PARTNER_1'), sec('b', 3, 'PARTNER_2')], new Set(['a', 'b']),
+    );
+    expect(stickyIndices).toEqual([1, 5]);
+    expect(items).toHaveLength(9);
+  });
+
+  it('guests of a collapsed category are omitted, and the indices follow', () => {
+    const { items, stickyIndices } = buildGuestListData(
+      [], [sec('a', 2), sec('b', 3)], new Set(['b']),
+    );
+    expect(stickyIndices).toEqual([1, 2]);
+    expect(items).toHaveLength(6);
+    expect((items[1] as any).collapsed).toBe(true);
+  });
+
+  it('guests with no category open the list and shift everything', () => {
+    const { items, stickyIndices } = buildGuestListData(
+      [u('x'), u('y')], [sec('a', 1)], new Set(['a']),
+    );
+    expect(items[2]).toEqual({ kind: 'side-header', side: 'PARTNER_1' });
+    expect(stickyIndices).toEqual([3]);
+  });
+
+  it('with no category, no side header and no sticky index', () => {
+    const { items, stickyIndices } = buildGuestListData([u('x')], [], new Set());
+    expect(stickyIndices).toEqual([]);
+    expect(items.filter((x) => x.kind === 'side-header')).toEqual([]);
   });
 });
 
