@@ -397,6 +397,20 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
   // Debounced: collapses rapid per-keystroke changes into one network push.
   useEffect(() => {
     function pushPublicPageContentIfActive() {
+      // MODIFICATION LOCALE — la garde de rôle qui manquait ici.
+      //
+      // La poussée d'amorçage, cent lignes plus haut, ne s'autorise QUE pour le
+      // propriétaire (« a member's first sync must never push its local
+      // (possibly stale/empty) snapshot over the owner's real content »). Cette
+      // ré-poussée-ci, elle, n'avait aucune garde — un onglet MEMBRE écrivait
+      // donc sa propre vue par-dessus la page publique du propriétaire, à
+      // chaque hydratation. Le même raisonnement vaut ici mot pour mot ; seule
+      // la garde manquait.
+      //
+      // Trouvé en cherchant la boucle de rétroaction du flux d'événements (elle
+      // faisait boucler les onglets membres aussi), mais c'est un défaut de
+      // DROITS, indépendant du flux et antérieur à lui.
+      if (wedding.role === "member") return;
       const session = getActiveSession();
       const spaceId = getActiveSpaceId();
       const weddingNodeId = getActiveWeddingNodeId();
@@ -435,7 +449,10 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
     });
 
     return () => { unsubPlanning(); unsubWedding(); unsubPermissions(); if (pushTimer) clearTimeout(pushTimer); };
-  }, []);
+    // `wedding.role` est lu dans `pushPublicPageContentIfActive` : sans lui ici,
+    // l'effet fermerait sur le rôle du premier rendu, et un rôle changé en cours
+    // de session laisserait la garde ci-dessus décider sur une valeur périmée.
+  }, [wedding.role]);
 
   return null;
 }
