@@ -286,5 +286,10 @@
   "bulkInvitationTypeAssigned_one": "Invitation type applied to {{count}} guest",
   "bulkInvitationTypeAssigned_other": "Invitation type applied to {{count}} guests",
   "bulkRsvpAssigned_one": "RSVP applied to {{count}} guest",
-  "bulkRsvpAssigned_other": "RSVP applied to {{count}} guests"
+  "bulkRsvpAssigned_other": "RSVP applied to {{count}} guests",
+  "sideNamed": "{name}'s side",
+  "sidePartner1": "First side",
+  "sidePartner2": "Second side",
+  "sideBoth": "Both sides",
+  "sideNone": "No side"
 }

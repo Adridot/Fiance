@@ -286,5 +286,10 @@
   "bulkInvitationTypeAssigned_one": "Type d'invitation appliqué à {{count}} invité",
   "bulkInvitationTypeAssigned_other": "Type d'invitation appliqué à {{count}} invités",
   "bulkRsvpAssigned_one": "Réponse appliquée à {{count}} invité",
-  "bulkRsvpAssigned_other": "Réponse appliquée à {{count}} invités"
+  "bulkRsvpAssigned_other": "Réponse appliquée à {{count}} invités",
+  "sideNamed": "Côté {name}",
+  "sidePartner1": "Premier côté",
+  "sidePartner2": "Second côté",
+  "sideBoth": "Les deux côtés",
+  "sideNone": "Sans côté"
 }
