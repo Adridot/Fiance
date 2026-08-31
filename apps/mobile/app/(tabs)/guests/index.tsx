@@ -42,6 +42,7 @@ import {
   GUEST_ROW_NARROW,
   guestRowColumns,
 } from "@/components/GuestListRow";
+import { GuestRecordModal } from "@/components/GuestRecordModal";
 import { GuestQuickAddModal, type QuickAddContext } from "@/components/GuestQuickAddModal";
 import { InlineSelectMenu, type InlineSelectAnchor } from "@/components/InlineSelectMenu";
 import { InlineChoiceSheet } from "@/components/InlineChoiceSheet";
@@ -579,6 +580,7 @@ function GuestsView() {
   const [cell, setCell] = useState<
     { kind: CellKind; guestId: string; anchor: InlineSelectAnchor | null } | null
   >(null);
+  const [recordId, setRecordId] = useState<string | null>(null);
   const listRef = useRef<any>(null);
 
   // ─── Création rapide ───────────────────────────────────────────────────────
@@ -628,6 +630,12 @@ function GuestsView() {
     const groupId = guest.groupId;
     if (!groupId) return;
     setExpandedGroups((prev) => (prev.has(groupId) ? prev : new Set(prev).add(groupId)));
+  }, []);
+
+  // Un seul calque à la fois : leurs écouteurs d'Échap se marcheraient dessus.
+  const openRecordFromQuickAdd = useCallback((guestId: string) => {
+    setQuickAddOpen(false);
+    setRecordId(guestId);
   }, []);
 
   const closeCell = useCallback(() => setCell(null), []);
@@ -835,10 +843,10 @@ function GuestsView() {
             boxPinned={boxPinned}
             renaming={renamingId === guest.id}
             capturing={capture?.guestId === guest.id}
-            onOpen={() => router.push({
+            onOpen={() => (pointer ? setRecordId(guest.id) : router.push({
               pathname: "/(tabs)/guests/[id]",
               params: { id: guest.id },
-            })}
+            }))}
             onToggleSelected={() => toggleGuestSelection(guest.id)}
             onOpenInvitationType={(anchor) => openCell("invitationType", guest.id, anchor)}
             onOpenRsvp={(anchor) => openCell("rsvp", guest.id, anchor)}
@@ -1200,6 +1208,19 @@ function GuestsView() {
         onDismiss={closeCell}
       />
 
+      {pointer && recordId !== null && (
+        <GuestRecordModal
+          guestId={recordId}
+          onNavigate={(direction) => {
+            const next = adjacentGuestId(listData, recordId, direction);
+            if (next) setRecordId(next);
+          }}
+          hasPrev={adjacentGuestId(listData, recordId, "prev") !== null}
+          hasNext={adjacentGuestId(listData, recordId, "next") !== null}
+          onClose={() => setRecordId(null)}
+        />
+      )}
+
       {pointer && quickAddOpen && quickAddContext && (
         <GuestQuickAddModal
           context={quickAddContext}
@@ -1207,10 +1228,7 @@ function GuestsView() {
             setQuickAddContext((prev) => (prev ? { ...prev, ...patch } : prev))
           }
           onCreated={handleQuickAddCreated}
-          onOpenRecord={(guestId) => {
-            setQuickAddOpen(false);
-            router.push({ pathname: "/(tabs)/guests/[id]", params: { id: guestId } });
-          }}
+          onOpenRecord={openRecordFromQuickAdd}
           onClose={() => setQuickAddOpen(false)}
         />
       )}
