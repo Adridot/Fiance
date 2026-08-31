@@ -354,5 +354,21 @@
   "inlineApplyToHousehold_other": "Apply to the whole household · {{count}}",
   "inlineHouseholdApplied_one": "Applied to {{count}} household member",
   "inlineHouseholdApplied_other": "Applied to {{count}} household members",
-  "nameCaptureFinish": "Done"
+  "nameCaptureFinish": "Done",
+  "quickAdd": {
+    "title": "Add guests",
+    "context": "For this run",
+    "firstName": "First name",
+    "sameHousehold": "Same household as the previous one",
+    "child": "Child",
+    "addAndChain": "Add and continue",
+    "enterHint": "Enter",
+    "addAndClose": "Add and close",
+    "undoLast": "Undo last",
+    "added_one": "{{count}} added",
+    "added_other": "{{count}} added",
+    "nameIsEnough": "A surname is enough — the first name can be filled in later.",
+    "addToGroup": "Add in this category",
+    "close": "Close"
+  }
 }

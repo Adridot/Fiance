@@ -635,3 +635,97 @@ export function adjacentGuestId<G extends { id: string }, GR>(
   return ids[direction === "next" ? at + 1 : at - 1] ?? null;
 }
 
+// ─── Gabarit de création ─────────────────────────────────────────────────────
+
+export interface NewGuestInput {
+  id: string;
+  now: string;
+  firstName: string;
+  nameParticle?: string | null;
+  lastName: string;
+  groupId: string | null;
+  invitationType: string;
+  rsvpStatus: string;
+  isChild: boolean;
+  householdId?: string | null;
+}
+
+/**
+ * Les défauts de création, en un seul endroit : deux surfaces de création qui
+ * les recopieraient divergeraient en silence.
+ *
+ * Le patronyme est normalisé en capitales — la liste importée l'est tout
+ * entière ; la particule est gardée telle que tapée, l'affichage la met déjà
+ * en capitales.
+ */
+export function newGuestDraft(input: NewGuestInput): Guest {
+  const particle = (input.nameParticle ?? "").trim();
+  const rsvp = rsvpStatusUpdate(
+    { rsvpStatus: "PENDING", rsvpDate: null },
+    input.rsvpStatus,
+    input.now,
+  );
+  return {
+    id: input.id,
+    firstName: input.firstName.trim(),
+    nameParticle: particle || null,
+    lastName: input.lastName.trim().toLocaleUpperCase("fr"),
+    side: null,
+    invitationType: input.invitationType,
+    householdId: input.householdId ?? null,
+    isChild: input.isChild,
+    rsvpStatus: rsvp.rsvpStatus ?? input.rsvpStatus,
+    rsvpDate: rsvp.rsvpDate ?? null,
+    isSleeping: null,
+    childrenCount: null,
+    diet: "STANDARD",
+    dietNotes: null,
+    groupId: input.groupId,
+    tableId: null,
+    companionId: null,
+    noTableNeeded: false,
+    giftDescription: null,
+    thankYouSent: false,
+    thankYouSentDate: null,
+    accommodationId: null,
+    roomNumber: null,
+    rsvpToken: null,
+    email: null,
+    phone: null,
+    address: null,
+    notes: null,
+    shuttleVendorId: null,
+    shuttlePickupLocation: null,
+    shuttlePickupTime: null,
+    parkingNeeded: false,
+    parkingNotes: null,
+    arrivalNotes: null,
+    transportMode: "car",
+    createdAt: input.now,
+    updatedAt: input.now,
+  };
+}
+
+// ─── Foyer enchaîné ──────────────────────────────────────────────────────────
+
+export interface ChainedHousehold {
+  householdId: string | null;
+  /** Le précédent n'avait pas de foyer : il entre dans le foyer frais. */
+  attachPrevious: boolean;
+}
+
+/**
+ * Le foyer que reprend une création enchaînée. Le `mintedId` vient de
+ * l'appelant : le SDK ne tire pas d'aléa. Aucune entité n'est créée —
+ * l'appartenance seule fait le foyer.
+ */
+export function resolveChainedHousehold(
+  guests: readonly Pick<Guest, "id" | "householdId">[],
+  previousId: string | null | undefined,
+  mintedId: string,
+): ChainedHousehold {
+  const previous = previousId ? guests.find((g) => g.id === previousId) : undefined;
+  if (!previous) return { householdId: null, attachPrevious: false };
+  if (previous.householdId) return { householdId: previous.householdId, attachPrevious: false };
+  return { householdId: mintedId, attachPrevious: true };
+}
