@@ -53,7 +53,7 @@ export default function JoinScreen() {
     );
   }
 
-  // No valid invite token → show error
+  // Aucune invitation reconnue : on DIT pourquoi, et on offre le second chemin.
   if (!token) {
     return <InvalidInvite />;
   }

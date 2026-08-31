@@ -49,7 +49,7 @@
   --font-sans:    "Inter", -apple-system, system-ui, sans-serif;
 }
 
-/* Garden Press primary palette — clay (warm rust-brown) */
+/* Rampe primaire — Sea Green, ancrée exactement sur `500` = #00916e */
 :root {
   --color-primary-0:   251 244 239;
   --color-primary-50:  248 233 224;

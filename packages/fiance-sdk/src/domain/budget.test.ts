@@ -195,7 +195,7 @@ describe("calculateVendorTotal — dynamic per-invitation-type pricing", () => {
 
   it("adds a vendor-level fixed fee on top of the dynamic total", () => {
     const vendor = { type: "CATERER", basePrice: null, dynamicPricing: true, fixedFee: 500 } as any;
-    const pricings = [line("FULL", 50)]; // 50 * FULL all-invited(30) = 1500
+    const pricings = [line("FULL", 50)];
     expect(calculateVendorTotal(vendor, baseCounts, pricings)).toBe(2000);
   });
 

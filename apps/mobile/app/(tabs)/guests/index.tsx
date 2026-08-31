@@ -42,7 +42,7 @@ export default function GuestsListScreen() {
   );
 }
 
-// ─── Guest Card ─────────────────────────────────────────────────────────
+// ─── Rangs de la liste ───────────────────────────────────────────────────────
 
 function GuestCard({ guest, invitationTypeLabel }: { guest: Guest; invitationTypeLabel: string }) {
   const { t } = useTranslation("guests");

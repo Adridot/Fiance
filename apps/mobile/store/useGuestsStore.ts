@@ -111,7 +111,7 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
     partyStore.setWeddingRoleAssignments(
       removeRoleAssignmentsForGuest(partyStore.weddingRoleAssignments, id),
     );
-    // Cascade: strip this guest from seating constraints, dropping under-2 ones
+    // Cascade: strip these guests from seating constraints, dropping under-2 ones
     const seatingStore = useSeatingConstraintsStore.getState();
     seatingStore.setSeatingConstraints(detachGuestFromConstraints(seatingStore.seatingConstraints, id));
     // Cascade: remove this guest's meal selections
