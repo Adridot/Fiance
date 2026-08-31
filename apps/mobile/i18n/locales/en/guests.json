@@ -266,6 +266,8 @@
     "deleteConstraintMsg": "This action cannot be undone."
   },
   "importExternalGuests": "Import from an external source",
+  "expandAllGroups": "Expand all",
+  "collapseAllGroups": "Collapse all",
   "bulkSelected_one": "{{count}} selected",
   "bulkSelected_other": "{{count}} selected",
   "bulkHiddenByFilter_one": "{{count}} hidden by the filter",
@@ -297,6 +299,11 @@
   "namesToComplete_one": "{{count}} first name to complete",
   "namesToComplete_other": "{{count}} first names to complete",
   "rsvpProgress": "{{answered}}/{{total}} answered",
+  "nameQueueFirstName": "First name",
+  "backToGuests": "Back to the list",
+  "nameQueueRemaining_one": "{{count}} first name to find",
+  "nameQueueRemaining_other": "{{count}} first names to find",
+  "nameQueueAllDone": "Every first name in this category is now known.",
   "household": {
     "section": "Household",
     "explain": "A household is what an invitation is addressed to, and what a reply is expected from. An address is entered once for all its members.",
@@ -335,5 +342,17 @@
     "removeExplain": "Its members stay in the guest list, without a household. The household's address and label are removed.",
     "gone": "This household no longer exists."
   },
-  "communicationPartialHousehold": "Sent to part of the household"
+  "communicationPartialHousehold": "Sent to part of the household",
+  "columnGuest": "Guest",
+  "columnInvitationType": "Invitation type",
+  "columnInvitationTypeShort": "Type",
+  "columnRsvp": "RSVP",
+  "inlineRename": "Rename",
+  "inlineEditHint": "Enter to save · Esc to cancel",
+  "inlineMenuHint": "Arrows to move · Enter to pick · Esc to close",
+  "inlineApplyToHousehold_one": "Apply to the whole household · {{count}}",
+  "inlineApplyToHousehold_other": "Apply to the whole household · {{count}}",
+  "inlineHouseholdApplied_one": "Applied to {{count}} household member",
+  "inlineHouseholdApplied_other": "Applied to {{count}} household members",
+  "nameCaptureFinish": "Done"
 }

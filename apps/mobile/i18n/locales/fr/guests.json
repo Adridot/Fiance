@@ -266,6 +266,8 @@
     "deleteConstraintMsg": "Cette action est irréversible."
   },
   "importExternalGuests": "Importer depuis une source externe",
+  "expandAllGroups": "Tout déplier",
+  "collapseAllGroups": "Tout replier",
   "bulkSelected_one": "{{count}} sélectionné",
   "bulkSelected_other": "{{count}} sélectionnés",
   "bulkHiddenByFilter_one": "dont {{count}} masqué par le filtre",
@@ -297,6 +299,11 @@
   "namesToComplete_one": "{{count}} prénom à compléter",
   "namesToComplete_other": "{{count}} prénoms à compléter",
   "rsvpProgress": "{{answered}}/{{total}} réponses",
+  "nameQueueFirstName": "Prénom",
+  "backToGuests": "Retour à la liste",
+  "nameQueueRemaining_one": "{{count}} prénom à trouver",
+  "nameQueueRemaining_other": "{{count}} prénoms à trouver",
+  "nameQueueAllDone": "Tous les prénoms de cette catégorie sont désormais connus.",
   "household": {
     "section": "Foyer",
     "explain": "Le foyer est ce à quoi le faire-part est adressé, et ce dont une réponse est attendue. Une adresse s'y saisit une fois pour tous ses membres.",
@@ -335,5 +342,17 @@
     "removeExplain": "Ses membres restent dans la liste d'invités, sans foyer. L'adresse et l'intitulé du foyer disparaissent.",
     "gone": "Ce foyer n'existe plus."
   },
-  "communicationPartialHousehold": "Envoi fait pour une partie du foyer"
+  "communicationPartialHousehold": "Envoi fait pour une partie du foyer",
+  "columnGuest": "Invité",
+  "columnInvitationType": "Type d'invitation",
+  "columnInvitationTypeShort": "Type",
+  "columnRsvp": "Réponse",
+  "inlineRename": "Renommer",
+  "inlineEditHint": "Entrée pour valider · Échap pour annuler",
+  "inlineMenuHint": "Flèches pour naviguer · Entrée pour valider · Échap pour fermer",
+  "inlineApplyToHousehold_one": "Appliquer à tout le foyer · {{count}}",
+  "inlineApplyToHousehold_other": "Appliquer à tout le foyer · {{count}}",
+  "inlineHouseholdApplied_one": "Appliqué à {{count}} membre du foyer",
+  "inlineHouseholdApplied_other": "Appliqué aux {{count}} membres du foyer",
+  "nameCaptureFinish": "Terminer"
 }

@@ -576,3 +576,62 @@ export function buildGuestListData<
   return { items, stickyIndices };
 }
 
+// ─── Séquencement de la saisie en place ──────────────────────────────────────
+
+/**
+ * Le prochain prénom à trouver d'une catégorie, dans l'ordre d'affichage.
+ *
+ * Le rang de `afterId` est cherché parmi TOUS les invités de la catégorie, pas
+ * seulement parmi ceux à compléter : l'invité qu'on vient de nommer ne l'est
+ * justement plus, et c'est depuis sa place qu'il faut repartir. Une ancre
+ * disparue reprend au début plutôt que de rendre `null`.
+ */
+export function nextFirstNameToComplete<T extends IncompleteGuest & Pick<Guest, "id">>(
+  guests: readonly T[],
+  groupId: string,
+  afterId?: string | null,
+): T | null {
+  const ordered = guests.filter((g) => g.groupId === groupId).sort(byName);
+  const from = afterId ? ordered.findIndex((g) => g.id === afterId) + 1 : 0;
+  for (let i = from; i < ordered.length; i++) {
+    if (isFirstNameToComplete(ordered[i])) return ordered[i];
+  }
+  return null;
+}
+
+// ─── Plage de sélection ──────────────────────────────────────────────────────
+
+/**
+ * Les identifiants entre l'ancre et la cible, bornes incluses, dans l'ordre
+ * fourni — celui que la liste montre. Une ancre absente rend la seule cible :
+ * un clic-Maj dont l'ancre a été filtrée reste un clic ordinaire.
+ */
+export function selectRange(
+  visibleIds: readonly string[],
+  anchorId: string | null | undefined,
+  targetId: string,
+): string[] {
+  const target = visibleIds.indexOf(targetId);
+  if (target < 0) return [];
+  const anchor = anchorId ? visibleIds.indexOf(anchorId) : -1;
+  if (anchor < 0) return [targetId];
+  return anchor <= target
+    ? visibleIds.slice(anchor, target + 1)
+    : visibleIds.slice(target, anchor + 1);
+}
+
+// ─── Voisin dans la liste affichée ───────────────────────────────────────────
+
+/** L'invité précédent ou suivant dans les items de `buildGuestListData`, en-têtes ignorés. */
+export function adjacentGuestId<G extends { id: string }, GR>(
+  items: readonly GuestListEntry<G, GR>[],
+  currentId: string,
+  direction: "prev" | "next",
+): string | null {
+  const ids: string[] = [];
+  for (const item of items) if (item.kind === "guest") ids.push(item.guest.id);
+  const at = ids.indexOf(currentId);
+  if (at < 0) return null;
+  return ids[direction === "next" ? at + 1 : at - 1] ?? null;
+}
+
