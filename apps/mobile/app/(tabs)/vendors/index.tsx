@@ -25,6 +25,7 @@ import { QuotaBadge } from "@/components/QuotaBadge";
 import { useShowPaywall } from "@/components/PaywallProvider";
 import { useCanAddMore, FREE_LIMITS } from "@/lib/limits";
 import { toast } from "@/lib/toast/sonner";
+import { theme as GP } from "@/lib/theme";
 
 const VENDOR_TYPES = Object.keys(VENDOR_TYPE_LABELS) as VendorType[];
 
@@ -118,7 +119,7 @@ export default function VendorsListScreen() {
                 <View className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center mr-3">
                   {(() => {
                     const Icon = VENDOR_TYPE_ICONS[vendor.type as VendorType] || Ellipsis;
-                    return <Icon size={18} color="#b96a4a" />;
+                    return <Icon size={18} color={GP.clay} />;
                   })()}
                 </View>
                 <View className="flex-1">

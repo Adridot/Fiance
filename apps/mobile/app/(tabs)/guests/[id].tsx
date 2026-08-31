@@ -333,7 +333,7 @@ export default function GuestDetailScreen() {
               style={{ paddingHorizontal: 0, paddingTop: 0 }}
             />
             {rsvpStatus === "ACCEPTED" && (
-              <Seal label="✓" sublabel={t("confirmed").toLowerCase()} color="#6e7a4a" size={40} angle={-8} style={{ position: "absolute", top: -8, right: 8 }} />
+              <Seal label="✓" sublabel={t("confirmed").toLowerCase()} color={GP.olive} size={40} angle={-8} style={{ position: "absolute", top: -8, right: 8 }} />
             )}
           </View>
         )}
@@ -624,7 +624,7 @@ export default function GuestDetailScreen() {
         >
           {companionId ? (
             <>
-              <UserPlus size={16} color="#b96a4a" />
+              <UserPlus size={16} color={GP.clay} />
               <Text className="text-sm text-primary-500 font-medium ml-2 flex-1">
                 {(() => {
                   const c = guests.find((g) => g.id === companionId);
@@ -680,7 +680,7 @@ export default function GuestDetailScreen() {
                     onPress={() => toggleRecipient(comm.id, id!, new Date().toISOString())}
                     className="flex-row items-center py-2 border-b border-hair"
                   >
-                    {sent ? <CheckCircle2 size={16} color="#6e7a4a" /> : <Circle size={16} color="#C0C0C8" />}
+                    {sent ? <CheckCircle2 size={16} color={GP.olive} /> : <Circle size={16} color="#C0C0C8" />}
                     <View className="flex-1 ml-2.5">
                       <Text className="text-sm text-ink" numberOfLines={1}>{comm.label}</Text>
                       {comm.channel && (
@@ -946,7 +946,7 @@ function GuestSectionRow({
       className="bg-accent-card rounded-2xl p-4 mb-2.5 border border-hair flex-row items-center active:opacity-70"
     >
       <View className="w-9 h-9 rounded-full bg-accent-clay-soft dark:bg-primary-900 items-center justify-center mr-3">
-        <Icon size={16} color="#b96a4a" />
+        <Icon size={16} color={GP.clay} />
       </View>
       <View className="flex-1">
         <Text className="text-sm font-semibold text-ink">{title}</Text>

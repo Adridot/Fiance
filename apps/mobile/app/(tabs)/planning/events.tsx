@@ -17,6 +17,7 @@ import { QuotaBadge } from "@/components/QuotaBadge";
 import { useCanAddMore } from "@/lib/limits";
 import { toast } from "@/lib/toast/sonner";
 import type { WeddingEvent } from "@/db/schema";
+import { theme as GP } from "@/lib/theme";
 
 const TYPES = Object.keys(WEDDING_EVENT_TYPE_LABELS) as WeddingEventType[];
 
@@ -213,7 +214,7 @@ export default function PlanningEventsScreen() {
                   <View className="flex-1">
                     <View className="flex-row items-center gap-1.5">
                       <Text className="text-base font-semibold text-ink">{e.title}</Text>
-                      {e.isPrimary && <Star size={13} color="#c9922f" fill="#c9922f" />}
+                      {e.isPrimary && <Star size={13} color={GP.mustard} fill={GP.mustard} />}
                     </View>
                     <Text className="text-xs text-mute mt-0.5">
                       {t(WEDDING_EVENT_TYPE_LABELS[e.type as WeddingEventType])} · {e.date}

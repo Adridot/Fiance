@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { useIsWideScreen } from "@/lib/useIsWideScreen";
 import { useIsReadOnlyMember } from "@/lib/permissions/useIsReadOnlyMember";
+import { theme as GP } from "@/lib/theme";
 
 /**
  * Desktop-web-only top banner for a device that can't edit (see
@@ -33,13 +34,13 @@ const styles = StyleSheet.create({
   banner: {
     width: "100%",
     zIndex: 999,
-    backgroundColor: "#b96a4a", // clay — matches OfflineBanner's mustard "warning" convention
+    backgroundColor: GP.clay, // accent primaire — même convention de bandeau que OfflineBanner
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 8,
   },
   text: {
-    color: "#fdfaf1", // card-cream on clay
+    color: GP.card, // fond de carte sur le primaire
     fontSize: 12,
     fontFamily: "Inter_500Medium",
     letterSpacing: 0.2,

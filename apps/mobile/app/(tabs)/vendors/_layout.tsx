@@ -9,6 +9,7 @@ import { useShowPaywall } from "@/components/PaywallProvider";
 import { toast } from "@/lib/toast/sonner";
 import { useIsWideScreen } from "@/lib/useIsWideScreen";
 import { HeaderAddButton } from "@/components/HeaderAddButton";
+import { theme as GP } from "@/lib/theme";
 
 export default function VendorsLayout() {
   const { t } = useTranslation("vendors");
@@ -34,7 +35,7 @@ export default function VendorsLayout() {
           title: "",
           headerShown: !isWide,
           headerShadowVisible: false,
-          headerStyle: { backgroundColor: isDark ? "#1a1510" : "#f2ece0" },
+          headerStyle: { backgroundColor: isDark ? GP.paperDark : GP.paper },
           headerRight: () => (
             <HeaderAddButton
               accessibilityLabel={t("newVendor")}

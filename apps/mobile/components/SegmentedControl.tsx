@@ -5,6 +5,7 @@ import NativeSegmentedControl, {
   type NativeSegmentedControlChangeEvent,
 } from "@expo/ui/community/segmented-control";
 import { useSettingsStore } from "@/store/useSettingsStore";
+import { theme as GP } from "@/lib/theme";
 
 // Native @expo/ui control (real SwiftUI/Jetpack Compose segmented control)
 // instead of a custom JS pill — no more bg-background-0/border-b white band
@@ -72,7 +73,7 @@ export function SegmentedControl({ segments, activeKey, onSelect, compact = fals
       onChange={(event: NativeSegmentedControlChangeEvent) => {
         onSelect(segments[event.nativeEvent.selectedSegmentIndex].key);
       }}
-      tintColor="#b96a4a"
+      tintColor={GP.clay}
       appearance={isDark ? "dark" : "light"}
       style={{ height: 36 }}
     />

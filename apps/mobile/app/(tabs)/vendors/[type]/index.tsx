@@ -17,6 +17,7 @@ import { Display } from "@/components/Display";
 import { useShowPaywall } from "@/components/PaywallProvider";
 import { useCanAddMore, useHasFeature, FREE_LIMITS } from "@/lib/limits";
 import { toast } from "@/lib/toast/sonner";
+import { theme as GP } from "@/lib/theme";
 
 export default function VendorTypeListScreen() {
   const { t } = useTranslation("vendors");
@@ -87,7 +88,7 @@ export default function VendorTypeListScreen() {
               className="mb-3 flex-row items-center gap-1.5"
             >
               <Text className="text-sm text-primary-500 font-medium">{t("comparison.viewAll")}</Text>
-              {!hasQuoteComparison && <Lock size={13} color="#b96a4a" />}
+              {!hasQuoteComparison && <Lock size={13} color={GP.clay} />}
             </Pressable>
           )}
           {vendors.map((vendor) => (
@@ -118,7 +119,7 @@ export default function VendorTypeListScreen() {
                     color={VENDOR_STATUS_COLORS[vendor.status as keyof typeof VENDOR_STATUS_COLORS] || "#9CA3AF"}
                   />
                   {vendor.isSelected === true && (
-                    <StatusBadge label={t("comparison.retainedBadge")} color="#6e7a4a" />
+                    <StatusBadge label={t("comparison.retainedBadge")} color={GP.olive} />
                   )}
                 </View>
               </View>

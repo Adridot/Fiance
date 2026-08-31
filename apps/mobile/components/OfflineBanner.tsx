@@ -4,6 +4,7 @@ import Animated, { useSharedValue, useAnimatedStyle, withTiming } from "react-na
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { getStarfishStore, onSyncStatusChange, subscribeSyncStatus } from "@/lib/starfish";
+import { theme as GP } from "@/lib/theme";
 
 const BANNER_HEIGHT = 36;
 
@@ -71,13 +72,13 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 999,
-    backgroundColor: "#c9922f", // mustard — "warning" in Garden Press
+    backgroundColor: GP.mustard, // accent d'attention (ambre)
     alignItems: "center",
     justifyContent: "flex-end",
     paddingBottom: 6,
   },
   text: {
-    color: "#fdfaf1", // card-cream on mustard
+    color: GP.card, // fond de carte sur l'ambre
     fontSize: 12,
     fontFamily: "Inter_500Medium",
     letterSpacing: 0.2,

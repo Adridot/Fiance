@@ -334,7 +334,7 @@ export default function SettingsScreen() {
         <IconCard
           icon={
             <View className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center">
-              <Sparkles size={20} color="#b96a4a" />
+              <Sparkles size={20} color={theme.clay} />
             </View>
           }
           title={premium ? t("premiumUnlocked") : t("premiumTitle")}
@@ -349,7 +349,7 @@ export default function SettingsScreen() {
         <IconCard
           icon={
             <View className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center">
-              <Globe size={20} color="#b96a4a" />
+              <Globe size={20} color={theme.clay} />
             </View>
           }
           title={t("publicPageTitle")}
@@ -361,7 +361,7 @@ export default function SettingsScreen() {
         {/* <IconCard
           icon={
             <View className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center">
-              <FileText size={20} color="#b96a4a" />
+              <FileText size={20} color={theme.clay} />
             </View>
           }
           title={t("documentsTitle")}
@@ -409,7 +409,7 @@ export default function SettingsScreen() {
           <IconCard
             icon={
               <View className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center">
-                <Share2 size={20} color="#b96a4a" />
+                <Share2 size={20} color={theme.clay} />
               </View>
             }
             title={t("shareInviteLink")}
@@ -417,7 +417,7 @@ export default function SettingsScreen() {
             right={
               canInviteMember
                 ? <ChevronRight size={18} color="#C0C0C8" />
-                : <Lock size={16} color="#b96a4a" />
+                : <Lock size={16} color={theme.clay} />
             }
             onPress={handleInvite}
           />
@@ -426,7 +426,7 @@ export default function SettingsScreen() {
           <IconCard
             icon={
               <View className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center">
-                <Users size={20} color="#b96a4a" />
+                <Users size={20} color={theme.clay} />
               </View>
             }
             title={t("rolesTitle")}
@@ -439,7 +439,7 @@ export default function SettingsScreen() {
           <IconCard
             icon={
               <View className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center">
-                <Lock size={20} color="#b96a4a" />
+                <Lock size={20} color={theme.clay} />
               </View>
             }
             title={t("collabInviteLockedTitle")}
@@ -449,8 +449,8 @@ export default function SettingsScreen() {
         {needsNamespaceResync(activeEntry) && (
           <IconCard
             icon={
-              <View className="w-10 h-10 rounded-xl items-center justify-center" style={{ backgroundColor: "#FBF0DD" }}>
-                <RefreshCw size={20} color="#c9922f" />
+              <View className="w-10 h-10 rounded-xl items-center justify-center" style={{ backgroundColor: theme.mustardSoft }}>
+                <RefreshCw size={20} color={theme.mustard} />
               </View>
             }
             title={t("resyncWedding")}
@@ -503,13 +503,13 @@ export default function SettingsScreen() {
                 <View
                   className="w-10 h-10 rounded-xl items-center justify-center mr-3"
                   style={{
-                    backgroundColor: isActive ? "#b96a4a15" : "#F3F4F6",
+                    backgroundColor: isActive ? `${theme.clay}15` : "#F3F4F6",
                   }}
                 >
                   <Heart
                     size={20}
-                    color={isActive ? "#b96a4a" : "#9CA3AF"}
-                    fill={isActive ? "#b96a4a" : "transparent"}
+                    color={isActive ? theme.clay : "#9CA3AF"}
+                    fill={isActive ? theme.clay : "transparent"}
                   />
                 </View>
                 <View className="flex-1">
@@ -521,7 +521,7 @@ export default function SettingsScreen() {
                   </Text>
                 </View>
                 {isActive && (
-                  <CheckCircle2 size={20} color="#b96a4a" />
+                  <CheckCircle2 size={20} color={theme.clay} />
                 )}
               </Pressable>
               <Pressable
@@ -573,7 +573,7 @@ export default function SettingsScreen() {
         <ToggleCard
           icon={
             <View className="w-10 h-10 rounded-xl bg-accent-paper items-center justify-center">
-              <Lock size={20} color={lockEnabled ? "#b96a4a" : "#C0C0C8"} />
+              <Lock size={20} color={lockEnabled ? theme.clay : "#C0C0C8"} />
             </View>
           }
           title={t("appLock")}
@@ -590,7 +590,7 @@ export default function SettingsScreen() {
           <ToggleCard
             icon={
               <View className="w-10 h-10 rounded-xl bg-accent-paper items-center justify-center" style={{ position: "relative" }}>
-                <Bell size={20} color={notificationsEnabled ? "#b96a4a" : "#C0C0C8"} />
+                <Bell size={20} color={notificationsEnabled ? theme.clay : "#C0C0C8"} />
                 {!hasReminders && (
                   <View
                     className="w-3.5 h-3.5 rounded-full bg-primary-500 items-center justify-center"
@@ -611,7 +611,7 @@ export default function SettingsScreen() {
               onPress={() => { toast.error(t("remindersLockedHint")); setShowPaywall(true); }}
               className="flex-row items-start gap-2 mb-2 -mt-1 px-3.5 py-3 rounded-xl bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-800 active:opacity-70"
             >
-              <Lock size={14} color="#b96a4a" style={{ marginTop: 1 }} />
+              <Lock size={14} color={theme.clay} style={{ marginTop: 1 }} />
               <Text className="flex-1 text-xs text-primary-600 dark:text-primary-300 leading-4">
                 {t("remindersLockedHint")}
               </Text>

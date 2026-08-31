@@ -29,6 +29,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { parseLinks } from "@/lib/links";
 import { PageHeader } from "@/components/PageHeader";
 import { Script } from "@/components/Script";
+import { theme as GP } from "@/lib/theme";
 
 // ─── Category metadata ──────────────────────────────────────────────────────
 
@@ -48,7 +49,7 @@ const CATEGORY_COLORS: Record<IdeaCategory, string> = {
   TABLE_DECOR: "#84CC16",
   VENUE_DECOR: "#10B981",
   CEREMONY_DECOR: "#8B5CF6",
-  BOUQUET: "#b96a4a",
+  BOUQUET: GP.clay,
   ATTIRE: "#F59E0B",
   CAKE: "#F97316",
   PHOTO_STYLE: "#6366F1",
@@ -131,7 +132,7 @@ export default function IdeasScreen() {
           eyebrow={t("common:tabs.ideas")}
           title={t("collectionCount", { count: collections.length })}
           titleSize={22}
-          right={ideas.length > 0 ? <Script size={16} color="#c9922f">{t("pageTagline", { count: ideas.length })}</Script> : undefined}
+          right={ideas.length > 0 ? <Script size={16} color={GP.mustard}>{t("pageTagline", { count: ideas.length })}</Script> : undefined}
         />
       )}
       <SearchBar
@@ -183,7 +184,7 @@ export default function IdeasScreen() {
             </Text>
             <ChevronDown
               size={14}
-              color={activeCategory ? "#b96a4a" : "#9CA3AF"}
+              color={activeCategory ? GP.clay : "#9CA3AF"}
             />
           </Pressable>
 
@@ -385,7 +386,7 @@ function IdeaCard({ idea, onPress }: { idea: Idea; onPress: () => void }) {
           if (links.length === 0) return null;
           return (
             <View className="flex-row items-center mt-1.5">
-              <Link size={10} color="#b96a4a" />
+              <Link size={10} color={GP.clay} />
               <Text
                 className="text-[11px] text-primary-400 ml-1"
                 numberOfLines={1}

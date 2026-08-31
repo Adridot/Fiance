@@ -4,6 +4,7 @@ import { Check } from "lucide-react-native";
 import { SearchBar } from "@/components/SearchBar";
 import { Avatar } from "@/components/Avatar";
 import type { Guest } from "@/db/schema";
+import { theme as GP } from "@/lib/theme";
 
 /** Searchable, checkable guest list — embedded inline inside add/edit forms. */
 export function GuestSelectList({
@@ -48,7 +49,7 @@ export function GuestSelectList({
                   {g.firstName} {g.lastName}
                 </Text>
               </View>
-              {selected && <Check size={18} color="#6e7a4a" />}
+              {selected && <Check size={18} color={GP.olive} />}
             </Pressable>
           );
         })}

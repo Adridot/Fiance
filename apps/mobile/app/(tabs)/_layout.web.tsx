@@ -33,7 +33,7 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: GP.clay,
-        tabBarInactiveTintColor: isDark ? GP.mute : "#a09585",
+        tabBarInactiveTintColor: isDark ? GP.muteDark : GP.mute,
         tabBarStyle: (!hasWedding || isWide) ? { display: "none" } : {
           backgroundColor: isDark ? GP.paperDark : GP.paper,
           borderTopColor: isDark ? GP.hairStrong : GP.hair,

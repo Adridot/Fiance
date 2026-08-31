@@ -32,6 +32,7 @@ import { Display } from "@/components/Display";
 import { PageHeader } from "@/components/PageHeader";
 import { Postit } from "@/components/Postit";
 import { analytics } from "@/lib/analytics";
+import { theme as GP } from "@/lib/theme";
 
 export default function PublicPageScreen() {
   const router = useRouter();
@@ -205,7 +206,7 @@ export default function PublicPageScreen() {
         </Text>
         {isMultiDay && !hasPublicMultiDay && (
           <View className="flex-row items-center gap-1.5 mb-3 -mt-2">
-            <Lock size={13} color="#b96a4a" />
+            <Lock size={13} color={GP.clay} />
             <Text className="text-xs text-primary-500">
               {t("multiDayLockedHint")}
             </Text>
@@ -273,14 +274,14 @@ export default function PublicPageScreen() {
           right={
             hasPublicFaq
               ? <ChevronRight size={18} color="#C0C0C8" />
-              : <Lock size={16} color="#b96a4a" />
+              : <Lock size={16} color={GP.clay} />
           }
           onPress={() => router.push("/settings/faq")}
         />
         <IconCard
           icon={
             <View className="w-10 h-10 rounded-xl bg-accent-blush dark:bg-primary-900 items-center justify-center">
-              <Gift size={20} color="#b96a4a" />
+              <Gift size={20} color={GP.clay} />
             </View>
           }
           title={t("giftRegistry")}
@@ -288,7 +289,7 @@ export default function PublicPageScreen() {
           right={
             hasPublicGifts
               ? <ChevronRight size={18} color="#C0C0C8" />
-              : <Lock size={16} color="#b96a4a" />
+              : <Lock size={16} color={GP.clay} />
           }
           onPress={() => router.push("/settings/gifts")}
         />
@@ -360,7 +361,7 @@ function PreviewTimelineCard({ item, idx, total, router, t }: {
 }) {
   return (
     <TimelineItem
-      left={<Display size={14} weight="500" color="#b96a4a" style={{ marginTop: 14 }}>{item.time}</Display>}
+      left={<Display size={14} weight="500" color={GP.clay} style={{ marginTop: 14 }}>{item.time}</Display>}
       showConnector={idx < total - 1}
       onPress={() => router.push({ pathname: "/(tabs)/planning/day-of-item", params: { id: item.id } })}
     >

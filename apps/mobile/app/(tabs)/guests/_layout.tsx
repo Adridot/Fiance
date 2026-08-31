@@ -12,6 +12,7 @@ import { toast } from "@/lib/toast/sonner";
 import { StackMenu } from "@/components/StackMenu";
 import { HeaderAddButton } from "@/components/HeaderAddButton";
 import { useIsWideScreen } from "@/lib/useIsWideScreen";
+import { theme as GP } from "@/lib/theme";
 
 export default function InvitesLayout() {
   const { t } = useTranslation("guests");
@@ -38,7 +39,7 @@ export default function InvitesLayout() {
           title: "",
           headerShown: !isWide,
           headerShadowVisible: false,
-          headerStyle: { backgroundColor: isDark ? "#1a1510" : "#f2ece0" },
+          headerStyle: { backgroundColor: isDark ? GP.paperDark : GP.paper },
           headerRight: () => (
             <View className="flex-row items-center">
               <HeaderAddButton

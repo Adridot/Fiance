@@ -20,6 +20,7 @@ import { useShowPaywall } from "@/components/PaywallProvider";
 import { isDayOfMultiDay } from "@fiance/sdk";
 import type { DayOfItem } from "@/db/schema";
 import { PageHeader } from "@/components/PageHeader";
+import { theme as GP } from "@/lib/theme";
 
 /** Row that opens a bottom sheet to pick a wedding-party role (mirrors DateRow/TimeRow's tap-to-open pattern). */
 function RoleRow({
@@ -64,7 +65,7 @@ function RoleRow({
           }`}
         >
           <Text className={!value ? "text-primary-600 font-medium" : "text-typography-700"}>{noneLabel}</Text>
-          {!value && <Check size={18} color="#b96a4a" />}
+          {!value && <Check size={18} color={GP.clay} />}
         </Pressable>
         {roles.map((r) => {
           const active = r.id === value;
@@ -80,7 +81,7 @@ function RoleRow({
               }`}
             >
               <Text className={active ? "text-primary-600 font-medium" : "text-typography-700"}>{r.name}</Text>
-              {active && <Check size={18} color="#b96a4a" />}
+              {active && <Check size={18} color={GP.clay} />}
             </Pressable>
           );
         })}
@@ -213,7 +214,7 @@ export default function DayOfItemScreen() {
             onPress={() => openPaywall(t("settings:multiDayLockedHint"))}
             className="flex-row items-start gap-2 mb-3 -mt-1 px-3.5 py-3 rounded-xl bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-800 active:opacity-70"
           >
-            <Lock size={14} color="#b96a4a" style={{ marginTop: 1 }} />
+            <Lock size={14} color={GP.clay} style={{ marginTop: 1 }} />
             <Text className="flex-1 text-xs text-primary-600 dark:text-primary-300 leading-4">
               {t("settings:multiDayLockedHint")}
             </Text>
