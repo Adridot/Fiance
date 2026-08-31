@@ -99,6 +99,43 @@ import { withIndexLock } from '@/lib/index-lock';
 // MODIFICATION LOCALE — le KV local, seul état de ce fichier qui survive au
 // départ de la page (voir « la demande de poussée survit au départ » plus bas).
 import { readCollection, writeCollection } from '@/lib/kv-storage';
+// MODIFICATION LOCALE — l'instantané local est réécrit par l'hydratation.
+import type { SQLiteStorage } from 'expo-sqlite/kv-store';
+import { getStorage } from '@/lib/kv-storage';
+import {
+  persistWedding,
+  persistGroups,
+  persistGuests,
+  persistTables,
+  persistHouseholds,
+  persistVendors,
+  persistQuotePricings,
+  persistVendorPayments,
+  persistAccommodations,
+  persistGifts,
+  persistInvitationTypes,
+  persistCommunications,
+  persistWeddingRoles,
+  persistWeddingRoleAssignments,
+  persistSeatingConstraints,
+  persistWeddingEvents,
+  persistMealSelections,
+  persistCommunicationTemplates,
+  persistDocuments,
+  persistLegalMilestones,
+  persistHoneymoonPlans,
+  persistTaskCategories,
+  persistTasks,
+  persistAgendaEvents,
+  persistDayOfItems,
+  persistIdeaCollections,
+  persistIdeas,
+  persistCeremonyItems,
+  persistSpeeches,
+  persistPlaylistTracks,
+  persistPermissionRoles,
+  persistPermissionAssignments,
+} from '@/lib/persistence';
 
 // ---------------------------------------------------------------------------
 // Debounced push scheduler
@@ -1052,6 +1089,65 @@ export async function discoverOwnerWeddingRoot(
   }
 }
 
+// ─── MODIFICATION LOCALE — l'instantané local suit l'hydratation ─────────────
+//
+// `hydrateAllStores` peint l'écran depuis le KV, mais le KV n'était réécrit
+// qu'à la MUTATION LOCALE : les setters de l'hydratation sont muets. Une
+// modification venue d'ailleurs restait donc absente de l'instantané, et chaque
+// chargement à froid réaffichait le périmé jusqu'à la fin du pull.
+//
+// On ne persiste que les types RECOUVERTS, pour la raison exacte qui limite le
+// réamorçage des références plus bas : une collection que le serveur ignore
+// garde ses données locales, qui doivent repartir à la poussée.
+const PERSISTANCE_PAR_TYPE: Record<string, (s: SQLiteStorage) => void> = {
+  [FIANCE_TYPES.guestGroup]: persistGroups,
+  [FIANCE_TYPES.guest]: persistGuests,
+  [FIANCE_TYPES.table]: persistTables,
+  [FIANCE_TYPES.household]: persistHouseholds,
+  [FIANCE_TYPES.vendor]: persistVendors,
+  [FIANCE_TYPES.quotePricing]: persistQuotePricings,
+  [FIANCE_TYPES.vendorPayment]: persistVendorPayments,
+  [FIANCE_TYPES.accommodation]: persistAccommodations,
+  [FIANCE_TYPES.gift]: persistGifts,
+  [FIANCE_TYPES.invitationType]: persistInvitationTypes,
+  [FIANCE_TYPES.communication]: persistCommunications,
+  [FIANCE_TYPES.weddingRole]: persistWeddingRoles,
+  [FIANCE_TYPES.weddingRoleAssignment]: persistWeddingRoleAssignments,
+  [FIANCE_TYPES.seatingConstraint]: persistSeatingConstraints,
+  [FIANCE_TYPES.weddingEvent]: persistWeddingEvents,
+  [FIANCE_TYPES.guestMealSelection]: persistMealSelections,
+  [FIANCE_TYPES.communicationTemplate]: persistCommunicationTemplates,
+  [FIANCE_TYPES.document]: persistDocuments,
+  [FIANCE_TYPES.legalMilestone]: persistLegalMilestones,
+  [FIANCE_TYPES.honeymoonPlan]: persistHoneymoonPlans,
+  [FIANCE_TYPES.taskCategory]: persistTaskCategories,
+  [FIANCE_TYPES.task]: persistTasks,
+  [FIANCE_TYPES.agendaEvent]: persistAgendaEvents,
+  [FIANCE_TYPES.dayOfItem]: persistDayOfItems,
+  [FIANCE_TYPES.ideaCollection]: persistIdeaCollections,
+  [FIANCE_TYPES.idea]: persistIdeas,
+  [FIANCE_TYPES.ceremonyItem]: persistCeremonyItems,
+  [FIANCE_TYPES.speech]: persistSpeeches,
+  [FIANCE_TYPES.playlistTrack]: persistPlaylistTracks,
+  [FIANCE_TYPES.permissionRole]: persistPermissionRoles,
+  [FIANCE_TYPES.permissionAssignment]: persistPermissionAssignments,
+};
+
+/** Réécrit dans le KV les collections que l'hydratation vient d'appliquer.
+ *  Appelée au seul point d'application, donc jamais sur le chemin d'abandon. */
+function persisterCollectionsRecouvertes(typesRecouverts: Set<string>, mariageAppliqué: boolean): void {
+  const storage = getStorage();
+  if (!storage) return;
+  try {
+    if (mariageAppliqué) persistWedding(storage);
+    for (const type of typesRecouverts) PERSISTANCE_PAR_TYPE[type]?.(storage);
+  } catch (err) {
+    // Quota ou stockage indisponible : l'état en mémoire reste juste, seul
+    // l'instantané du prochain démarrage sera en retard.
+    console.warn('[space-sync] persistance de l\'hydratation échouée:', err);
+  }
+}
+
 /** Returns the number of nodes pulled from the server (0 = space was empty). */
 export async function hydrateFromSpace(
   session: Session,
@@ -1366,6 +1462,10 @@ export async function hydrateFromSpace(
     if (!isActiveDeviceMember()) {
       await pullAndApplyRsvpNodes(session, spaceId, byType.get(FIANCE_TYPES.rsvp) ?? []);
     }
+
+    // MODIFICATION LOCALE — après les setters ET le RSVP, pour que l'instantané
+    // porte aussi les réponses appliquées côté propriétaire.
+    persisterCollectionsRecouvertes(typesRecouverts, weddingEntity !== null);
 
     // Seed the wedding-node dirty baseline from what we just hydrated, so the next debounced
     // push only sends it if genuinely edited locally after this point.
