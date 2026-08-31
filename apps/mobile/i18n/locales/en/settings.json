@@ -19,7 +19,6 @@
   "syncStatusPending": "Unsaved changes",
   "syncStatusOffline": "Offline — will back up on reconnect",
   "syncStatusReadOnly": "View-only access — your changes won't be saved",
-  "syncStatusUnsaved": "Unsaved changes — they could not be sent to the server",
   "syncStatusError": "Backup error",
   "tapToEnable": "Tap to enable backup",
   "shareInviteLink": "Share an invite link",
@@ -320,5 +319,9 @@
   "chiffrementListeIllisibleDetail": "This wedding isn't empty: your invitation doesn't open the content already written. Ask for a new one.",
   "rescellementEnCours": "Re-sealing content… {{fait}}/{{total}}",
   "revocationAccomplie": "Collaborator evicted — content re-sealed",
-  "revocationIncomplete": "Revocation INCOMPLETE: {{restant}} could not be re-sealed. The removed link can still read that content. Run the removal again, or repair with `fiance-db reseal`."
+  "revocationIncomplete": "Revocation INCOMPLETE: {{restant}} could not be re-sealed. The removed link can still read that content. Run the removal again, or repair with `fiance-db reseal`.",
+  "retirerLeDepot": "Revoke this link",
+  "depotRetire": "Link revoked — it now shows an expiry message",
+  "depotRetraitEchoue": "Revoking failed. The link stays valid until it expires.",
+  "depotDureeDeVie": "This link stops being served after seven days. You can revoke it sooner."
 }
