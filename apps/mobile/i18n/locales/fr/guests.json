@@ -61,6 +61,8 @@
   "personalInfo": "Informations personnelles",
   "firstName": "Prénom *",
   "lastName": "Nom *",
+  "nameParticle": "Particule",
+  "nameParticlePlaceholder": "de, du, de la…  (exclue du classement)",
   "email": "Email",
   "phone": "Téléphone",
   "address": "Adresse",

@@ -135,6 +135,7 @@ export default function GuestDetailScreen() {
 
   const [firstName, setFirstName] = useState(existing?.firstName || "");
   const [lastName, setLastName] = useState(existing?.lastName || "");
+  const [nameParticle, setNameParticle] = useState(existing?.nameParticle || "");
   const [groupId, setGroupId] = useState(existing?.groupId || "");
   const [invitationType, setInvitationType] = useState<string>(
     existing?.invitationType || "FULL"
@@ -188,6 +189,7 @@ export default function GuestDetailScreen() {
     const guestData: Partial<Guest> = {
       firstName: firstName.trim(),
       lastName: lastName.trim(),
+      nameParticle: nameParticle.trim() || null,
       groupId: groupId || null,
       invitationType,
       rsvpStatus,
@@ -355,6 +357,12 @@ export default function GuestDetailScreen() {
         <FormCard>
           <InputRow label={t("firstName")} value={firstName} onChangeText={setFirstName} />
           <InputRow label={t("lastName")} value={lastName} onChangeText={setLastName} />
+          <InputRow
+            label={t("nameParticle")}
+            value={nameParticle}
+            onChangeText={setNameParticle}
+            placeholder={t("nameParticlePlaceholder")}
+          />
         </FormCard>
 
         {/* Everything else: compact summary rows, each opening a bottom sheet */}
