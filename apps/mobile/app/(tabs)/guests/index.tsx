@@ -178,6 +178,28 @@ function GuestsView() {
       );
   }, [guests, search, rsvpFilter, typeFilter, sleepingTypeIds]);
 
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const guestIdSet = useMemo(() => new Set(guests.map((g) => g.id)), [guests]);
+  const effectiveSelection = useMemo(
+    () => [...selectedIds].filter((id) => guestIdSet.has(id)),
+    [selectedIds, guestIdSet],
+  );
+  const selectedCount = effectiveSelection.length;
+
+  const toggleManySelection = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (ids.every((id) => next.has(id))) ids.forEach((id) => next.delete(id));
+      else ids.forEach((id) => next.add(id));
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
+
   const groupedGuests = useMemo(() => {
     if (groups.length === 0) return null;
     const ungrouped = filteredGuests.filter((g) => !g.groupId);
