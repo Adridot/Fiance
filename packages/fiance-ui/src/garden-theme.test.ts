@@ -2,18 +2,15 @@ import { describe, expect, it } from "vitest";
 import { theme as GP } from "./garden-theme";
 
 /**
- * Plancher de lisibilité des jetons de couleur.
+ * MODIFICATION LOCALE — plancher de lisibilité de la palette du mariage.
  *
- * Ce test existe parce qu'un contraste ne se relit pas : il se mesure. Une
- * capture d'écran ne montre que l'état d'un écran à un instant, et l'œil
- * s'habitue à ce qu'il voit tous les jours — quatre jetons porteurs de texte
- * sont aujourd'hui sous le seuil AA sans que rien ne le signale.
- *
- * La règle défendue ici n'est pas « tout doit être conforme » : ce serait
- * refuser la palette actuelle en bloc, donc rendre le test inutilisable dès sa
- * première exécution. C'est « AUCUN jeton ne descend sous la valeur qu'il porte
- * aujourd'hui ». Au premier hexadécimal qu'une session voudra « juste ajuster un
- * peu », ce fichier échoue en nommant le jeton, sa mesure et son plancher.
+ * Ce test existe parce qu'un contraste ne se relit pas : il se mesure. L'ancienne
+ * identité laissait quatre jetons porteurs de texte sous 4,0 sans que rien ne le
+ * signale, et une capture d'écran ne montre que l'état d'un écran à un instant.
+ * La règle défendue ici est qu'AUCUN jeton ne descend sous la valeur qu'il
+ * portait avant le changement de palette — au premier hexadécimal qu'une session
+ * suivante voudra « juste ajuster un peu », ce fichier échoue en nommant le
+ * jeton, sa mesure et son plancher.
  */
 
 // ---------------------------------------------------------------------------
@@ -60,25 +57,26 @@ describe("contraste WCAG", () => {
 // ---------------------------------------------------------------------------
 
 /**
- * Chaque jeton porteur de texte, mesuré contre le fond sur lequel il s'affiche
- * effectivement — le papier, jamais le blanc. Un jeton mesuré contre du blanc
- * qu'il ne touche jamais donne une valeur rassurante et fausse.
+ * Les mesures de la palette LIVRÉE, sur son propre papier. C'est le garde qui
+ * mord : il ne laisse aucune latitude à une retouche, et c'est lui qui échoue
+ * au premier hexadécimal qu'une session suivante voudra « juste ajuster un
+ * peu ». Un jeton volontairement éclairci doit donc arriver avec sa nouvelle
+ * mesure inscrite ici — c'est-à-dire avec une décision assumée, pas un
+ * glissement.
  *
  * Les valeurs sont TRONQUÉES au centième inférieur, pas arrondies : la mesure
  * doit rester ≥ au plancher, et un arrondi au supérieur ferait échouer la
- * palette contre elle-même (`ink` mesure 13,0866 et `mustard` 2,3376).
- *
- * Un jeton volontairement éclairci doit arriver avec sa nouvelle mesure
- * inscrite ici — c'est-à-dire avec une décision assumée, pas un glissement.
+ * palette contre elle-même (inkSoft mesure 9,4455 et mustard 5,2164). La
+ * documentation du changement les arrondit, elle, à 9,45 et 5,22.
  */
 const DELIVERED_FLOORS: Record<string, number> = {
-  ink: 13.08,
-  inkSoft: 8.41,
-  olive: 3.92,
-  clay: 3.41,
-  mute: 3.20,
-  blue: 3.08,
-  mustard: 2.33,
+  ink: 14.94,
+  inkSoft: 9.44,
+  olive: 5.97,
+  clay: 3.67,
+  mute: 4.85,
+  blue: 5.76,
+  mustard: 5.21,
 };
 
 /** Applique un plancher à une table de jetons — extrait pour être testable. */
@@ -108,8 +106,8 @@ describe("plancher de contraste — aucun jeton ne régresse", () => {
     },
   );
 
-  it("le plancher a des dents — éclaircir un seul jeton le fait échouer", () => {
-    const regressed = { ...GP, mustard: "#d9a94f" } as unknown as Record<string, string>;
+  it("le plancher a des dents — rétablir une seule ancienne valeur le fait échouer", () => {
+    const regressed = { ...GP, mustard: "#c9922f" } as unknown as Record<string, string>;
     const violations = floorViolations(regressed, GP.paper, DELIVERED_FLOORS);
     expect(violations.map((v) => v.token)).toContain("mustard");
   });
@@ -121,60 +119,34 @@ describe("plancher de contraste — aucun jeton ne régresse", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Ce que la mesure révèle — quatre jetons porteurs de texte sous le seuil AA
+// Les quatre accents porteurs de texte passent au-dessus de 4,0
 // ---------------------------------------------------------------------------
 
-/**
- * Le harnais ne corrige rien : changer ces quatre valeurs est une décision de
- * conception, pas un correctif de test. Ce qu'il fait, c'est rendre l'écart
- * MESURABLE et empêcher qu'il s'aggrave — un écart chiffré et nommé se discute,
- * un écart qu'on ne mesure pas se creuse.
- *
- * Les valeurs sont celles mesurées sur le papier courant. Elles sont inscrites
- * en dur : si l'une d'elles bouge, c'est que la palette a bougé, et le test doit
- * le dire plutôt que de recalculer la cible depuis la mesure — un test qui
- * recalcule son attendu ne vérifie rien.
- */
-const AA_BODY_TEXT = 4.5;
-
-const BELOW_AA: Record<string, number> = {
-  mustard: 2.34,
-  blue: 3.08,
-  mute: 3.20,
-  olive: 3.93,
-};
-
-describe("jetons porteurs de texte sous le seuil AA", () => {
-  it.each(Object.entries(BELOW_AA))(
-    "%s mesure %s sur le papier, sous le seuil de texte courant",
-    (token, expected) => {
-      const measured = contrast(GP[token as keyof typeof GP], GP.paper);
-      expect(measured).toBeCloseTo(expected, 2);
-      expect(measured).toBeLessThan(AA_BODY_TEXT);
+describe("accents porteurs de texte", () => {
+  /**
+   * Les quatre jetons qui étaient sous le seuil dans l'ancienne identité — et
+   * qui portent des libellés, pas seulement des remplissages.
+   */
+  it.each(["olive", "mustard", "blue", "mute"] as const)(
+    "%s dépasse 4,0 sur le papier",
+    (token) => {
+      expect(contrast(GP[token], GP.paper)).toBeGreaterThan(4.0);
     },
   );
 
   /**
-   * EXEMPTION NOMMÉE — `clay`, l'accent primaire, mesure 3,42 sur le papier.
+   * EXEMPTION NOMMÉE — `clay`, l'accent primaire.
    *
-   * Il n'est employé comme texte que sur des libellés courts adossés à une
-   * icône, jamais sur du texte courant ; là où il fait un aplat plein, c'est du
-   * blanc qui s'y écrit, et c'est cette mesure-là qui compte. Il est donc tenu
-   * de ne pas régresser — ce que le plancher ci-dessus vérifie — et non
-   * d'atteindre le seuil.
+   * Sa valeur est imposée : Sea Green #00916e est la couleur du mariage, elle
+   * ne se négocie pas contre une mesure. Il n'est employé comme texte que sur
+   * des libellés courts adossés à une icône, jamais sur du texte courant ; sur
+   * un aplat plein, c'est du blanc qui s'y écrit, à 3,98 — la mesure qui compte
+   * pour le bandeau d'accueil. Il est donc seulement tenu de NE PAS RÉGRESSER,
+   * ce que le plancher historique ci-dessus vérifie déjà (3,42 → 3,67).
    */
-  it("l'accent primaire est exempté du seuil, mais le blanc qui s'y écrit ne l'est pas", () => {
-    expect(contrast(GP.clay, GP.paper)).toBeLessThan(AA_BODY_TEXT);
+  it("l'accent primaire est exempté du seuil de 4,0 mais ne régresse pas", () => {
+    const onPaper = contrast(GP.clay, GP.paper);
+    expect(onPaper).toBeGreaterThanOrEqual(DELIVERED_FLOORS.clay);
     expect(contrast(WHITE, GP.clay)).toBeGreaterThanOrEqual(3.9);
-  });
-
-  it("aucun autre jeton porteur de texte n'est sous le seuil sans figurer ici", () => {
-    const listed = new Set([...Object.keys(BELOW_AA), "clay"]);
-    const unlisted = Object.keys(DELIVERED_FLOORS).filter(
-      (token) =>
-        !listed.has(token) &&
-        contrast(GP[token as keyof typeof GP], GP.paper) < AA_BODY_TEXT,
-    );
-    expect(unlisted).toEqual([]);
   });
 });
