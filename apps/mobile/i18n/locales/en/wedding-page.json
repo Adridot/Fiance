@@ -47,5 +47,8 @@
     "HALAL": "Halal",
     "KOSHER": "Kosher",
     "ALLERGY": "Allergy"
-  }
+  },
+  "rsvpHouseholdIntro": "Answer for each person in your household. You can fill in only part of it and come back later — this link stays valid.",
+  "rsvpMemberUnnamed": "Name to be confirmed",
+  "rsvpAlreadyAnswered": "Answer already recorded — you can change it."
 }
