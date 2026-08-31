@@ -39,13 +39,37 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   // hash-wasm (Argon2id in starfish-identities) requires a WebAssembly global —
   // absent on Hermes ("WebAssembly is not supported in this environment"). On native
   // (iOS/Android) redirect to a shim that delegates to react-native-quick-crypto's
-  // native Argon2id binding (OpenSSL, ~150 ms vs ~15–45 s pure JS). On web keep the
-  // original @noble/hashes shim. A package exports map can't remap a third-party
-  // specifier imported deep inside a dependency, so the alias must live here.
+  // native Argon2id binding (OpenSSL, ~150 ms vs ~15–45 s pure JS).
+  // A package exports map can't remap a third-party specifier imported deep inside
+  // a dependency, so the alias must live here.
+  //
+  // MODIFICATION LOCALE — LE WEB NE PASSE PLUS PAR UN SHIM.
+  //
+  // Le détournement valait pour TOUTES les plateformes, et le web tombait donc
+  // sur `lib/hash-wasm-shim.ts` — l'Argon2id de `@noble/hashes`, en JavaScript
+  // pur. Or le motif du détournement est l'absence de `WebAssembly` sur
+  // Hermes : un navigateur en a depuis toujours. Le web payait un repli posé
+  // pour une contrainte qui ne le concerne pas, et que le CLAUDE.md de ce
+  // dépôt décrit lui-même comme la voie lente écartée pour le natif.
+  //
+  // Ce que cela coûtait, mesuré aux paramètres de production
+  // (m=47104 KiB, t=3, p=1, dkLen=32) :
+  //
+  //     hash-wasm (WebAssembly)   283 ms
+  //     @noble/hashes (JS pur)  2 904 ms      10,3x
+  //
+  // Au démarrage, cette seule dérivation tenait le fil principal 3 187 ms —
+  // la liste des invités était peinte à 700 ms puis l'interface restait morte
+  // trois secondes. C'est la cause, et non le poids du bundle.
+  //
+  // LES DEUX PRODUISENT LE MÊME CONDENSAT (vérifié aux paramètres ci-dessus).
+  // Aucune identité n'est recalculée, aucun `userId` ne change, rien de ce qui
+  // est stocké ou synchronisé ne bouge : c'est la même fonction, autrement
+  // implémentée. `lib/hash-wasm-shim.ts` reste en place, sans appelant.
   if (moduleName === 'hash-wasm') {
     const isNative = platform === 'ios' || platform === 'android'
-    const shimFile = isNative ? 'lib/hash-wasm-shim.native.ts' : 'lib/hash-wasm-shim.ts'
-    return { type: 'sourceFile', filePath: path.resolve(projectRoot, shimFile) }
+    if (!isNative) return resolve(context, moduleName, platform)
+    return { type: 'sourceFile', filePath: path.resolve(projectRoot, 'lib/hash-wasm-shim.native.ts') }
   }
 
   // Workspace SDK packages (packages/*) use NodeNext-style .js extensions in
