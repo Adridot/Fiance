@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { computeCounts, countDuplicateGuests } from './guests.js';
+import {
+  computeCounts,
+  countDuplicateGuests,
+  removeGuest,
+  removeGuests,
+} from './guests.js';
 
 // Minimal guest factory — computeCounts only reads rsvpStatus + invitationType here.
 const g = (rsvpStatus: string, invitationType: string) =>
@@ -116,3 +121,63 @@ describe('countDuplicateGuests', () => {
     expect(countDuplicateGuests([])).toBe(0);
   });
 });
+
+const guestOf = (
+  id: string,
+  extra: Partial<{ companionId: string | null; rsvpStatus: string; rsvpDate: string | null }> = {},
+) =>
+  ({
+    id,
+    firstName: id,
+    lastName: id.toUpperCase(),
+    companionId: null,
+    rsvpStatus: 'PENDING',
+    rsvpDate: null,
+    ...extra,
+  }) as any;
+
+describe('removeGuests — the batch IS the sequence of single removals', () => {
+  const roster = () => [
+    guestOf('a', { companionId: 'b' }),
+    guestOf('b', { companionId: 'a' }),
+    guestOf('c', { companionId: 'd' }),
+    guestOf('d', { companionId: 'c' }),
+    guestOf('e'),
+    guestOf('f'),
+  ];
+  const targets = ['a', 'c', 'd', 'e'];
+
+  // `updatedAt` carries the removal instant: it differs from one run to the
+  // next, and is not what the equivalence claims.
+  const withoutTimestamps = (guests: any[]) =>
+    guests.map(({ updatedAt, ...rest }) => rest);
+
+  it('yields the same state as the sequence of removeGuest calls', () => {
+    const batched = removeGuests(roster(), targets);
+    const oneByOne = targets.reduce((gs, id) => removeGuest(gs, id), roster());
+    expect(withoutTimestamps(batched)).toEqual(withoutTimestamps(oneByOne));
+  });
+
+  it('a companion left alone loses its companion link', () => {
+    const remaining = removeGuests(roster(), targets);
+    expect(remaining.map((g) => g.id)).toEqual(['b', 'f']);
+    expect(remaining.find((g) => g.id === 'b')?.companionId).toBeNull();
+  });
+
+  it('a couple removed whole leaves no dangling link', () => {
+    const remaining = removeGuests(roster(), ['c', 'd']);
+    expect(remaining.some((g) => g.companionId === 'c' || g.companionId === 'd')).toBe(false);
+  });
+
+  it('a batch of one is the single removal', () => {
+    expect(withoutTimestamps(removeGuests(roster(), ['a']))).toEqual(
+      withoutTimestamps(removeGuest(roster(), 'a')),
+    );
+  });
+
+  it('an empty batch touches nothing', () => {
+    const start = roster();
+    expect(removeGuests(start, [])).toBe(start);
+  });
+});
+
