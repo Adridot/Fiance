@@ -16,6 +16,7 @@ import { useVendorsStore } from "@/store/useVendorsStore";
 import { useSeatingConstraintsStore } from "@/store/useSeatingConstraintsStore";
 import { useCommunicationsStore } from "@/store/useCommunicationsStore";
 import {
+  rsvpStatusUpdate,
   MEAL_CHOICE_LABELS,
   SEATING_CONSTRAINT_TYPE_LABELS,
   COMMUNICATION_CHANNEL_LABELS,
@@ -192,11 +193,11 @@ export default function GuestDetailScreen() {
       nameParticle: nameParticle.trim() || null,
       groupId: groupId || null,
       invitationType,
-      rsvpStatus,
-      rsvpDate:
-        rsvpStatus !== "PENDING" && rsvpStatus !== existing?.rsvpStatus
-          ? now
-          : existing?.rsvpDate || null,
+      ...rsvpStatusUpdate(
+        existing ?? { rsvpStatus: "PENDING", rsvpDate: null },
+        rsvpStatus,
+        now,
+      ),
       childrenCount,
       diet,
       dietNotes: dietNotes || null,
