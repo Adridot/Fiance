@@ -8,7 +8,7 @@
  */
 
 import { unzipSync, strFromU8 } from "fflate";
-import type { Guest, GuestGroup, Table } from "@fiance/sdk";
+import type { Guest, GuestGroup, Table, InvitationTypeEntity } from "@fiance/sdk";
 
 export interface ParsedSheet {
   headers: string[];
@@ -21,6 +21,8 @@ export interface GuestImportResult {
   groups: GuestGroup[];
   /** Newly created tables only (existing ones are reused by name). */
   tables: Table[];
+  /** Newly created invitation types only (existing ones are reused, by id then by label). */
+  invitationTypes: InvitationTypeEntity[];
   skippedRows: number;
 }
 
@@ -249,7 +251,7 @@ function mapRsvpStatus(raw: string): string {
 
 export function mapRowsToGuests(
   sheet: ParsedSheet,
-  existing: { groups: GuestGroup[]; tables: Table[] },
+  existing: { groups: GuestGroup[]; tables: Table[]; invitationTypes?: InvitationTypeEntity[] },
   opts: { makeId: () => string; now?: string },
 ): GuestImportResult {
   const now = opts.now ?? new Date().toISOString();
@@ -265,6 +267,14 @@ export function mapRowsToGuests(
   const newTables: Table[] = [];
   const guests: Guest[] = [];
   let skippedRows = 0;
+
+  const knownTypes = existing.invitationTypes ?? [];
+  const typeIdsByKey = new Map<string, string>();
+  for (const it of knownTypes) {
+    typeIdsByKey.set(normalizeHeader(it.id), it.id);
+    typeIdsByKey.set(normalizeHeader(it.label), it.id);
+  }
+  const newInvitationTypes: InvitationTypeEntity[] = [];
 
   for (const row of sheet.rows) {
     let firstName = cell(row, "firstName");
@@ -304,6 +314,27 @@ export function mapRowsToGuests(
       }
     }
 
+    const rawType = cell(row, "invitationType");
+    let invitationTypeId = "FULL";
+    if (rawType) {
+      const key = normalizeHeader(rawType);
+      const known = typeIdsByKey.get(key);
+      if (known) {
+        invitationTypeId = known;
+      } else {
+        invitationTypeId = opts.makeId();
+        typeIdsByKey.set(key, invitationTypeId);
+        newInvitationTypes.push({
+          id: invitationTypeId,
+          label: rawType,
+          isDefault: false,
+          needsSleeping: false,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+
     const address = [cell(row, "addressStreet"), cell(row, "addressZip"), cell(row, "addressCity")]
       .filter(Boolean)
       .join(", ");
@@ -313,7 +344,7 @@ export function mapRowsToGuests(
       firstName,
       lastName,
       side: null,
-      invitationType: "FULL",
+      invitationType: invitationTypeId,
       rsvpStatus: mapRsvpStatus(cell(row, "rsvp")),
       rsvpDate: null,
       isSleeping: null,
@@ -346,5 +377,5 @@ export function mapRowsToGuests(
     });
   }
 
-  return { guests, groups: newGroups, tables: newTables, skippedRows };
+  return { guests, groups: newGroups, tables: newTables, invitationTypes: newInvitationTypes, skippedRows };
 }
