@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { zipSync, strToU8 } from "fflate";
-import { base64ToBytes, parseSpreadsheet, mapRowsToGuests, type ParsedSheet } from "@/lib/guest-import";
-import type { GuestGroup, Table } from "@fiance/sdk";
+import { base64ToBytes, parseSpreadsheet, mapRowsToGuests, reconcileGuests, type ParsedSheet } from "@/lib/guest-import";
+import type { Guest, GuestGroup, Table } from "@fiance/sdk";
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -280,5 +280,123 @@ describe("mapRowsToGuests — invitation types", () => {
     );
     expect(r.duplicateNames).toEqual(["jean dupont"]);
     expect(r.guests).toHaveLength(3); // imported all the same: a real namesake is plausible
+  });
+});
+
+// ─── reconcileGuests ─────────────────────────────────────────────────────────
+
+const guest = (over: Partial<Guest> & { firstName: string; lastName: string }): Guest => ({
+  id: `g-${over.firstName}-${over.lastName}`,
+  side: null, invitationType: "FULL", rsvpStatus: "PENDING", rsvpDate: null,
+  isSleeping: null, childrenCount: 0, diet: "STANDARD", dietNotes: null,
+  groupId: null, tableId: null, companionId: null, noTableNeeded: null,
+  giftDescription: null, thankYouSent: null, thankYouSentDate: null,
+  accommodationId: null, roomNumber: null, rsvpToken: null,
+  email: null, phone: null, address: null, notes: null,
+  shuttleVendorId: null, shuttlePickupLocation: null, shuttlePickupTime: null,
+  parkingNeeded: null, parkingNotes: null, arrivalNotes: null, transportMode: null,
+  createdAt: null, updatedAt: null,
+  ...over,
+});
+
+describe("reconcileGuests", () => {
+  it("does not add a guest already present: the import is replayable", () => {
+    const existing = [guest({ firstName: "Jean", lastName: "Dupont" })];
+    const incoming = [guest({ id: "new", firstName: "Jean", lastName: "Dupont" })];
+
+    const r = reconcileGuests(existing, incoming);
+
+    expect(r.toAdd).toHaveLength(0);
+    expect(r.matched).toBe(1);
+  });
+
+  it("matches across accents and case", () => {
+    const existing = [guest({ firstName: "Cécile", lastName: "MARTIN" })];
+    const incoming = [guest({ id: "new", firstName: "cecile", lastName: "martin" })];
+
+    expect(reconcileGuests(existing, incoming).toAdd).toHaveLength(0);
+  });
+
+  it("adds the guests that are genuinely unknown", () => {
+    const existing = [guest({ firstName: "Jean", lastName: "Dupont" })];
+    const incoming = [
+      guest({ id: "a", firstName: "Jean", lastName: "Dupont" }),
+      guest({ id: "b", firstName: "Marie", lastName: "Curie" }),
+    ];
+
+    const r = reconcileGuests(existing, incoming);
+
+    expect(r.toAdd.map((g) => g.lastName)).toEqual(["Curie"]);
+  });
+
+  it("fills an empty field without overwriting one already entered in the app", () => {
+    const existing = [guest({ firstName: "Jean", lastName: "Dupont", email: null, notes: "Allergique aux fruits de mer" })];
+    const incoming = [guest({ id: "new", firstName: "Jean", lastName: "Dupont", email: "jean@example.com", notes: "" })];
+
+    const r = reconcileGuests(existing, incoming);
+
+    expect(r.toUpdate).toHaveLength(1);
+    expect(r.toUpdate[0].updates.email).toBe("jean@example.com");
+    expect(r.toUpdate[0].updates).not.toHaveProperty("notes");
+  });
+
+  it("replaces the undetermined type when the source finally brings a real one", () => {
+    const existing = [guest({ firstName: "Jean", lastName: "Dupont", invitationType: "IMPORT_UNDETERMINED" })];
+    const incoming = [guest({ id: "new", firstName: "Jean", lastName: "Dupont", invitationType: "CEREMONY" })];
+
+    expect(reconcileGuests(existing, incoming).toUpdate[0].updates.invitationType).toBe("CEREMONY");
+  });
+
+  it("does not overwrite an invitation type already chosen in the app", () => {
+    const existing = [guest({ firstName: "Jean", lastName: "Dupont", invitationType: "CEREMONY" })];
+    const incoming = [guest({ id: "new", firstName: "Jean", lastName: "Dupont", invitationType: "FULL" })];
+
+    const r = reconcileGuests(existing, incoming);
+    expect(r.toUpdate).toHaveLength(0);
+  });
+
+  it("lets two existing namesakes absorb two namesake source rows", () => {
+    const existing = [
+      guest({ id: "x1", firstName: "Jean", lastName: "Dupont" }),
+      guest({ id: "x2", firstName: "Jean", lastName: "Dupont" }),
+    ];
+    const incoming = [
+      guest({ id: "a", firstName: "Jean", lastName: "Dupont" }),
+      guest({ id: "b", firstName: "Jean", lastName: "Dupont" }),
+    ];
+
+    const r = reconcileGuests(existing, incoming);
+
+    expect(r.toAdd).toHaveLength(0);
+    expect(r.matched).toBe(2);
+  });
+});
+
+// ─── reconcileGuests — first names ───────────────────────────────────────────
+
+describe("reconcileGuests — the first name is never filled in", () => {
+  it("a guest without a first name keeps none, even when the source offers one", () => {
+    const existing = [guest({ firstName: "", lastName: "ARDOUIN", groupId: "g1" })];
+    const incoming = [guest({ firstName: "", lastName: "ARDOUIN", email: "a@b.c" })];
+
+    const { toAdd, toUpdate, matched } = reconcileGuests(existing, incoming);
+
+    expect(matched).toBe(1);
+    expect(toAdd).toHaveLength(0);
+    expect(toUpdate[0].updates).not.toHaveProperty("firstName");
+    expect(toUpdate[0].updates.email).toBe("a@b.c");
+  });
+
+  it("a source lending a spouse's first name adds a person rather than overwriting one", () => {
+    // Reconciliation is no safety net here: a borrowed first name changes the match
+    // key, so the row is ADDED. The guarantee rests on the source normalizer.
+    const existing = [guest({ firstName: "", lastName: "ARDOUIN" })];
+    const incoming = [guest({ firstName: "Luc 2", lastName: "ARDOUIN" })];
+
+    const { toAdd, toUpdate } = reconcileGuests(existing, incoming);
+
+    expect(toUpdate).toHaveLength(0);
+    expect(toAdd).toHaveLength(1);
+    expect(existing[0].firstName).toBe("");
   });
 });

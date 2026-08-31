@@ -416,3 +416,69 @@ export function mapRowsToGuests(
     duplicateNames,
   };
 }
+
+// ─── Reconciling an import with what the app already holds ───────────────────
+
+/** A guest export carries no stable id, so the normalized name is the only match key. */
+export function guestMatchKey(g: { firstName: string; lastName: string }): string {
+  return normalizeHeader(`${g.firstName} ${g.lastName}`);
+}
+
+const isEmpty = (v: unknown): boolean => v == null || (typeof v === "string" && v.trim() === "");
+
+/** Fields a re-import may fill in — never the identity, never the timestamps. */
+const MERGEABLE_FIELDS = [
+  "email", "phone", "address", "notes", "groupId", "tableId",
+] as const satisfies readonly (keyof Guest)[];
+
+export interface GuestReconciliation {
+  toAdd: Guest[];
+  toUpdate: { id: string; updates: Partial<Guest> }[];
+  /** Source rows recognised as already present. */
+  matched: number;
+}
+
+/**
+ * Matches are consumed one by one: two existing namesakes absorb two namesake
+ * source rows, instead of both rows landing on the first guest.
+ */
+export function reconcileGuests(existing: Guest[], incoming: Guest[]): GuestReconciliation {
+  const pool = new Map<string, Guest[]>();
+  for (const g of existing) {
+    const key = guestMatchKey(g);
+    const bucket = pool.get(key);
+    if (bucket) bucket.push(g);
+    else pool.set(key, [g]);
+  }
+
+  const toAdd: Guest[] = [];
+  const toUpdate: { id: string; updates: Partial<Guest> }[] = [];
+  let matched = 0;
+
+  for (const candidate of incoming) {
+    const bucket = pool.get(guestMatchKey(candidate));
+    const match = bucket?.shift();
+    if (!match) {
+      toAdd.push(candidate);
+      continue;
+    }
+    matched++;
+
+    const updates: Partial<Guest> = {};
+    for (const field of MERGEABLE_FIELDS) {
+      if (isEmpty(match[field]) && !isEmpty(candidate[field])) {
+        (updates as Record<string, unknown>)[field] = candidate[field];
+      }
+    }
+    // The undetermined type is an absence, not a choice: a real one may replace it.
+    if (
+      match.invitationType === UNDETERMINED_INVITATION_TYPE.id &&
+      candidate.invitationType !== UNDETERMINED_INVITATION_TYPE.id
+    ) {
+      updates.invitationType = candidate.invitationType;
+    }
+    if (Object.keys(updates).length > 0) toUpdate.push({ id: match.id, updates });
+  }
+
+  return { toAdd, toUpdate, matched };
+}
