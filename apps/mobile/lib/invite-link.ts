@@ -16,6 +16,8 @@ import { pushSpaceSnapshot } from "@/lib/space-sync";
 import { usePermissionsStore } from "@/store/usePermissionsStore";
 import { readCollection, writeCollection } from "@/lib/kv-storage";
 import { isPremium } from "@/lib/premium";
+// MODIFICATION LOCALE — la limite porte sur les personnes, pas sur les liens.
+import { estUnCollaborateurConnu, nombreDeCollaborateursDistincts } from "@/lib/collaborateurs";
 import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
 
 /** KV key holding the serialized space-invite store (edPub/kemPub/cap handles per invite),
@@ -33,7 +35,19 @@ export const SPACE_INVITE_STORE_KEY = "spaceInviteStore";
 export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: string, name?: string): Promise<string> {
   // Defensive backstop — the primary gate is the paywall prompt in settings/index.tsx's
   // handleInvite. Free tier allows 1 invited member (the partner); the 2nd+ requires premium.
-  if (!isWithinFreeLimit("members", usePermissionsStore.getState().assignments.length, isPremium())) {
+  //
+  // MODIFICATION LOCALE — la limite compte des PERSONNES, pas des liens.
+  //
+  // Chaque lien crée une affectation de plus : compter les affectations
+  // interdirait à un propriétaire au palier gratuit de RENVOYER un lien perdu à
+  // quelqu'un qu'il a déjà invité — l'exact contraire du besoin. Réémettre pour
+  // une personne déjà collaboratrice n'est donc opposable à aucune limite.
+  const affectations = usePermissionsStore.getState().assignments;
+  const réémission = estUnCollaborateurConnu(affectations, name);
+  if (
+    !réémission &&
+    !isWithinFreeLimit("members", nombreDeCollaborateursDistincts(affectations), isPremium())
+  ) {
     throw new Error("FREE_MEMBER_LIMIT");
   }
 

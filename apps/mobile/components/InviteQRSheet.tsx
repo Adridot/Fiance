@@ -12,18 +12,38 @@ import { Label } from "@/components/Label";
 import { Chip } from "@/components/Chip";
 import { usePermissionsStore } from "@/store/usePermissionsStore";
 import { roleCanWrite, FEATURE_SURFACES, type FeatureSurface, type RoleDefinition } from "@fiance/sdk";
+// MODIFICATION LOCALE — réémission depuis la fiche d'un collaborateur.
+import { ouvertureDeLaFeuille } from "@/lib/collaborateurs";
 
 interface InviteQRSheetProps {
-  /** MODIFICATION LOCALE — retire le dépôt du lien court avant son terme. */
-  retirer?: (lien: string) => Promise<void>;
   visible: boolean;
   onClose: () => void;
   generate: (roleId?: string, name?: string) => Promise<string>;
+  /** MODIFICATION LOCALE — retire le dépôt du lien court avant son terme. */
+  retirer?: (lien: string) => Promise<void>;
+  /**
+   * MODIFICATION LOCALE — réémission depuis la fiche d'un collaborateur.
+   *
+   * Quand le nom ET un rôle qui existe encore sont fournis, la feuille saute
+   * l'étape de sélection et génère directement : le propriétaire ne retape pas
+   * ce qu'il a déjà dit. Un rôle qui a été supprimé entre-temps ne se
+   * pré-remplit pas — on retombe sur le sélecteur plutôt que d'émettre un lien
+   * sans rôle résolu.
+   */
+  initialName?: string;
+  initialRoleId?: string;
 }
 
 type State = "selecting" | "generating" | "ready" | "error";
 
-export function InviteQRSheet({ visible, onClose, generate, retirer }: InviteQRSheetProps) {
+export function InviteQRSheet({
+  visible,
+  onClose,
+  generate,
+  retirer,
+  initialName,
+  initialRoleId,
+}: InviteQRSheetProps) {
   const { t } = useTranslation("settings");
   const { width } = useWindowDimensions();
   const roles = usePermissionsStore((s) => s.roles);
@@ -57,12 +77,13 @@ export function InviteQRSheet({ visible, onClose, generate, retirer }: InviteQRS
   const [roleId, setRoleId] = useState<string | undefined>(undefined);
   const nameValid = name.trim().length > 0;
 
-  const run = (selectedRoleId?: string) => {
-    if (!nameValid) return;
+  const run = (selectedRoleId?: string, nomExplicite?: string) => {
+    const nom = (nomExplicite ?? name).trim();
+    if (!nom) return;
     setRoleId(selectedRoleId);
     setState("generating");
     setDetail("");
-    generate(selectedRoleId, name.trim() || undefined)
+    generate(selectedRoleId, nom || undefined)
       .then((link) => {
         setUrl(link);
         setState("ready");
@@ -76,6 +97,11 @@ export function InviteQRSheet({ visible, onClose, generate, retirer }: InviteQRS
 
   useEffect(() => {
     if (visible) {
+      // MODIFICATION LOCALE — réémission : la décision vit dans
+      // `ouvertureDeLaFeuille`, testable sans monter le composant.
+      const ouverture = ouvertureDeLaFeuille(initialName, initialRoleId, roles);
+      if (ouverture.nom) setName(ouverture.nom);
+      if (ouverture.etat === "generating") { run(ouverture.roleId, ouverture.nom); return; }
       setState("selecting");
     } else {
       setState("selecting");
@@ -83,8 +109,10 @@ export function InviteQRSheet({ visible, onClose, generate, retirer }: InviteQRS
       setDetail("");
       setRoleId(undefined);
       setName("");
+      setRetrait("idle");
     }
-  }, [visible]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, initialName, initialRoleId]);
 
   const handleShare = async () => {
     await Clipboard.setStringAsync(url);
