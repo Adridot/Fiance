@@ -21,6 +21,7 @@ import {
   objInvPull,
   createNodeInviteLink,
   rsvpToNode,
+  formatGuestName,
   type Session,
   type ObjectNode,
 } from "@fiance/sdk";
@@ -78,7 +79,7 @@ export function useGuestRsvpUrl(
 
       const guests = useGuestsStore.getState().guests;
       const guest = guests.find((g) => g.id === guestId);
-      const guestName = guest ? `${guest.firstName} ${guest.lastName}`.trim() : guestId;
+      const guestName = guest ? formatGuestName(guest) : guestId;
       const firstName = guest?.firstName ?? null;
       const lastName = guest?.lastName ?? null;
       const allGuests = useGuestsStore.getState().guests;
