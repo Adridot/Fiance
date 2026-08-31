@@ -1,0 +1,175 @@
+/**
+ * L'hydratation rafraîchit l'instantané local (le KV), pas seulement les magasins.
+ *
+ * L'écran d'ouverture est peint depuis le KV par `hydrateAllStores`. Celui-ci
+ * n'était réécrit qu'à la MUTATION LOCALE — les setters de l'hydratation sont
+ * muets. Une modification venue d'ailleurs, pourtant appliquée aux magasins,
+ * ne s'y inscrivait donc jamais, et le chargement à froid suivant réaffichait
+ * le périmé jusqu'à la fin du pull.
+ *
+ * Fichier à part, et non un bloc de `space-sync.test.ts` : tout ce qui suit la
+ * ligne amont 1408 de ce fichier-là forme UN SEUL hunk, et un hunk n'a qu'un
+ * propriétaire — ces tests y seraient inséparables de ceux de la durabilité.
+ */
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+/** Indirection : les tests remplacent la LECTURE elle-même pour la retenir en vol. */
+let mockLireArbre: () => Promise<unknown[]> = async () => [];
+/** Le document de collection des invités, tel que le serveur le détient. */
+let mockDocInvites: unknown = { fmt: 2, items: { "g-serveur": { id: "g-serveur" } }, rev: { "g-serveur": 5 }, tombstones: {} };
+
+vi.mock("@fiance/sdk", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  readObjectTree: () => mockLireArbre(),
+  updateObjectIndex: vi.fn(),
+  clearNodeAccessCache: vi.fn(),
+  getSpaceAccessEntry: () => null,
+  getSpacesConfig: () => ({ kvAdapter: { getItem: () => null, setItem: () => {}, removeItem: () => {} } }),
+  getSyncNamespace: () => "dk",
+  getNodeAccess: async () => ({
+    isOwnerOpen: false,
+    push: vi.fn(),
+    encryptor: null,
+    client: {
+      push: vi.fn(async () => ({ hash: "H" })),
+      pull: async () => ({ hash: "", data: null }),
+      batchPullMany: async (_collection: string, params: { objectId: string }[]) =>
+        params.map((p) => (p.objectId === "col:guest:w1" ? { data: mockDocInvites } : { data: null })),
+    },
+  }),
+}));
+
+const SESSION = { userId: "u1" };
+
+vi.mock("@/lib/starfish", () => ({
+  getActiveSession: () => SESSION,
+  getActiveSpaceId: () => "sp-1",
+  getActiveWeddingNodeId: () => "w1",
+}));
+
+// Le KV local, sur une Map que les tests inspectent : le vrai module tire
+// `react-native` et `expo-sqlite`, absents de l'environnement `node`.
+const kv = new Map<string, unknown>();
+vi.mock("@/lib/kv-storage", () => ({
+  readCollection: (clé: string) => (kv.has(clé) ? kv.get(clé) : null),
+  writeCollection: (clé: string, données: unknown) => { kv.set(clé, données); },
+  // Les fonctions `persist*` reçoivent ce jeton sans le lire ; seule sa
+  // présence compte, elle signale un KV ouvert.
+  getStorage: () => ({}),
+}));
+
+vi.mock("@/lib/rsvp-sync", () => ({ applyHouseholdRsvpDocs: vi.fn() }));
+
+// Les invités sont MUTABLES et le setter les alimente : les fonctions
+// `persist*` lisent les magasins, elles n'écriraient sinon que l'état d'avant.
+let invites: Array<{ id: string }> = [];
+const setGuests = vi.fn((valeur: Array<{ id: string }>) => { invites = valeur; });
+// Les prestataires restent vides côté magasin : c'est ce qui rend le test
+// probant, une persistance indue les écraserait dans le KV.
+const magasinVide = {
+  getState: () => ({
+    wedding: null, guests: invites, tables: [], groups: [], households: [], vendors: [],
+    quotePricings: [], vendorPayments: [], accommodations: [], gifts: [],
+    invitationTypes: [], communications: [], weddingRoles: [], weddingRoleAssignments: [],
+    seatingConstraints: [], weddingEvents: [], mealSelections: [], communicationTemplates: [],
+    documents: [], legalMilestones: [], honeymoonPlans: [], categories: [], tasks: [],
+    agendaEvents: [], dayOfItems: [], collections: [], ideas: [], ceremonyItems: [],
+    speeches: [], playlistTracks: [], roles: [], assignments: [], contributors: [],
+    setWedding: vi.fn(), setGroups: vi.fn(), setTables: vi.fn(), setGuests,
+    setVendors: vi.fn(), setQuotePricings: vi.fn(), setVendorPayments: vi.fn(),
+    setAccommodations: vi.fn(), setGifts: vi.fn(), setInvitationTypes: vi.fn(),
+    setCommunications: vi.fn(), setWeddingRoles: vi.fn(), setWeddingRoleAssignments: vi.fn(),
+    setSeatingConstraints: vi.fn(), setWeddingEvents: vi.fn(), setMealSelections: vi.fn(),
+    setCommunicationTemplates: vi.fn(), setDocuments: vi.fn(), setLegalMilestones: vi.fn(),
+    setHoneymoonPlans: vi.fn(), setCategories: vi.fn(), setTasks: vi.fn(),
+    setAgendaEvents: vi.fn(), setDayOfItems: vi.fn(), setCollections: vi.fn(),
+    setIdeas: vi.fn(), setCeremonyItems: vi.fn(), setSpeeches: vi.fn(),
+    setPlaylistTracks: vi.fn(), setRoles: vi.fn(), setAssignments: vi.fn(),
+  }),
+};
+vi.mock("@/store/useWeddingStore", () => ({ useWeddingStore: magasinVide }));
+vi.mock("@/store/useWeddingRegistryStore", () => ({
+  useWeddingRegistryStore: {
+    getState: () => ({ registry: { activeWeddingId: "w1", weddings: [{ id: "w1", role: "owner" }] } }),
+  },
+}));
+vi.mock("@/store/useGuestsStore", () => ({ useGuestsStore: magasinVide }));
+vi.mock("@/store/useVendorsStore", () => ({ useVendorsStore: magasinVide }));
+vi.mock("@/store/usePlanningStore", () => ({ usePlanningStore: magasinVide }));
+vi.mock("@/store/useIdeasStore", () => ({ useIdeasStore: magasinVide }));
+vi.mock("@/store/useAccommodationsStore", () => ({ useAccommodationsStore: magasinVide }));
+vi.mock("@/store/useGiftsStore", () => ({ useGiftsStore: magasinVide }));
+vi.mock("@/store/useContributorsStore", () => ({ useContributorsStore: magasinVide }));
+vi.mock("@/store/useInvitationTypesStore", () => ({ useInvitationTypesStore: magasinVide }));
+vi.mock("@/store/useCommunicationsStore", () => ({ useCommunicationsStore: magasinVide }));
+vi.mock("@/store/useWeddingPartyStore", () => ({ useWeddingPartyStore: magasinVide }));
+vi.mock("@/store/useSeatingConstraintsStore", () => ({ useSeatingConstraintsStore: magasinVide }));
+vi.mock("@/store/useWeddingEventsStore", () => ({ useWeddingEventsStore: magasinVide }));
+vi.mock("@/store/useMealSelectionsStore", () => ({ useMealSelectionsStore: magasinVide }));
+vi.mock("@/store/useCommunicationTemplatesStore", () => ({ useCommunicationTemplatesStore: magasinVide }));
+vi.mock("@/store/useDocumentsStore", () => ({ useDocumentsStore: magasinVide }));
+vi.mock("@/store/useLegalStore", () => ({ useLegalStore: magasinVide }));
+vi.mock("@/store/useHoneymoonStore", () => ({ useHoneymoonStore: magasinVide }));
+vi.mock("@/store/useCeremonyStore", () => ({ useCeremonyStore: magasinVide }));
+vi.mock("@/store/useSpeechesMusicStore", () => ({ useSpeechesMusicStore: magasinVide }));
+vi.mock("@/store/usePermissionsStore", () => ({ usePermissionsStore: magasinVide }));
+vi.mock("@/store/useSyncAccessStore", () => ({
+  useSyncAccessStore: { getState: () => ({ writeDenied: false, setWriteDenied: vi.fn() }) },
+}));
+vi.mock("@/store/useSyncPendingStore", () => ({
+  useSyncPendingStore: { getState: () => ({ setPending: vi.fn(), setFailed: vi.fn(), clear: vi.fn() }) },
+}));
+
+/** Un espace où le serveur détient une collection d'invités, et rien d'autre. */
+const ARBRE = [
+  { id: "w1", type: "wedding", parentId: null, updatedAt: 1000, contentKind: "merge", access: "space", enc: false },
+  { id: "col:guest:w1", type: "guest", parentId: "w1", updatedAt: 1000, contentKind: "merge", access: "space", enc: false },
+];
+
+describe("l'hydratation rafraîchit l'instantané local", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.useFakeTimers();
+    kv.clear();
+    invites = [];
+    setGuests.mockClear();
+    mockLireArbre = async () => ARBRE;
+  });
+
+  it("réécrit les collections recouvertes, et laisse les autres intactes", async () => {
+    // L'instantané d'un démarrage précédent : des invités périmés, et des
+    // prestataires que le serveur ne connaît pas encore.
+    kv.set("guests", [{ id: "g-perime" }]);
+    kv.set("vendors", [{ id: "v-local" }]);
+
+    const { hydrateFromSpace } = await import("@/lib/space-sync");
+    await hydrateFromSpace(SESSION as never, "sp-1", "w1");
+
+    expect(setGuests).toHaveBeenCalledTimes(1);
+    // Recouvert : le prochain démarrage peint l'état du serveur.
+    expect(kv.get("guests")).toEqual([{ id: "g-serveur" }]);
+    // Non recouvert : le recouvrir par le magasin vide effacerait une donnée
+    // locale que le serveur ignore encore, et qui doit repartir à la poussée.
+    expect(kv.get("vendors")).toEqual([{ id: "v-local" }]);
+  });
+
+  it("n'écrit aucune collection quand la lecture est abandonnée", async () => {
+    kv.set("guests", [{ id: "g-local" }]);
+    // La lecture est retenue en vol, le temps qu'une saisie locale survienne.
+    let libérerLecture!: () => void;
+    mockLireArbre = () => new Promise((res) => { libérerLecture = () => res(ARBRE); });
+
+    const { hydrateFromSpace, scheduleSyncPush } = await import("@/lib/space-sync");
+    const hydratation = hydrateFromSpace(SESSION as never, "sp-1", "w1");
+    invites = [{ id: "g-local" }];
+    scheduleSyncPush();
+
+    libérerLecture();
+    await hydratation;
+
+    expect(setGuests).not.toHaveBeenCalled();
+    expect(kv.get("guests")).toEqual([{ id: "g-local" }]);
+    // Seules les clés internes de la sync ont bougé — aucune collection.
+    expect([...kv.keys()].filter((c) => !c.startsWith("sync."))).toEqual(["guests"]);
+  });
+});
