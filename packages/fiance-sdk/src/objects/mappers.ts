@@ -20,6 +20,7 @@ import type {
   Wedding,
   Guest,
   GuestGroup,
+  Household,
   Table,
   Vendor,
   QuotePricing,
@@ -97,6 +98,24 @@ export function guestGroupToNode(g: GuestGroup, id: string, weddingNodeId: strin
 
 export function guestGroupFromDoc(doc: unknown): GuestGroup {
   return doc as GuestGroup;
+}
+
+// ─── Household ────────────────────────────────────────────────────────────────
+
+export function householdToNode(h: Household, id: string, weddingNodeId: string): NodeDescriptor {
+  return {
+    id,
+    type: FIANCE_TYPES.household,
+    parentId: weddingNodeId,
+    title: h.name ?? 'Foyer',
+    access: 'space',
+    enc: true,
+    contentKind: 'merge',
+  };
+}
+
+export function householdFromDoc(doc: unknown): Household {
+  return doc as Household;
 }
 
 // ─── Guest ────────────────────────────────────────────────────────────────────

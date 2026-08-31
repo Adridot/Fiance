@@ -1023,6 +1023,9 @@ export function buildWeddingSnapshot(profile: SampleProfile): WeddingSnapshot {
     guestGroups,
     guests,
     tables,
+    // MODIFICATION LOCALE — les foyers. Les jeux d'essai n'en constituent pas :
+    // une liste sans foyers reste une liste d'envois, un par personne.
+    households: [],
     vendors,
     quotePricings,
     vendorPayments,

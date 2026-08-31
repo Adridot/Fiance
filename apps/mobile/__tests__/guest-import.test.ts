@@ -215,3 +215,26 @@ describe("base64ToBytes", () => {
     expect(Buffer.from(base64ToBytes(b64)).toString("utf8")).toBe("hello!");
   });
 });
+
+// ─── mapRowsToGuests — child marker ──────────────────────────────────────────
+
+describe("mapRowsToGuests — child marker", () => {
+  const sheet = (values: string[]) => ({
+    headers: ["Prénom", "Nom", "Enfant"],
+    rows: values.map((v, i) => [`P${i}`, `N${i}`, v]),
+  });
+
+  it("a tick marks the guest as a child and sets no companion count", () => {
+    let n = 0;
+    const r = mapRowsToGuests(sheet(["X", "x", "", "2"]), { groups: [], tables: [] }, { makeId: () => `i-${n++}` });
+    expect(r.guests.map((g) => g.isChild)).toEqual([true, true, false, true]);
+    expect(r.guests.map((g) => g.childrenCount)).toEqual([0, 0, 0, 0]);
+  });
+
+  it("an empty column marks nothing", () => {
+    let n = 0;
+    const r = mapRowsToGuests(sheet([""]), { groups: [], tables: [] }, { makeId: () => `i-${n++}` });
+    expect(r.guests[0].isChild).toBe(false);
+    expect(r.guests[0].childrenCount).toBe(0);
+  });
+});
