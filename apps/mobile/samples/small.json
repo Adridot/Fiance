@@ -1,6 +1,6 @@
 {
   "version": 16,
-  "timestamp": "2026-07-15T19:36:00.905Z",
+  "timestamp": "2026-07-01T10:00:00.000Z",
   "wedding": {
     "id": 1,
     "partner1Name": "Camille",
@@ -1324,7 +1324,7 @@
       "description": "Tâche importante à ne pas oublier.",
       "status": "DONE",
       "priority": "CRITICAL",
-      "dueDate": "2025-03-12T01:00:00.000Z",
+      "dueDate": "2025-03-12T00:00:00.000Z",
       "monthsBefore": 18,
       "isSystem": false,
       "vendorId": "small-v-001",
