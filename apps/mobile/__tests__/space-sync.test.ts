@@ -152,7 +152,7 @@ vi.mock("@/lib/starfish", () => ({
 
 // Stub all stores to return empty state.
 const emptyStore = { getState: () => ({
-  wedding: null, guests: [], tables: [], groups: [],
+  wedding: null, guests: [], tables: [], groups: [], households: [],
   vendors: [], quotePricings: [], vendorPayments: [],
   accommodations: [], gifts: [], invitationTypes: [], communications: [],
   weddingRoles: [], weddingRoleAssignments: [], seatingConstraints: [], weddingEvents: [], mealSelections: [],
