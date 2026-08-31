@@ -24,7 +24,18 @@ export interface GuestImportResult {
   /** Newly created invitation types only (existing ones are reused, by id then by label). */
   invitationTypes: InvitationTypeEntity[];
   skippedRows: number;
+  /** Rows whose source gave no invitation type — they get UNDETERMINED_INVITATION_TYPE. */
+  withoutInvitationType: number;
 }
+
+export const UNDETERMINED_INVITATION_TYPE: InvitationTypeEntity = {
+  id: "IMPORT_UNDETERMINED",
+  label: "À déterminer",
+  isDefault: false,
+  needsSleeping: false,
+  createdAt: null,
+  updatedAt: null,
+};
 
 // ─── Bytes helpers ───────────────────────────────────────────────────────────
 
@@ -275,6 +286,7 @@ export function mapRowsToGuests(
     typeIdsByKey.set(normalizeHeader(it.label), it.id);
   }
   const newInvitationTypes: InvitationTypeEntity[] = [];
+  let withoutInvitationType = 0;
 
   for (const row of sheet.rows) {
     let firstName = cell(row, "firstName");
@@ -315,8 +327,17 @@ export function mapRowsToGuests(
     }
 
     const rawType = cell(row, "invitationType");
-    let invitationTypeId = "FULL";
-    if (rawType) {
+    let invitationTypeId: string;
+    if (!rawType) {
+      withoutInvitationType++;
+      const undeterminedKey = normalizeHeader(UNDETERMINED_INVITATION_TYPE.id);
+      if (!typeIdsByKey.has(undeterminedKey)) {
+        typeIdsByKey.set(undeterminedKey, UNDETERMINED_INVITATION_TYPE.id);
+        typeIdsByKey.set(normalizeHeader(UNDETERMINED_INVITATION_TYPE.label), UNDETERMINED_INVITATION_TYPE.id);
+        newInvitationTypes.push({ ...UNDETERMINED_INVITATION_TYPE, createdAt: now, updatedAt: now });
+      }
+      invitationTypeId = UNDETERMINED_INVITATION_TYPE.id;
+    } else {
       const key = normalizeHeader(rawType);
       const known = typeIdsByKey.get(key);
       if (known) {
@@ -377,5 +398,12 @@ export function mapRowsToGuests(
     });
   }
 
-  return { guests, groups: newGroups, tables: newTables, invitationTypes: newInvitationTypes, skippedRows };
+  return {
+    guests,
+    groups: newGroups,
+    tables: newTables,
+    invitationTypes: newInvitationTypes,
+    skippedRows,
+    withoutInvitationType,
+  };
 }
