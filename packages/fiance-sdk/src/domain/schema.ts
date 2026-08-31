@@ -20,9 +20,17 @@ export interface Wedding {
   premium?: boolean;
 }
 
+/** Which side of the wedding a category attaches its guests to. */
+export type GuestGroupSide = "PARTNER_1" | "PARTNER_2" | "BOTH";
+
 export interface GuestGroup {
   id: string;
   name: string;
+  // The side lives on the category, never on the guest: a guest moved between
+  // categories changes side with no write of their own, and the two values
+  // cannot diverge. Additive fields — `BACKUP_VERSION` is NOT bumped.
+  side?: GuestGroupSide | null;
+  sortOrder?: number | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
