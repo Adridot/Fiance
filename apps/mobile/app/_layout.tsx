@@ -56,7 +56,6 @@ import { DatabaseProvider, useDatabaseSwitching } from "@/db/provider";
 import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { ReadOnlyBanner } from "@/components/ReadOnlyBanner";
-import { FeatureWelcomeHost } from "@/lib/feature-welcomes";
 import { PaywallProvider } from "@/components/PaywallProvider";
 import { useFeatureTrialsStore } from "@/store/useFeatureTrialsStore";
 import { ObserveRoot, useObserve } from "expo-observe";
@@ -160,7 +159,21 @@ function AppContent() {
           </Stack>
         </View>
         {activeWedding && <OfflineBanner />}
-        {activeWedding && <FeatureWelcomeHost />}
+        {/*
+          MODIFICATION LOCALE — `<FeatureWelcomeHost />` N'EST PLUS MONTÉ.
+          Il ouvrait une modale plein écran à la première visite de chacune des
+          dix-neuf zones. Sur un appareil neuf — le téléphone d'un parent, un
+          navigateur qu'on vient d'ouvrir — c'était dix-neuf interruptions à
+          congédier avant de pouvoir travailler, et l'état « déjà vu » étant
+          local à l'appareil, chaque nouvel appareil recommençait la série.
+
+          Le composant amont, son registre (`lib/feature-welcomes.tsx`), ses
+          clés et ses traductions RESTENT en place, sans appelant : les effacer
+          produirait un correctif large qui entrerait en conflit à chaque
+          évolution amont, pour un gain nul à l'exécution — du code non monté ne
+          s'exécute pas. `apps/mobile/__tests__/no-feature-welcome-host.test.ts`
+          échoue si ce montage revient.
+        */}
       </View>
     </DatabaseProvider>
   );
