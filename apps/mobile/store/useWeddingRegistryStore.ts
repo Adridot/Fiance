@@ -21,6 +21,13 @@ import { useRevenueCatStore } from "@/store/useRevenueCatStore";
  * passage obligé, donc le seul endroit qu'une navigation directe vers l'écran
  * de création ne peut pas contourner.
  *
+ * Deux exceptions délibérées, sans lesquelles le verrou casserait plus qu'il ne
+ * protège :
+ *  - `role === "member"` — c'est le parcours « rejoindre par lien d'invitation »
+ *    (lib/join-space.ts), celui par lequel la famille accède au mariage.
+ *  - registre vide — sinon un appareil neuf, ou une réinstallation, se
+ *    retrouverait sans aucun moyen d'entrer dans l'application.
+ *
  * Pour lever la contrainte (reconstruction après perte du mariage) : rebuild
  * avec EXPO_PUBLIC_ALLOW_WEDDING_CREATION=1. Cela exige de reconstruire le
  * bundle, donc ne peut pas se produire par inadvertance depuis l'app.
@@ -56,7 +63,7 @@ export const useWeddingRegistryStore = create<WeddingRegistryState>((set, get) =
   },
 
   createWedding: async (label, seedPhrase, serverUrl, spaceId, role) => {
-    if (!ALLOW_WEDDING_CREATION) {
+    if (!ALLOW_WEDDING_CREATION && role !== "member") {
       // Relu depuis le stockage plutôt que depuis get().registry : au tout
       // premier rendu le store n'est pas encore chargé, et un registre null
       // laisserait passer la création qu'on veut justement bloquer.
