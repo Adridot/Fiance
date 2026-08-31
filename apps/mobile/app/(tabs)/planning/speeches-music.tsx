@@ -6,7 +6,7 @@ import { Mic2, Music2, Star, Trash2, Pencil, Lock } from "lucide-react-native";
 import { useHasFeature } from "@/lib/limits";
 import { useShowPaywall } from "@/components/PaywallProvider";
 import * as Crypto from "expo-crypto";
-import { PLAYLIST_MOMENT_LABELS } from "@fiance/sdk";
+import { PLAYLIST_MOMENT_LABELS, formatGuestName } from "@fiance/sdk";
 import type { PlaylistMoment } from "@fiance/sdk";
 import { useSpeechesMusicStore } from "@/store/useSpeechesMusicStore";
 import { usePlanningStore } from "@/store/usePlanningStore";
@@ -58,7 +58,7 @@ export default function SpeechesMusicScreen() {
   const djVendor = useMemo(() => vendors.find((v) => v.type === "DJ") ?? null, [vendors]);
   const dayOfMap = useMemo(() => new Map(dayOfItems.map((d) => [d.id, d.time])), [dayOfItems]);
   const guestMap = useMemo(
-    () => new Map(guests.map((g) => [g.id, `${g.firstName} ${g.lastName}`.trim()])),
+    () => new Map(guests.map((g) => [g.id, formatGuestName(g)])),
     [guests]
   );
   const roleMap = useMemo(() => new Map(roles.map((r) => [r.id, r.name])), [roles]);

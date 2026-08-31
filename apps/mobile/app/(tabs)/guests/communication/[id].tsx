@@ -14,6 +14,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { theme as GP } from "@/lib/theme";
 import { Users } from "lucide-react-native";
 import type { Guest } from "@/db/schema";
+import { formatGuestName, guestNameMatches } from "@fiance/sdk";
 
 export default function CommunicationRosterScreen() {
   const { t } = useTranslation("guests");
@@ -40,7 +41,7 @@ export default function CommunicationRosterScreen() {
       if (statusFilter === "NOT_SENT" && recipientIds.has(g.id)) return false;
       if (search) {
         const q = search.toLowerCase();
-        return `${g.firstName} ${g.lastName}`.toLowerCase().includes(q);
+        return guestNameMatches(g, q);
       }
       return true;
     });
@@ -103,7 +104,7 @@ export default function CommunicationRosterScreen() {
                     <Avatar ini={initials} size={36} />
                     <View className="flex-1 ml-3">
                       <Text className="text-base font-medium text-ink">
-                        {guest.firstName} {guest.lastName}
+                        {formatGuestName(guest)}
                       </Text>
                     </View>
                     <View

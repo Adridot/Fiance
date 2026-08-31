@@ -5,7 +5,7 @@ import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { Users, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react-native";
 import { useGuestsStore, computeCounts } from "@/store/useGuestsStore";
-import { countDuplicateGuests } from "@fiance/sdk";
+import { countDuplicateGuests, formatGuestName } from "@fiance/sdk";
 import { HomeBanner } from "@/components/HomeBanner";
 import { theme as GP } from "@/lib/theme";
 import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
@@ -50,7 +50,7 @@ function GuestCard({ guest, invitationTypeLabel }: { guest: Guest; invitationTyp
   const companionName = useGuestsStore((s) => {
     if (!guest.companionId) return null;
     const c = s.guests.find((g) => g.id === guest.companionId);
-    return c ? `${c.firstName} ${c.lastName}` : null;
+    return c ? formatGuestName(c) : null;
   });
   const roleLabel = useWeddingPartyStore((s) => {
     const names = s.weddingRoleAssignments
@@ -76,7 +76,7 @@ function GuestCard({ guest, invitationTypeLabel }: { guest: Guest; invitationTyp
         </View>
         <View className="flex-1">
           <Text className="text-base font-semibold text-ink">
-            {guest.firstName} {guest.lastName}
+            {formatGuestName(guest)}
           </Text>
           <Text className="text-sm text-mute mt-0.5">
             {roleLabel ? `${roleLabel} · ` : ""}

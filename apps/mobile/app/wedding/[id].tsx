@@ -17,6 +17,7 @@ import {
   getSyncNamespace,
   DEFAULT_SYNC_NAMESPACE,
   type NodeInviteLinkToken,
+  formatGuestName,
 } from "@fiance/sdk";
 
 /**
@@ -489,7 +490,7 @@ export default function WeddingPublicPage() {
                 <Display size={20} italic style={{ textAlign: "center" }}>{t("rsvpSuccess")}</Display>
                 {rsvpSeed?.firstName && (
                   <Text className="text-sm text-mute mt-1 text-center">
-                    {rsvpSeed.firstName} {rsvpSeed.lastName}
+                    {formatGuestName({ firstName: rsvpSeed.firstName ?? "", lastName: rsvpSeed.lastName ?? "", nameParticle: null })}
                   </Text>
                 )}
               </View>
@@ -497,7 +498,7 @@ export default function WeddingPublicPage() {
               <View className="bg-accent-card rounded-2xl p-4 shadow-sm" style={{ shadowColor: "#b96a4a", shadowOpacity: 0.1, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 }}>
                 {rsvpSeed?.firstName && (
                   <Text className="text-base font-semibold text-ink mb-4">
-                    {rsvpSeed.firstName} {rsvpSeed.lastName}
+                    {formatGuestName({ firstName: rsvpSeed.firstName ?? "", lastName: rsvpSeed.lastName ?? "", nameParticle: null })}
                   </Text>
                 )}
 
@@ -543,7 +544,7 @@ export default function WeddingPublicPage() {
                       <>
                         <View className="h-px bg-accent-paper mb-4" />
                         <Text className="text-sm font-semibold text-ink mb-1">
-                          {t("plusOneLabel", { name: `${rsvpSeed.companionFirstName} ${rsvpSeed.companionLastName ?? ""}`.trim() })}
+                          {t("plusOneLabel", { name: formatGuestName({ firstName: rsvpSeed.companionFirstName ?? "", lastName: rsvpSeed.companionLastName ?? "", nameParticle: null }) })}
                         </Text>
                         <Text className="text-sm text-mute mb-2">{t("plusOneAttendance")}</Text>
                         <View className="flex-row gap-2 mb-4">

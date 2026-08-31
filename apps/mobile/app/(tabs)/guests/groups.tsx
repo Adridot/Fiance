@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { FormActions } from "@/components/FormSection";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
+import { formatGuestName } from "@fiance/sdk";
 
 export default function GroupsScreen() {
   const { t } = useTranslation("guests");
@@ -176,7 +177,7 @@ export default function GroupsScreen() {
                         </Text>
                       </View>
                       <Text className="text-sm text-ink-soft flex-1">
-                        {g.firstName} {g.lastName}
+                        {formatGuestName(g)}
                       </Text>
                     </View>
                   ))

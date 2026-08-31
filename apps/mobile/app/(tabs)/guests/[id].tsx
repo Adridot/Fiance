@@ -22,6 +22,7 @@ import {
   type MealChoice,
   type SeatingConstraintType,
   type CommunicationChannel,
+  formatGuestName,
 } from "@fiance/sdk";
 import { useGuestRsvpUrl } from "@/lib/rsvp-sync";
 import {
@@ -318,7 +319,7 @@ export default function GuestDetailScreen() {
     <View className="flex-1 bg-accent-paper">
       <Stack.Screen
         options={{
-          title: firstName || lastName ? `${firstName} ${lastName}`.trim() : "",
+          title: formatGuestName({ firstName, lastName, nameParticle }),
           headerRight: () => (
             <SaveHeaderButton label={t("common:save")} enabled={canSave} onPress={handleSave} />
           ),
@@ -503,8 +504,8 @@ export default function GuestDetailScreen() {
           const target = guests.find((g) => g.id === pendingCompanionId);
           const old = guests.find((g) => g.id === target?.companionId);
           return t("companionConflictMessage", {
-            name: target ? `${target.firstName} ${target.lastName}` : "",
-            currentCompanion: old ? `${old.firstName} ${old.lastName}` : "",
+            name: target ? formatGuestName(target) : "",
+            currentCompanion: old ? formatGuestName(old) : "",
           });
         })()}
         onConfirm={() => {
@@ -636,7 +637,7 @@ export default function GuestDetailScreen() {
               <Text className="text-sm text-primary-500 font-medium ml-2 flex-1">
                 {(() => {
                   const c = guests.find((g) => g.id === companionId);
-                  return c ? `${c.firstName} ${c.lastName}` : "";
+                  return c ? formatGuestName(c) : "";
                 })()}
               </Text>
               <Pressable
@@ -752,7 +753,7 @@ export default function GuestDetailScreen() {
                   .filter((gid) => gid !== id)
                   .map((gid) => {
                     const g = guests.find((gg) => gg.id === gid);
-                    return g ? `${g.firstName} ${g.lastName}` : "";
+                    return g ? formatGuestName(g) : "";
                   })
                   .filter(Boolean)
                   .join(", ");

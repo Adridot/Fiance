@@ -16,7 +16,7 @@ import { SettingsRow, WebFilePickRow } from "@/components/SettingsRow";
 import { useCan } from "@/lib/permissions/usePermissions";
 import { useIsPremium } from "@/lib/premium";
 import { FREE_LIMITS } from "@/lib/limits";
-import { wouldExceedFreeLimit } from "@fiance/sdk";
+import { wouldExceedFreeLimit, formatGuestName } from "@fiance/sdk";
 import { useShowPaywall } from "@/components/PaywallProvider";
 
 export default function ImportFileScreen() {
@@ -178,7 +178,7 @@ export default function ImportFileScreen() {
                   </View>
                   <View className="flex-1">
                     <Text className="text-base text-ink">
-                      {`${guest.firstName} ${guest.lastName}`.trim()}
+                      {formatGuestName(guest)}
                     </Text>
                     {groupName && <Text className="text-xs text-mute mt-0.5">{groupName}</Text>}
                   </View>

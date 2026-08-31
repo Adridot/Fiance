@@ -6,6 +6,7 @@
 import { Platform } from "react-native";
 import type { Guest, Table, GuestGroup, Vendor, DayOfItem, Wedding, VendorPayment, GuestMealSelection, WeddingEvent, CeremonyItem, Speech, PlaylistTrack, WeddingRole } from "@/db/schema";
 import type { BudgetSummary } from "@/store/useBudgetStore";
+import { formatGuestName } from "@fiance/sdk";
 
 function escapeHtml(str: string): string {
   return str
@@ -111,7 +112,7 @@ export function buildMenuSummaryHtml(
       const detailRows = selections
         .map((s) => {
           const g = guestMap.get(s.guestId);
-          const name = g ? `${escapeHtml(g.firstName)} ${escapeHtml(g.lastName)}` : "—";
+          const name = g ? escapeHtml(formatGuestName(g)) : "—";
           return `<tr><td>${name}</td><td>${escapeHtml(mealChoiceLabels[s.mealChoice] ?? s.mealChoice)}</td></tr>`;
         })
         .join("");
@@ -382,7 +383,7 @@ export function buildCeremonyBookletHtml(
   kindLabels: Record<string, string>,
   labels: { programOf: string; performedBy: string },
 ): string {
-  const guestMap = new Map(guests.map((g) => [g.id, `${g.firstName} ${g.lastName}`.trim()]));
+  const guestMap = new Map(guests.map((g) => [g.id, formatGuestName(g)]));
   const roleMap = new Map(roles.map((r) => [r.id, r.name]));
   const sorted = [...items].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 
@@ -436,7 +437,7 @@ export function buildDjWitnessPackHtml(
   roles: WeddingRole[],
   momentLabels: Record<string, string>,
 ): string {
-  const guestMap = new Map(guests.map((g) => [g.id, `${g.firstName} ${g.lastName}`.trim()]));
+  const guestMap = new Map(guests.map((g) => [g.id, formatGuestName(g)]));
   const roleMap = new Map(roles.map((r) => [r.id, r.name]));
   const dayOfMap = new Map(dayOfItems.map((d) => [d.id, d.time]));
 

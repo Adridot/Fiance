@@ -9,7 +9,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { FilterTabs } from "@/components/FilterTabs";
 import { isDocumentAvailableOnDevice, deleteDocumentFile } from "@/lib/documents";
-import { DOCUMENT_OWNER_TYPE_LABELS, type DocumentOwnerType } from "@fiance/sdk";
+import { DOCUMENT_OWNER_TYPE_LABELS, type DocumentOwnerType, formatGuestName } from "@fiance/sdk";
 import type { Document } from "@/db/schema";
 
 const OWNER_TYPES: DocumentOwnerType[] = ["VENDOR", "GUEST", "LEGAL", "HONEYMOON", "WEDDING"];
@@ -32,7 +32,8 @@ export default function DocumentsHubScreen() {
     if (doc.ownerType === "VENDOR") return vendors.find((v) => v.id === doc.ownerId)?.name ?? null;
     if (doc.ownerType === "GUEST") {
       const g = guests.find((x) => x.id === doc.ownerId);
-      return g ? `${g.firstName} ${g.lastName}` : null;
+      // MODIFICATION LOCALE — nom composé, particule comprise.
+      return g ? formatGuestName(g) : null;
     }
     return null;
   };
