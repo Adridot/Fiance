@@ -144,6 +144,11 @@ const mockGetActiveWeddingNodeId = vi.fn(() => "wedding-node-1");
 // below always installs, so tests can assert what hydrateFromSpace fed setWedding.
 let mockSetWedding: Mock = vi.fn();
 
+// Same reason as mockSetWedding above, for the guest store: the durability tests need to
+// assert whether hydrateFromSpace applied the pulled guests to the store at all, which a
+// fresh-per-getState() spy cannot answer.
+let mockSetGuests: Mock = vi.fn();
+
 vi.mock("@/lib/starfish", () => ({
   getActiveSession: () => mockGetActiveSession(),
   getActiveSpaceId: () => mockGetActiveSpaceId(),
@@ -195,7 +200,9 @@ vi.mock("@/store/useWeddingRegistryStore", () => ({
   },
 }));
 vi.mock("@/store/useGuestsStore", () => ({
-  useGuestsStore: { getState: () => ({ ...emptyStore.getState(), guests: mockGuestsData }) },
+  useGuestsStore: {
+    getState: () => ({ ...emptyStore.getState(), guests: mockGuestsData, setGuests: mockSetGuests }),
+  },
 }));
 vi.mock("@/store/useVendorsStore", () => ({ useVendorsStore: emptyStore }));
 vi.mock("@/store/usePlanningStore", () => ({ usePlanningStore: emptyStore }));
@@ -219,6 +226,30 @@ vi.mock("@/store/usePermissionsStore", () => ({ usePermissionsStore: emptyStore 
 vi.mock("@/lib/rsvp-sync", () => ({
   applyRsvpSubmissionsByGuestId: vi.fn(),
 }));
+
+// Le KV local, où se range le marqueur de poussée en attente. Le vrai module
+// tire `react-native` et `expo-sqlite`, qui n'existent pas sous l'environnement
+// `node` de vitest — d'où ce faux, sur une Map que les tests peuvent inspecter.
+//
+// Il SURVIT volontairement à `vi.resetModules()` : c'est une variable de ce
+// fichier de test, pas du module. C'est exactement ce qu'on veut modéliser —
+// le KV survit au rechargement d'une page, l'état de module non.
+const mockKvStore = new Map<string, unknown>();
+vi.mock("@/lib/kv-storage", () => ({
+  readCollection: (clé: string) => (mockKvStore.has(clé) ? mockKvStore.get(clé) : null),
+  writeCollection: (clé: string, données: unknown) => { mockKvStore.set(clé, données); },
+  // KV fermé : la persistance de l'hydratation ne s'exerce pas ici, elle a son
+  // propre fichier (`hydratation-instantane.test.ts`).
+  getStorage: () => null,
+}));
+
+// Le KV est une variable de CE FICHIER : il survit volontairement à
+// `vi.resetModules()`, puisqu'il modélise un stockage qui survit au
+// rechargement d'une page. Il doit donc être remis à zéro entre deux TESTS,
+// sans quoi le suivi durable de ce qui reste à pousser fuit de l'un à l'autre.
+beforeEach(() => {
+  mockKvStore.clear();
+});
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
@@ -371,9 +402,25 @@ describe("_pushing guard — no concurrent hydrate while a push awaits the netwo
   });
 
   it("a second concurrent scheduleSyncPush push still resolves _pushing to false even if the network push fails", async () => {
+    // MODIFICATION LOCALE — l'intention de ce test est inchangée : un échec ne doit
+    // pas COINCER la synchronisation pour toujours. Ce qui a changé est le moment
+    // où elle repart. Un échec programme désormais un réessai, et ce réessai
+    // protège la modification non écoulée d'une hydratation qui l'effacerait —
+    // exactement ce que `_pushTimer` fait déjà quelques lignes plus haut. Cette
+    // protection s'arrête au seuil de signalement : une fois l'utilisateur prévenu
+    // que ses modifications ne sont pas enregistrées, l'appareil se remet à lire,
+    // faute de quoi un échec durable le rendrait aveugle pour toujours.
     mockClientPull = vi.fn(async () => ({ data: null, hash: null }));
     let rejectPush!: (err: Error) => void;
-    mockClientPush = vi.fn(() => new Promise<{ hash: string }>((_res, rej) => { rejectPush = rej; }));
+    let premièrePoussée = true;
+    mockClientPush = vi.fn(() => {
+      if (premièrePoussée) {
+        premièrePoussée = false;
+        return new Promise<{ hash: string }>((_res, rej) => { rejectPush = rej; });
+      }
+      // Les réessais échouent aussitôt : la panne dure.
+      return Promise.reject(new Error("network down"));
+    });
     mockHandlePush = makeHandlePush(mockClientPull, mockClientPush);
     mockGetNodeAccessImpl = async () => ({
       encryptor: null,
@@ -396,7 +443,16 @@ describe("_pushing guard — no concurrent hydrate while a push awaits the netwo
     rejectPush(new Error("network down"));
     await vi.advanceTimersByTimeAsync(0);
 
-    // _pushing must be released even on failure — otherwise sync would wedge permanently.
+    // _pushing EST relâché — mais le réessai protège encore la modification.
+    await refreshFromSpaceIfIdle();
+    expect(readTreeCalls).toBe(0);
+
+    // La panne dure : les tentatives s'épuisent, le défaut est signalé…
+    await vi.advanceTimersByTimeAsync(60_000);
+    const { useSyncPendingStore } = await import("@/store/useSyncPendingStore");
+    expect(useSyncPendingStore.getState().unsavedChanges).toBe(true);
+
+    // …et la lecture repart : rien n'est coincé pour toujours.
     await refreshFromSpaceIfIdle();
     expect(readTreeCalls).toBe(1);
   });

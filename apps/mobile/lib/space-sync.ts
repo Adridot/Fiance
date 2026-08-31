@@ -67,6 +67,7 @@ import { StarfishHttpError } from '@drakkar.software/starfish-client';
 import { useWeddingStore } from '@/store/useWeddingStore';
 import { useWeddingRegistryStore } from '@/store/useWeddingRegistryStore';
 import { useSyncAccessStore } from '@/store/useSyncAccessStore';
+import { useSyncPendingStore } from '@/store/useSyncPendingStore';
 import { useGuestsStore } from '@/store/useGuestsStore';
 import { useVendorsStore } from '@/store/useVendorsStore';
 import { usePlanningStore } from '@/store/usePlanningStore';
@@ -89,6 +90,9 @@ import { usePermissionsStore } from '@/store/usePermissionsStore';
 import { getActiveSession, getActiveSpaceId, getActiveWeddingNodeId } from '@/lib/starfish';
 import { applyRsvpSubmissionsByGuestId, type RsvpSubmission } from '@/lib/rsvp-sync';
 import { withIndexLock } from '@/lib/index-lock';
+// MODIFICATION LOCALE — le KV local, seul état de ce fichier qui survive au
+// départ de la page (voir « la demande de poussée survit au départ » plus bas).
+import { readCollection, writeCollection } from '@/lib/kv-storage';
 
 // ---------------------------------------------------------------------------
 // Debounced push scheduler
@@ -111,6 +115,47 @@ let _pushing = false;
  *  store from a pre-submission server doc and drop/tombstone a guest an in-flight RSVP
  *  apply is about to write — mirrors the _pushing guard's rationale above. */
 let _rsvpRefreshing = false;
+
+// ─── MODIFICATION LOCALE — durabilité des écritures ──────────────────────────
+//
+// Deux gardes de ce fichier écartent une demande de poussée quand une hydratation
+// est en cours (`scheduleSyncPush`, et la re-vérification dans son minuteur). Leur
+// intention est juste — ne pas laisser une poussée écraser ce qu'on vient de lire —
+// mais aucune ne REPRENAIT la demande écartée, et `hydrateFromSpace` remplace
+// ensuite les magasins. Une modification saisie pendant une hydratation était donc
+// d'abord privée de poussée, puis effacée. Sans erreur, sans trace : la poussée
+// n'était même pas tentée.
+//
+// La fenêtre ne demande ni second onglet ni second appareil. Le flux SSE déclenche
+// `refreshFromSpaceIfIdle()` sur TOUT changement de l'espace, y compris l'écho de
+// notre propre poussée : **une poussée réussie ouvre la fenêtre qui avale la
+// suivante.** C'est ainsi qu'un foyer constitué le 21 août 2026 n'est jamais arrivé
+// au serveur, quelques minutes après un autre qui, lui, était passé.
+//
+// Deux pièces le corrigent, et elles ne s'additionnent pas — l'une conditionne
+// l'autre :
+//
+//   1. L'ÉPOQUE. Toute mutation de l'application passe par `scheduleSyncPush`
+//      (`notifySync()` → `registerPull('*')`, 121 appelants). L'incrémenter ici
+//      suffit donc à dater toute modification locale, sans instrumenter les trente
+//      magasins. `hydrateFromSpace` retient l'époque à son début et la relit avant
+//      d'appliquer : si elle a bougé, l'état lu est JETÉ. Abandonner plutôt que
+//      fusionner, parce qu'une modification locale n'a pas encore de `rev` — il ne
+//      lui est attribué qu'à la construction du document de poussée — et qu'un
+//      arbitrage inventé à côté de `mergeCollectionDoc` serait une seconde règle
+//      pour un cas rare. Le prix d'un abandon est une relecture, rien de plus.
+//
+//   2. LA REPRISE. La demande écartée est retenue et rejouée à la fin de
+//      l'hydratation. Seule, elle ne corrigerait RIEN : les magasins auraient déjà
+//      été remplacés, et l'on renverrait au serveur ce qu'il vient d'envoyer. Elle
+//      n'est correcte que parce que (1) garantit que le magasin porte encore la
+//      modification.
+/** Incrémenté par CHAQUE appel à `scheduleSyncPush`, donc par chaque mutation. */
+let _localEditEpoch = 0;
+/** Une demande de poussée a été écartée pendant une hydratation et reste à rejouer. */
+let _pushDeferred = false;
+/** Whether the last hydrate actually applied what it read (false when abandoned). */
+let _lastHydrateApplied = false;
 
 /**
  * Dirty-push tracking for the wedding singleton node: node id → stableStringify() of the
@@ -166,26 +211,179 @@ const MANAGED_TYPES = new Set<string>(
   Object.values(FIANCE_TYPES).filter((t) => t !== FIANCE_TYPES.publicPage && t !== FIANCE_TYPES.rsvp),
 );
 
+// ─── MODIFICATION LOCALE — la demande de poussée survit au départ de la page ──
+//
+// Tout ce qui protège une saisie dans ce fichier est une variable de MODULE :
+// l'époque, la demande différée, le minuteur d'anti-rebond, les références de
+// poussée. Un rechargement de page les remet toutes à zéro. La poussée étant
+// débouncée à 2 s, une saisie suivie d'un rechargement immédiat n'est donc ni
+// partie, ni protégée : l'hydratation du démarrage suivant applique l'état du
+// serveur, plus ancien, et la saisie disparaît sans le moindre signal.
+// Reproduit en production le 21 août 2026 (« Lilou » → « Liloux »).
+//
+// Accrocher un vidage à `pagehide` ne suffirait PAS : une poussée est un
+// aller-retour réseau, et rien ne garantit qu'il aboutisse pendant que la page
+// s'en va. Ce vidage existe (providers.tsx), mais comme raccourci opportuniste.
+//
+// LA GARANTIE EST ICI : la demande est rendue durable au moment de la MUTATION,
+// dans le KV — le seul état qui survive au rechargement. Le démarrage suivant
+// la relit et pousse avant de laisser quoi que ce soit recouvrir les données
+// locales.
+//
+// La clé est nue : `writeCollection` la préfixe par le mariage actif, donc le
+// marqueur est automatiquement cloisonné par mariage.
+const CLÉ_POUSSÉE_EN_ATTENTE = 'sync.pousseeEnAttente';
+
+/** Note qu'une modification locale n'a pas encore atteint le serveur. */
+function noterPousséeEnAttente(): void {
+  // Entre deux mariages le KV est fermé et l'écriture ne porte que sur son cache
+  // mémoire, sans erreur. Rien à rattraper ici : la mutation suivante repose le
+  // marqueur dans le bon espace de noms.
+  try { writeCollection(CLÉ_POUSSÉE_EN_ATTENTE, true); } catch { /* KV indisponible */ }
+}
+
+/** Efface la note : tout ce qui devait partir est arrivé. */
+function effacerPousséeEnAttente(): void {
+  try { writeCollection(CLÉ_POUSSÉE_EN_ATTENTE, false); } catch { /* KV indisponible */ }
+}
+
+/** Vrai si une modification locale attendait d'être poussée quand la page s'est
+ *  arrêtée. Lu au démarrage. Un marqueur absent — première exécution après
+ *  déploiement, ou version antérieure — rend `false` : l'appareil se comporte
+ *  alors exactement comme avant. */
+export function pousséeEnAttenteAuDémarrage(): boolean {
+  try { return readCollection<boolean>(CLÉ_POUSSÉE_EN_ATTENTE) === true; } catch { return false; }
+}
+
+/**
+ * Fait partir tout de suite la poussée que le débouncement retenait.
+ *
+ * RACCOURCI OPPORTUNISTE, jamais une garantie — et c'est important de ne pas
+ * s'y tromper : une poussée est un aller-retour réseau, et rien ne garantit
+ * qu'il aboutisse pendant que la page s'en va. Ce que ce vidage apporte, c'est
+ * de transformer le cas courant (l'utilisateur recharge) en aller-retour
+ * réussi, plutôt qu'en rattrapage au démarrage suivant. La GARANTIE, elle, est
+ * le marqueur durable et `rejouerPousséeEnAttente`.
+ *
+ * Ne retient pas la page : ne rend rien à attendre, et ne bloque pas.
+ */
+export function viderPousséeEnAttente(): void {
+  if (!_pushTimer) return;
+  clearTimeout(_pushTimer);
+  _pushTimer = null;
+  void exécuterPoussée();
+}
+
+/**
+ * Rejoue, au démarrage, la poussée que le départ de la page a interrompue.
+ *
+ * À appeler AVANT toute hydratation : la modification est toujours dans les
+ * magasins persistés, mais l'hydratation applique l'état du serveur — antérieur
+ * à elle — et l'effacerait.
+ *
+ * La logique vit ici, et non dans le composant qui l'appelle, pour deux
+ * raisons : c'est de la politique de synchronisation, et c'est le seul endroit
+ * où elle est vérifiable sans monter tout l'arbre React.
+ *
+ * Ne rejette jamais : un rattrapage qui échoue laisse le marqueur en place
+ * (il n'est effacé qu'au succès), donc le démarrage suivant réessaiera, et le
+ * réessai ordinaire s'en charge d'ici là.
+ */
+export async function rejouerPousséeEnAttente(
+  session: Session,
+  spaceId: string,
+  weddingNodeId: string,
+): Promise<boolean> {
+  if (!pousséeEnAttenteAuDémarrage()) return false;
+  try {
+    return await pushSpaceSnapshot(session, spaceId, weddingNodeId);
+  } catch (err) {
+    console.warn('[space-sync] rattrapage de la poussée en attente échoué:', err);
+    return false;
+  }
+}
+
+
+
 /** Called from registerPull('*') in providers.tsx after initSync(). Debounced 2s. */
 export function scheduleSyncPush(): void {
-  if (_isHydrating) return;
+  // MODIFICATION LOCALE — avant toute garde : c'est le passage obligé de toute
+  // mutation de l'application, donc le seul endroit où dater une modification
+  // locale une bonne fois. Incrémenter APRÈS le `return` ci-dessous laisserait
+  // invisible exactement la modification qu'on cherche à protéger.
+  _localEditEpoch++;
+  // Avant les gardes, pour la même raison que l'époque : trois chemins de sortie
+  // écartent une demande plus bas, et aucun ne doit pouvoir la faire oublier.
+  noterPousséeEnAttente();
+  if (_isHydrating) { _pushDeferred = true; return; }
   if (_pushTimer) clearTimeout(_pushTimer);
-  _pushTimer = setTimeout(async () => {
+  _pushTimer = setTimeout(() => {
     _pushTimer = null;
-    if (_isHydrating) return; // re-check: hydration may have started after this timer was queued
-    const session = getActiveSession();
-    const spaceId = getActiveSpaceId();
-    const weddingNodeId = getActiveWeddingNodeId();
-    if (!session || !spaceId || !weddingNodeId) return;
-    _pushing = true;
-    try {
-      await pushSpaceSnapshot(session, spaceId, weddingNodeId);
-    } catch (err) {
-      console.warn('[space-sync] push failed:', err);
-    } finally {
-      _pushing = false;
-    }
+    void exécuterPoussée();
   }, 2000);
+}
+
+// ─── MODIFICATION LOCALE — le réessai ────────────────────────────────────────
+//
+// Une poussée échouée n'était jamais retentée : `_lastPushedCollectionJson`
+// n'était pas mis à jour, donc la collection restait sale — mais rien ne repartait
+// avant la MUTATION SUIVANTE. Une saisie faite juste avant une coupure de réseau
+// attendait donc qu'on tape autre chose, indéfiniment.
+const PUSH_RETRY_BASE_MS = 5_000;
+const PUSH_RETRY_MAX_MS = 5 * 60_000;
+/** Nombre d'échecs consécutifs avant de le DIRE. En deçà, un hoquet de réseau
+ *  rattrapé au coup suivant ne doit rien afficher : un signalement qui clignote
+ *  à chaque hoquet apprend à être ignoré. */
+const PUSH_RETRY_ATTEMPTS_BEFORE_SIGNAL = 3;
+
+let _pushRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let _pushRetryAttempt = 0;
+/** Une poussée du dernier instantané a été refusée faute de droit d'écriture. */
+let _lastPushWriteDenied = false;
+
+/** Exécute la poussée. Partagée par le minuteur d'anti-rebond et par le réessai. */
+async function exécuterPoussée(): Promise<void> {
+  // re-check: hydration may have started after this timer was queued
+  if (_isHydrating) { _pushDeferred = true; return; }
+  const session = getActiveSession();
+  const spaceId = getActiveSpaceId();
+  const weddingNodeId = getActiveWeddingNodeId();
+  if (!session || !spaceId || !weddingNodeId) return;
+  _pushing = true;
+  let toutEstPassé = false;
+  try {
+    toutEstPassé = await pushSpaceSnapshot(session, spaceId, weddingNodeId);
+  } catch (err) {
+    console.warn('[space-sync] push failed:', err);
+  } finally {
+    _pushing = false;
+  }
+  if (toutEstPassé) { pousséeRéussie(); return; }
+  // Un mur ne se franchit pas en le heurtant plus souvent.
+  if (_lastPushWriteDenied) return;
+  planifierRéessaiDePoussée();
+}
+
+function pousséeRéussie(): void {
+  _pushRetryAttempt = 0;
+  if (_pushRetryTimer) { clearTimeout(_pushRetryTimer); _pushRetryTimer = null; }
+  useSyncPendingStore.getState().setUnsavedChanges(false);
+}
+
+function planifierRéessaiDePoussée(): void {
+  _pushRetryAttempt++;
+  if (_pushRetryAttempt >= PUSH_RETRY_ATTEMPTS_BEFORE_SIGNAL) {
+    useSyncPendingStore.getState().setUnsavedChanges(true);
+  }
+  const délai = Math.min(
+    PUSH_RETRY_BASE_MS * 2 ** (_pushRetryAttempt - 1),
+    PUSH_RETRY_MAX_MS,
+  );
+  if (_pushRetryTimer) clearTimeout(_pushRetryTimer);
+  _pushRetryTimer = setTimeout(() => {
+    _pushRetryTimer = null;
+    void exécuterPoussée();
+  }, délai);
 }
 
 /**
@@ -196,6 +394,14 @@ export function scheduleSyncPush(): void {
 export function suppressSyncPush(): void {
   if (_pushTimer) { clearTimeout(_pushTimer); _pushTimer = null; }
   _isHydrating = true;
+  // MODIFICATION LOCALE — la suppression est un abandon DÉLIBÉRÉ : elle ne doit
+  // rien laisser à rejouer. L'import qui l'emploie pousse explicitement ensuite.
+  _pushDeferred = false;
+  // La note durable suit le même sort que la demande en mémoire : un abandon
+  // délibéré ne doit rien laisser à rejouer au démarrage suivant.
+  effacerPousséeEnAttente();
+  if (_pushRetryTimer) { clearTimeout(_pushRetryTimer); _pushRetryTimer = null; }
+  _pushRetryAttempt = 0;
 }
 
 /** Re-enable push scheduling after a legacy import. */
@@ -212,6 +418,16 @@ export function resetDirtyPushBaseline(): void {
   _collectionState.clear();
   _collectionEntityJson.clear();
   _lastHydrateSawLegacy = false;
+  // MODIFICATION LOCALE — l'arriéré de réessai appartient au mariage qu'on quitte.
+  // Le laisser courir ferait retenter la poussée d'un instantané qui n'a plus cours,
+  // et laisserait le signalement allumé sur un mariage qui n'a rien en souffrance.
+  if (_pushRetryTimer) { clearTimeout(_pushRetryTimer); _pushRetryTimer = null; }
+  _pushRetryAttempt = 0;
+  _pushDeferred = false;
+  _lastPushWriteDenied = false;
+  // L'arriéré appartient au mariage qu'on quitte, la note durable aussi.
+  effacerPousséeEnAttente();
+  useSyncPendingStore.getState().setUnsavedChanges(false);
 }
 
 // ---------------------------------------------------------------------------
@@ -409,6 +625,10 @@ async function pushCollectionDoc(
     // useSyncAccessStore.ts for how this flag is consumed (ReadOnlyBanner + usePermissions).
     if (err instanceof StarfishHttpError && err.status === 403) {
       useSyncAccessStore.getState().setWriteDenied(true);
+      // MODIFICATION LOCALE — un refus de droit d'écriture ne se résout pas en
+      // réessayant : il est déjà dit par le bandeau de `useSyncAccessStore`.
+      // Le noter ici empêche le réessai de tourner en boucle contre un mur.
+      _lastPushWriteDenied = true;
     }
     console.warn(`[space-sync] pushCollectionDoc ${node.id}:`, err);
     return false;
@@ -419,14 +639,14 @@ export async function pushSpaceSnapshot(
   session: Session,
   spaceId: string,
   weddingNodeId: string,
-): Promise<void> {
+): Promise<boolean> {
   const now = Date.now();
   // Content is one doc per collection (+ the wedding singleton). No per-entity content docs.
   const weddingBuilt = buildWeddingNode(weddingNodeId, now);
   const { nodes: collectionNodes, built } = buildCollectionDocs(weddingNodeId, now);
   const weddingNode = weddingBuilt?.node ?? null;
   const allNodes = [...(weddingNode ? [weddingNode] : []), ...collectionNodes];
-  if (!allNodes.length) return; // truly empty state — nothing to sync
+  if (!allNodes.length) return true; // truly empty state — nothing to sync
 
   const localById = new Map(allNodes.map((n) => [n.id, n]));
 
@@ -449,24 +669,47 @@ export async function pushSpaceSnapshot(
     (b) => stableStringify(b.doc) !== _lastPushedCollectionJson.get(b.node.id),
   );
 
-  await Promise.allSettled([
+  const résultatsDePoussée = await Promise.allSettled([
     ...(weddingDirty && weddingBuilt
       ? [pushCollectionDoc(
           session, spaceId, weddingBuilt.node, weddingBuilt.doc, now,
           (cur, doc, now) => mergeSingletonDoc(cur, doc, weddingNodeId, { now }),
         ).then((ok) => {
           if (ok) _lastPushedJson.set(weddingBuilt.node.id, stableStringify(weddingBuilt.content));
+          return ok;
         })]
       : []),
     ...dirtyCollections.map((b) =>
       pushCollectionDoc(session, spaceId, b.node, b.doc, now).then((ok) => {
-        if (!ok) return;
+        if (!ok) return false;
         _lastPushedCollectionJson.set(b.node.id, stableStringify(b.doc));
         _collectionState.set(b.type, b.nextState);
         for (const [id, j] of b.entityJson) _collectionEntityJson.set(id, j);
+        return true;
       }),
     ),
   ]);
+
+  // MODIFICATION LOCALE — rendre compte de ce qui n'est PAS passé.
+  //
+  // `pushCollectionDoc` avale son échec en `console.warn` et rend `false`, et
+  // `allSettled` absorbait le reste : une poussée à moitié perdue se terminait
+  // exactement comme une poussée réussie. L'appelant n'avait donc aucun moyen de
+  // réessayer, et rien ne pouvait le signaler. Le booléen ci-dessous est ce qui
+  // rend le réessai (et son signalement) possibles.
+  //
+  // Un tableau vide — rien de sale à pousser — vaut succès : c'est bien le cas où
+  // tout ce qui devait partir est arrivé.
+  const toutEstPassé = résultatsDePoussée.every(
+    (r) => r.status === 'fulfilled' && r.value !== false,
+  );
+
+  // MODIFICATION LOCALE — la note s'efface ICI, et pas dans `pousséeRéussie` :
+  // cinq chemins poussent en contournant le minuteur d'anti-rebond (l'import,
+  // le lien d'invitation, la resynchronisation, la révocation, la migration du
+  // démarrage). Effacer plus haut laisserait le marqueur posé après ces
+  // poussées-là, et le démarrage suivant repousserait pour rien.
+  if (toutEstPassé) effacerPousséeEnAttente();
 
   // Collections whose current doc is now durably on the server (just pushed, or already clean
   // from a prior push). ONLY these may have their legacy per-entity nodes pruned below.
@@ -499,6 +742,8 @@ export async function pushSpaceSnapshot(
       return merged;
     }),
   );
+
+  return toutEstPassé;
 }
 
 // ---------------------------------------------------------------------------
@@ -595,6 +840,10 @@ export async function hydrateFromSpace(
   weddingNodeId: string,
 ): Promise<number> {
   _isHydrating = true;
+  // MODIFICATION LOCALE — l'époque retenue à l'entrée. Toute mutation locale
+  // survenue d'ici à l'application la fera diverger, et l'état lu sera jeté.
+  const époqueÀLEntrée = _localEditEpoch;
+  _lastHydrateApplied = false;
   try {
     const nodes = await readObjectTree(session, spaceId);
     if (!nodes.length) {
@@ -831,9 +1080,22 @@ export async function hydrateFromSpace(
       _lastPushedCollectionJson.set(b.node.id, stableStringify(b.doc));
     }
 
+    _lastHydrateApplied = true;
     return nodes.length;
   } finally {
     _isHydrating = false;
+    // MODIFICATION LOCALE — la reprise. Une demande écartée pendant cette
+    // hydratation est rejouée maintenant, jamais abandonnée. Le drapeau est
+    // booléen : cinq modifications retenues ne donnent qu'une poussée, ce que
+    // le minuteur de 2 s regrouperait de toute façon.
+    //
+    // L'ordre compte : `_isHydrating` doit être retombé AVANT, sinon
+    // `scheduleSyncPush` relèverait simplement le drapeau et l'on tournerait
+    // en rond.
+    if (_pushDeferred) {
+      _pushDeferred = false;
+      scheduleSyncPush();
+    }
   }
 }
 
@@ -847,13 +1109,31 @@ export async function hydrateFromSpace(
  * (which a hydrate already pulls) can skip that redundant pull when this returns true.
  */
 export async function refreshFromSpaceIfIdle(): Promise<boolean> {
-  if (_isHydrating || _pushTimer || _pushing || _rsvpRefreshing) return false;
+  // MODIFICATION LOCALE — un réessai en attente compte pour la même raison
+  // exactement que `_pushTimer` : il porte une modification que cet appareil n'a
+  // pas encore réussi à écouler, et une hydratation l'effacerait.
+  //
+  // Mais il ne bloque que TANT QU'ON ESPÈRE ENCORE l'écouler. Passé le seuil de
+  // signalement, l'utilisateur a été prévenu que ses modifications ne sont pas
+  // enregistrées, et c'est très exactement la seconde branche que le contrat
+  // prévoit : « atteindre le serveur, OU BIEN être signalée ». Continuer à
+  // bloquer au-delà rendrait l'appareil définitivement aveugle aux modifications
+  // des autres sur un échec durable qui n'est pas un 403 (un 409 tenace, que ce
+  // serveur ne sait pas résoudre) — on échangerait une perte silencieuse contre
+  // une cécité silencieuse.
+  const réessaiProtègeEncore =
+    _pushRetryTimer !== null && _pushRetryAttempt < PUSH_RETRY_ATTEMPTS_BEFORE_SIGNAL;
+  if (_isHydrating || _pushTimer || réessaiProtègeEncore || _pushing || _rsvpRefreshing) return false;
   const session = getActiveSession();
   const spaceId = getActiveSpaceId();
   const weddingNodeId = getActiveWeddingNodeId();
   if (!session || !spaceId || !weddingNodeId) return false;
   return hydrateFromSpace(session, spaceId, weddingNodeId)
-    .then(() => true)
+    // MODIFICATION LOCALE — rendre compte de ce qui a été APPLIQUÉ, non de ce
+    // qui a été lu. Une hydratation abandonnée (modification locale concurrente)
+    // n'a rien appliqué, donc rien pulled côté RSVP : l'appelant doit pouvoir
+    // retomber sur `refreshRsvpInbox` plutôt que de croire le travail fait.
+    .then(() => _lastHydrateApplied)
     .catch((err) => {
       console.warn('[space-sync] refreshFromSpaceIfIdle failed:', err);
       return false;
