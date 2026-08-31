@@ -28,7 +28,8 @@ import { activateSync } from "@/lib/providers";
 import { needsNamespaceResync, resyncWeddingToCurrentNamespace } from "@/lib/space-resync";
 import { generatePassphrase } from "@/lib/identity";
 import { resolveServerUrl } from "@/lib/server";
-import { createInviteLink } from "@/lib/invite-link";
+import { createInviteLink, retirerLeDepot } from "@/lib/invite-link";
+import { lireLeLienCourt } from "@/lib/invitation-courte";
 import { usePlanningStore } from "@/store/usePlanningStore";
 import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
 import { usePermissionsStore } from "@/store/usePermissionsStore";
@@ -213,6 +214,17 @@ export default function SettingsScreen() {
     analytics.capture("wedding_created", { method: "new" });
     router.replace("/(tabs)");
   }, [createWedding, t, router]);
+
+  // MODIFICATION LOCALE — retirer le dépôt d'un lien court avant son terme.
+  // Un lien au format long n'a pas de dépôt : il n'y a alors rien à retirer.
+  const retirerLeLien = useCallback(
+    async (lien: string) => {
+      const court = lireLeLienCourt(lien);
+      if (!court) throw new Error("INVITE_NO_DEPOSIT");
+      await retirerLeDepot(activeEntry!, court.code);
+    },
+    [activeEntry],
+  );
 
   const [showJoinScanner, setShowJoinScanner] = useState(false);
 
@@ -796,6 +808,7 @@ export default function SettingsScreen() {
       visible={showInviteQR}
       onClose={() => setShowInviteQR(false)}
       generate={generateInvite}
+      retirer={retirerLeLien}
     />
 
     <PaywallSheet

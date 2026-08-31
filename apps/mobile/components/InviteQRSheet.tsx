@@ -14,6 +14,8 @@ import { usePermissionsStore } from "@/store/usePermissionsStore";
 import { roleCanWrite, FEATURE_SURFACES, type FeatureSurface, type RoleDefinition } from "@fiance/sdk";
 
 interface InviteQRSheetProps {
+  /** MODIFICATION LOCALE — retire le dépôt du lien court avant son terme. */
+  retirer?: (lien: string) => Promise<void>;
   visible: boolean;
   onClose: () => void;
   generate: (roleId?: string, name?: string) => Promise<string>;
@@ -21,7 +23,7 @@ interface InviteQRSheetProps {
 
 type State = "selecting" | "generating" | "ready" | "error";
 
-export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps) {
+export function InviteQRSheet({ visible, onClose, generate, retirer }: InviteQRSheetProps) {
   const { t } = useTranslation("settings");
   const { width } = useWindowDimensions();
   const roles = usePermissionsStore((s) => s.roles);
@@ -29,6 +31,8 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
   const [url, setUrl] = useState("");
   const [detail, setDetail] = useState("");
   const [name, setName] = useState("");
+  // MODIFICATION LOCALE — l'état du retrait de dépôt (bouton, puis confirmation).
+  const [retrait, setRetrait] = useState<"idle" | "en-cours" | "fait" | "echec">("idle");
 
   const roleLabel = (r: RoleDefinition) => (r.isSystem ? t(r.name) : r.name);
   const surfaceLabel = (s: FeatureSurface) =>
@@ -241,6 +245,51 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
                 {t("shareLink")}
               </Text>
             </Pressable>
+
+            {/* MODIFICATION LOCALE — le dépôt est borné dans le temps, et le
+                propriétaire peut le retirer avant son terme. Un lien retiré
+                présente le message d'EXPIRATION, distinct de « non reconnue ». */}
+            {retirer && (
+              <View style={{ marginTop: 14 }}>
+                <Text style={{ fontSize: 12, color: theme.mute, textAlign: "center", marginBottom: 10 }}>
+                  {t("depotDureeDeVie")}
+                </Text>
+                {retrait === "fait" ? (
+                  <Text style={{ fontSize: 13, color: theme.olive, textAlign: "center" }}>
+                    {t("depotRetire")}
+                  </Text>
+                ) : (
+                  <>
+                    <Pressable
+                      disabled={retrait === "en-cours"}
+                      onPress={() => {
+                        setRetrait("en-cours");
+                        retirer(url)
+                          .then(() => setRetrait("fait"))
+                          .catch(() => setRetrait("echec"));
+                      }}
+                      style={({ pressed }) => ({
+                        borderRadius: 16,
+                        paddingVertical: 14,
+                        alignItems: "center",
+                        borderWidth: 1,
+                        borderColor: theme.hair,
+                        opacity: pressed || retrait === "en-cours" ? 0.6 : 1,
+                      })}
+                    >
+                      <Text style={{ color: theme.strawberryInk, fontWeight: "600", fontSize: 15 }}>
+                        {t("retirerLeDepot")}
+                      </Text>
+                    </Pressable>
+                    {retrait === "echec" && (
+                      <Text style={{ fontSize: 12, color: theme.mute, textAlign: "center", marginTop: 8 }}>
+                        {t("depotRetraitEchoue")}
+                      </Text>
+                    )}
+                  </>
+                )}
+              </View>
+            )}
           </>
         )}
 
