@@ -60,6 +60,8 @@ import { DatabaseProvider, useDatabaseSwitching } from "@/db/provider";
 import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { ReadOnlyBanner } from "@/components/ReadOnlyBanner";
+// MODIFICATION LOCALE — le jumeau du bandeau de lecture seule.
+import { UnsavedChangesBanner } from "@/components/UnsavedChangesBanner";
 import { FeatureWelcomeHost } from "@/lib/feature-welcomes";
 import { PaywallProvider } from "@/components/PaywallProvider";
 import { useFeatureTrialsStore } from "@/store/useFeatureTrialsStore";
@@ -155,6 +157,7 @@ function AppContent() {
       {activeWedding && <ActiveWeddingRuntime wedding={activeWedding} />}
       <View style={{ flex: 1 }}>
         {activeWedding && <ReadOnlyBanner />}
+        {activeWedding && <UnsavedChangesBanner />}
         <View style={{ flex: 1 }}>
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="onboarding" />

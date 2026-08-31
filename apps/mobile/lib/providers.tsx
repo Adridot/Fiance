@@ -21,7 +21,7 @@ import {
   getActiveWeddingNodeId,
 } from "@/lib/starfish";
 import { registerPull } from "@fiance/sdk";
-import { hydrateFromSpace, scheduleSyncPush, pushSpaceSnapshot, refreshRsvpInbox, refreshFromSpaceIfIdle, discoverOwnerWeddingRoot, hydrateSawLegacyNodes, resetDirtyPushBaseline } from "@/lib/space-sync";
+import { hydrateFromSpace, scheduleSyncPush, pushSpaceSnapshot, refreshRsvpInbox, refreshFromSpaceIfIdle, discoverOwnerWeddingRoot, hydrateSawLegacyNodes, resetDirtyPushBaseline, rejouerPousséeEnAttente, viderPousséeEnAttente } from "@/lib/space-sync";
 import { ensureSpaceProvisioned } from "@/lib/space-provision";
 import { resolveServerUrl, resolveSessionConfig, resolveOwnerUserId, normalizeSyncBase } from "@/lib/server";
 import { ensurePublicPageNode, pushPublicPageContent, publicPageNodeId } from "@/lib/public-page";
@@ -188,6 +188,36 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
       const weddingNodeId = getActiveWeddingNodeId();
       if (!session || !spaceId || !weddingNodeId) return;
 
+      // MODIFICATION LOCALE — l'ordre de ces deux gestes est le sujet, pas un détail.
+      //
+      // 1. BRANCHER LE PLANIFICATEUR EN PREMIER. `registerPull("*")` était appelé
+      //    plus bas, APRÈS l'hydratation du démarrage. Entre le boot et lui,
+      //    `notifySync()` ne trouvait aucun écouteur : l'époque n'était pas
+      //    incrémentée, et la garde qui fait ABANDONNER une lecture recouvrant une
+      //    modification locale ne protégeait donc rien — pendant toute la durée de
+      //    l'hydratation initiale, qui est longue (index, puis lecture groupée des
+      //    collections). Une saisie faite devant l'écran de démarrage était
+      //    recouverte en silence. Le remonter ne coûte rien : `scheduleSyncPush`
+      //    n'arme qu'un minuteur, et l'exécution re-vérifie session/espace/nœud.
+      unregisterPush = registerPull("*", () => { scheduleSyncPush(); });
+
+      // 2. REJOUER CE QUI ATTENDAIT. La poussée est débouncée à 2 s ; si la page
+      //    est partie avant l'échéance, la modification n'a jamais quitté
+      //    l'appareil. Elle est toujours dans les magasins persistés — c'est
+      //    l'INTENTION de la pousser qui s'est perdue avec l'état de module. Le
+      //    marqueur durable posé par `scheduleSyncPush` la retrouve, et on la
+      //    pousse AVANT que l'hydratation ci-dessous puisse recouvrir les données
+      //    locales par un état du serveur antérieur à elle.
+      //
+      //    Avant le flux SSE, lui aussi : un événement pourrait déclencher une
+      //    hydratation concurrente pendant ce rattrapage.
+      //
+      //    Le marqueur n'est effacé qu'au succès : un rattrapage qui échoue est
+      //    retenté au démarrage suivant, et le réessai ordinaire s'en charge d'ici là.
+      if (!cancelled) {
+        await rejouerPousséeEnAttente(session, spaceId, weddingNodeId);
+      }
+
       // Real-time push: subscribe to server-sent events for this space so a peer's
       // change triggers a pull without waiting for foreground/backgrounding. Opened
       // before the hydrate/push awaits below (it needs only session/spaceId, already
@@ -245,8 +275,8 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
         }
       }
 
-      // B3: wire dispatchDocChange('*') → debounced server push.
-      unregisterPush = registerPull("*", () => { scheduleSyncPush(); });
+      // (le branchement de dispatchDocChange('*') a été remonté au-dessus de
+      //  l'hydratation — voir la modification locale plus haut)
 
       // B5: ensure the publicPage node exists in the space.
       // Retried with backoff: pull errors and transient 409s are common on first
@@ -289,7 +319,37 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
     })().catch((err) => console.warn("[providers] sync init failed:", err));
 
     // Re-pull entitlements on foreground.
+    // MODIFICATION LOCALE — `pagehide`, que `AppState` ne couvre PAS.
+    //
+    // `react-native-web` n'écoute que `visibilitychange` : ni `pagehide`, ni
+    // `unload`, ni `freeze` ne traversent `AppState`. Or `pagehide` est
+    // l'événement qui accompagne un rechargement ou une fermeture d'onglet —
+    // très exactement le geste qui perdait la saisie.
+    //
+    // Ce serait le premier `window.addEventListener` du code applicatif. D'où
+    // la garde DOUBLE employée ailleurs dans ce projet (`public-page.ts`,
+    // `rsvp-sync.ts`) : l'accroche est posée au montage, donc évaluée aussi
+    // sous le rendu web statique d'Expo, où `window` peut manquer.
+    //
+    // Pas `beforeunload` : peu fiable sur mobile, et l'employer pour retenir la
+    // page serait hostile.
+    let retirerPagehide: (() => void) | null = null;
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const auDépart = () => { viderPousséeEnAttente(); };
+      window.addEventListener("pagehide", auDépart);
+      retirerPagehide = () => window.removeEventListener("pagehide", auDépart);
+    }
+
     const foregroundSub = AppState.addEventListener("change", (state) => {
+      // MODIFICATION LOCALE — le départ, et non plus seulement le retour.
+      //
+      // `react-native-web` fait correspondre `AppState` à `visibilitychange`, et
+      // à lui seul : `hidden` rend `"background"`. Cette moitié du vidage ne
+      // demande donc aucun écouteur nouveau — il suffit d'ouvrir une branche
+      // avant le `return` ci-dessous, qui écartait tout ce qui n'était pas
+      // `"active"`. Sur natif, c'est le passage en arrière-plan, qui mérite le
+      // même traitement.
+      if (state === "background") { viderPousséeEnAttente(); return; }
       if (state !== "active" || !resolvedUserId) return;
       pullEntitlements(null, resolvedUserId)
         .then((features) => {
@@ -327,6 +387,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
     return () => {
       cancelled = true;
       foregroundSub.remove();
+      retirerPagehide?.();
       unregisterPush?.();
       unsubSse?.();
     };

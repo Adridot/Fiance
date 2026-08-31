@@ -2,7 +2,7 @@ import React, { useCallback, useEffect } from "react";
 import { View, Text, ScrollView, Pressable } from "react-native-css/components";
 import { Platform, StatusBar as RNStatusBar } from "react-native";
 import { useRouter } from "expo-router";
-import { Settings, MapPin, AlertTriangle, Briefcase, Sparkles, ChevronRight, Download, LayoutGrid, Clock, Circle, Eye } from "lucide-react-native";
+import { Settings, MapPin, AlertTriangle, Briefcase, Sparkles, ChevronRight, Download, LayoutGrid, Clock, Circle, Eye, CloudOff } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { differenceInDays, format } from "date-fns";
@@ -12,6 +12,8 @@ import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
 import { isAgendaEventUpcoming } from "@/lib/agenda-upcoming";
 import { needsNamespaceResync } from "@/lib/space-resync";
 import { useIsReadOnlyMember } from "@/lib/permissions/useIsReadOnlyMember";
+// MODIFICATION LOCALE — le signalement des écritures qui ne sont pas passées.
+import { useSyncPendingStore } from "@/store/useSyncPendingStore";
 import { useWeddingEventsStore } from "@/store/useWeddingEventsStore";
 import { useVendorsStore } from "@/store/useVendorsStore";
 import { useGuestsStore, computeCounts } from "@/store/useGuestsStore";
@@ -52,6 +54,11 @@ function DashboardScreen() {
   // mounted in app/_layout.tsx) — a fixed overlay is awkward on a small screen.
   const isReadOnlyMember = useIsReadOnlyMember();
   const showReadOnlyBanner = !isWide && isReadOnlyMember;
+  // MODIFICATION LOCALE — même règle d'affichage que le bandeau de lecture seule :
+  // en écran étroit c'est /home qui porte le message, le bandeau haut étant réservé
+  // au web large (voir UnsavedChangesBanner).
+  const unsavedChanges = useSyncPendingStore((s) => s.unsavedChanges);
+  const showUnsavedBanner = !isWide && unsavedChanges;
   const weddingEvents = useWeddingEventsStore((s) => s.weddingEvents);
   const primaryEvent = React.useMemo(() => getPrimaryEvent(weddingEvents), [weddingEvents]);
   const vendors = useVendorsStore((s) => s.vendors);
@@ -294,6 +301,16 @@ function DashboardScreen() {
             icon={<Eye size={20} color={GP.clay} />}
             iconBg={`${GP.clay}1f`}
             title={t("settings:syncStatusReadOnly")}
+          />
+        )}
+
+        {/* MODIFICATION LOCALE — modifications non enregistrées ; écran étroit/natif
+            seulement, le web large utilisant le bandeau haut UnsavedChangesBanner */}
+        {showUnsavedBanner && (
+          <HomeBanner
+            icon={<CloudOff size={20} color={GP.mustard} />}
+            iconBg={`${GP.mustard}1f`}
+            title={t("settings:syncStatusUnsaved")}
           />
         )}
 
