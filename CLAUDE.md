@@ -240,6 +240,44 @@ Run `pnpm test` — `blog-jsonld.test.ts` asserts every slug has valid `datePubl
 
 NativeWind v5 / Tailwind v4. Tokens in `apps/mobile/global.css` (`@theme inline`), imported from `@fiance/ui/tailwind-theme`. Garden Press palette: primary clay `#b96a4a`, accent olive `#6e7a4a` / mustard `#c9922f`, paper `#f2ece0` bg, card `#fdfaf1` bg, ink `#2a2418`. Type stack: Fraunces (Display component), Caveat (Script component), Inter (Label + body). `apps/mobile/lib/theme.ts` re-exports hex literals from `packages/fiance-ui/src/garden-theme.ts` for JS consumers. Shared UI components live in `packages/fiance-ui/src/components/` (see "`@fiance/ui` — vendored UI components" above) and are re-exported through thin wrappers in `apps/mobile/components/` — notably `FormSection.tsx` exports form building blocks (SectionTitle, FormCard, InputRow, ToggleRow, ChipSelect). Primitive GP components: `Display`, `Script`, `Label`, `Card`, `Chip`, `Avatar`, `Sprig`, `Postit`, `Underline`, `Seal`.
 
+### Fork, branches, et d'où vient la série de patches
+
+Ce dépôt est un **fork de `Drakkar-Software/Fiance`**. Deux remotes : `origin`
+→ `Adridot/Fiance` (le fork), `upstream` → l'amont. L'écart entre les deux vit
+dans une histoire de commits, plus dans un arbre de travail sale.
+
+**Le préfixe de branche porte la classification, et c'est la seule source de
+vérité** — pas de document annexe, qui se périmerait au premier sujet ajouté :
+
+| Préfixe | Sens | Inventaire |
+| --- | --- | --- |
+| `feat/<sujet>` | contribuable à l'amont : aucune référence à cette instance | `git branch --list 'feat/*'` |
+| `local/<sujet>` | écart d'instance, ne quittera jamais le fork | `git branch --list 'local/*'` |
+| `didot/master` | intégration — c'est ce qui tourne sur `mariage.didot.io` | |
+| `snapshot/tree-2026-08-21` | **à ne jamais supprimer** — l'arbre d'avant la reconstruction, oracle de la découpe | |
+
+Chaque branche thématique part de `upstream/master`, ou d'une autre branche
+thématique quand la dépendance est réelle (le sujet s'appuie sur un acquis de
+celle-ci). Une branche `feat/*` **est** une pull request : la proposer ne
+demande aucun cherry-pick.
+
+**Avant de proposer une branche `feat/*` à l'amont**, contrôler qu'elle ne
+contient ni `MODIFICATION LOCALE`, ni `didot`, ni hexadécimal de la palette du
+mariage — et retirer ces vestiges sur une branche DÉRIVÉE (`feat/x` →
+`feat/x-en`), jamais sur la branche elle-même ni sur `didot/master`, que
+l'oracle vérifie. Le relevé complet et la décision par branche sont dans
+`openspec/changes/fork-fiance-commit-history/nature-des-branches.md`.
+
+**La série de `deploy/patches/` est DÉRIVÉE de l'histoire**, plus de l'arbre :
+`regenerate-patches.py` lit `upstream/master..didot/master`. Elle reste
+grossière (dix-sept patches par groupe de fichiers) là où l'histoire est fine —
+ce sont deux artefacts pour deux consommateurs : la série sert un déploiement
+qui applique tout d'un bloc, l'histoire sert la relecture et la contribution.
+Deux filets, tous deux vérifiés par leur échec : un fichier de l'intervalle
+qu'aucun patch ne réclame arrête la génération, et la série appliquée en
+séquence sur l'amont doit reproduire l'arbre de `didot/master`.
+`apply-patches.sh` n'a pas changé.
+
 ### CI/CD
 
 - **Web**: Deploy via Cloudflare Workers (`apps/mobile/wrangler.toml`, static assets in `apps/mobile/dist/`). Build with `pnpm --filter fiance build:web`; optional `BUILD_DATE=YYYY-MM-DD` env controls which blog posts are included in the export/sitemap.
