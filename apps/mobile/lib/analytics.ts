@@ -80,6 +80,21 @@ const g = globalThis as Record<string, unknown>;
 const INIT_KEY = "__fiance_analytics_started__";
 
 export async function initAnalytics(): Promise<void> {
+  // Sans point de collecte configuré, on n'en ouvre PAS un par accident.
+  //
+  // `StarfishClient` accepte une base vide et construit alors une URL RELATIVE :
+  // le lot d'événements part vers l'origine de l'app elle-même,
+  // `POST /v1/dk/push/events/fiance/{uuid}`. Sur cette instance, cette origine
+  // est le nginx qui sert le site statique — il répond 405 et le SDK réessaie à
+  // la minute suivante, par onglet ouvert. Constaté le 24 août 2026 : 77 POST en
+  // 405 dans l'heure, pour un seul onglet. Rien n'est collecté, rien n'est perdu
+  // non plus ; c'est du bruit pur, et il masque le vrai trafic dans le journal.
+  //
+  // `analytics` est un client paresseux (`createLazyClient`) : sans `init`, tous
+  // ses appels sont des no-ops. Les 63 appels `analytics.*` du code n'ont donc
+  // besoin d'aucune garde, et `TelemetryProvider` reçoit le même objet qu'avant.
+  if (!ANALYTICS_BASE) return;
+
   if (g[INIT_KEY]) return;
   g[INIT_KEY] = true;
 
