@@ -1,13 +1,16 @@
 /**
  * RSVP sync — v3 starfish-spaces implementation.
  *
- * Each guest gets a per-node `rsvp` ObjectNode (access:'invite', enc:false)
+ * Each recipient gets a per-node `rsvp` ObjectNode (access:'invite', enc:false)
  * under the publicPage node. The owner mints a combined guest link that bundles:
  *  - page-read cap (publicPage node, read-only)
  *  - rsvp-write cap (rsvp node, write-capable)
  *
  * Guest submits via `writeNodeWithLinkCap`. Owner reads submissions via
  * `objInvPull` (space:member privilege) on boot and foreground.
+ *
+ * The recipient is the HOUSEHOLD when the guest has one, the guest otherwise —
+ * one link, one page, one answer per envelope.
  */
 
 import { useEffect, useState } from "react";
@@ -114,7 +117,7 @@ export function rsvpNodeId(guestId: string): string {
 }
 
 /**
- * Ensure the RSVP ObjectNode for a guest exists in the space index.
+ * Ensure the RSVP ObjectNode for a recipient exists in the space index.
  * Idempotent. Returns the rsvp nodeId.
  */
 export async function ensureRsvpNode(
@@ -149,9 +152,13 @@ export async function ensureRsvpNode(
 }
 
 /**
- * Seed the RSVP node with the guest's initial data so guests can see their
- * name (and companion name) when they open the RSVP form. Names are private —
- * stored only in the per-guest node, not visible to other guests.
+ * Seed the household document with its members, so the family recognises itself
+ * when it opens the link.
+ *
+ * NOT a seed-if-absent: a household's composition keeps moving, and a document
+ * frozen at first seed would show the family a stale roster with no signal. The
+ * roster comes from the guest records; each member's already-given answer is
+ * carried over from the existing document and never overwritten.
  */
 export async function seedRsvpNodeContent(
   session: Session,
@@ -194,9 +201,9 @@ export async function seedRsvpNodeContent(
 }
 
 /**
- * Mint a combined page-read + rsvp-write link for a specific guest.
+ * Mint a combined page-read + rsvp-write link for a recipient.
  * Ensures the publicPage node and rsvp node both exist, seeds the rsvp node
- * with the guest's name, and returns a single URL with both caps bundled.
+ * with the household document, and returns a single URL with both caps bundled.
  */
 export async function getGuestInviteLink(
   session: Session,
@@ -249,12 +256,12 @@ export async function getGuestInviteLink(
 }
 
 // ---------------------------------------------------------------------------
-// Owner inbox — apply submissions by guestId
+// Owner inbox — apply household RSVP documents
 // ---------------------------------------------------------------------------
 
 /**
- * Apply a list of v3 RSVP submissions (keyed by guestId) to the guests store.
- * Returns the count of applied updates.
+ * Apply household RSVP documents to the guests store — one update per member who
+ * answered. Returns the count of applied updates.
  *
  * Idempotent w.r.t. local edits: a submission is only applied when it is strictly newer
  * than the guest's current `rsvpDate`. Without this guard, this function re-runs on every

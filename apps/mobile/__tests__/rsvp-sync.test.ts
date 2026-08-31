@@ -1,7 +1,7 @@
 /**
  * Tests for lib/rsvp-sync.ts — v3 starfish-spaces implementation.
  *
- * Tests focus on the pure helpers (rsvpNodeId, applyRsvpSubmissionsByGuestId)
+ * Tests focus on the pure helpers (rsvpNodeId, applyHouseholdRsvpDocs)
  * that don't require a live session.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -74,7 +74,7 @@ describe("rsvpNodeId", () => {
   });
 });
 
-// ─── applyRsvpSubmissionsByGuestId ───────────────────────────────────────────
+// ─── applyHouseholdRsvpDocs ──────────────────────────────────────────────────
 
 describe("applyRsvpSubmissionsByGuestId", () => {
   beforeEach(() => {
@@ -182,14 +182,10 @@ describe("applyRsvpSubmissionsByGuestId", () => {
 
 // ─── Bug A regression: idempotent re-apply — a manual edit must not be reverted ────
 //
-// applyRsvpSubmissionsByGuestId runs on EVERY hydrate and EVERY app foreground
-// (space-sync.ts's pullAndApplyRsvpNodes / providers.tsx's refreshRsvpInbox), not just
-// once. Before the fix it unconditionally called updateGuest with the submission's
-// values, so a manual edit made on another device (or by the couple, overriding a
-// guest's response) got silently reverted back to the stale public-page submission on
-// the very next foreground — and updateGuest's notifySync() re-pushed the reverted
-// value, clobbering the edit on the server too. The fix: only apply a submission when
-// it is strictly newer (by ISO-8601 string compare) than the guest's stored rsvpDate.
+// applyHouseholdRsvpDocs runs on EVERY hydrate and EVERY app foreground. Without
+// this guard a manual edit made on another device is overwritten by the now-stale
+// public-page submission, then re-pushed to the server by updateGuest's
+// notifySync() — clobbering the edit for everyone.
 
 describe("applyRsvpSubmissionsByGuestId — idempotent re-apply (Bug A regression)", () => {
   beforeEach(() => {

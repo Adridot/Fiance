@@ -1,14 +1,23 @@
 /**
- * Collaborator revocation (owner side).
+ * Révocation d'un collaborateur (côté propriétaire).
  *
  * True eviction = keyring rotation (evicted member can no longer decrypt new content) +
  * roster removal (server denies `space:member`, so every collection 403s for future reads/
  * writes). Revoking one subject evicts ONLY that subject — other links/members keep access.
  *
- * `submitRevocation` is local: the dk server has no RevocationList endpoint, and it isn't
- * needed here — every object collection requires the roster `space:member` role, which the
- * roster drop removes. We still persist the RevocationList (generation + cumulative entries)
- * so a future server endpoint can consume it.
+ * La rotation du keyring est donc le SEUL levier réel — et une rotation qui ne
+ * rescelle rien ne révoque rien : le lien évincé continue d'ouvrir tout le
+ * contenu déjà écrit. D'où l'ordre ci-dessous, dont l'étape 4 est nouvelle :
+ *
+ *   1. retirer l'assignation + pousser  ← le révoqué, encore dans l'époque
+ *                                         courante, déchiffre son propre retrait
+ *   2. faire tourner le keyring         ← il perd l'époque suivante
+ *   3. resceller tout le contenu        ← il perd le contenu déjà écrit
+ *   4. rendre la main
+ *
+ * Le rescellement ferme l'accès FUTUR ; il ne reprend rien de ce qui a déjà été
+ * lu et gardé. La `RevocationList` reste persistée pour un futur point de
+ * terminaison serveur, mais rien ne s'appuie plus dessus.
  */
 
 import {
@@ -24,7 +33,10 @@ import { usePermissionsStore } from "@/store/usePermissionsStore";
 import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
 
 export interface RevokeResult {
-  /** True when the keyring was rotated (full eviction); false when only the roster was dropped. */
+  /**
+   * True quand l'éviction est ACCOMPLIE : keyring tourné ET contenu rescellé.
+   * Une rotation seule ne suffit pas — le révoqué relirait tout l'existant.
+   */
   evicted: boolean;
 }
 
@@ -81,8 +93,9 @@ export async function revokeCollaborator(
     });
     return { evicted: true };
   } catch (err) {
-    // No stored invite entry (link minted on another device) — roster drop still cuts server
-    // access, since every object collection requires the roster space:member role.
+    // Aucune entrée d'invitation en magasin (lien minté sur un autre appareil).
+    // Le retrait du registre est alors tout ce qui reste — et il ne coupe PAS
+    // l'accès serveur ici (voir l'en-tête). L'éviction n'est donc pas accomplie.
     console.warn("[revoke] revokeSpaceAccess failed; falling back to removeSpaceMember", err);
     try {
       await removeSpaceMember(session.accountClient, spaceId, subjectUserId, session);

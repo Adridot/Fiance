@@ -863,7 +863,7 @@ describe("hydrateFromSpace — wedding singleton unwrap", () => {
 
 // ─── Regression: RSVP inbox apply must be owner-only (guest data-loss on member devices) ──
 //
-// refreshRsvpInbox/pullAndApplyRsvpNodes write the guest store (via applyRsvpSubmissionsByGuestId)
+// refreshRsvpInbox/pullAndApplyRsvpNodes write the guest store (via applyHouseholdRsvpDocs)
 // and, outside the hydrateFromSpace interlock, that write schedules a real push. A member device
 // has no business independently applying public-page RSVP submissions — it receives RSVP state
 // through normal guest-collection sync from the owner. Letting a member run this raced its guest
