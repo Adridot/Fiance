@@ -99,6 +99,8 @@ export default function InvitesLayout() {
       />
       <Stack.Screen name="[id]" options={{ title: t("guestDetailScreen") }} />
       <Stack.Screen name="groups" options={{ title: t("groups") }} />
+      <Stack.Screen name="households" options={{ title: t("household.title") }} />
+      <Stack.Screen name="household/[id]" options={{ title: t("household.section") }} />
       <Stack.Screen name="table-management" options={{ title: t("tables") }} />
       <Stack.Screen name="tables" options={{ title: t("tablesPlanScreen") }} />
       <Stack.Screen name="accommodations" options={{ title: t("accommodations") }} />
