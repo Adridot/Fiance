@@ -259,3 +259,63 @@ export function pruneEmptyHouseholds(
   return households.filter((h) => populated.has(h.id));
 }
 
+// ─── Assisted grouping ───────────────────────────────────────────────────────
+
+/**
+ * A LIKELY match: same surname within one category. Already attached members
+ * are listed next to the unattached ones, because a surname alone does not say
+ * who is meant.
+ */
+export interface HouseholdCandidate<G> {
+  key: string;
+  lastName: string;
+  groupId: string | null;
+  members: G[];
+  unassigned: G[];
+}
+
+export function householdCandidates<
+  G extends Pick<Guest, 'id' | 'firstName' | 'lastName' | 'nameParticle' | 'groupId' | 'householdId'>,
+>(guests: G[], groupId?: string | null): HouseholdCandidate<G>[] {
+  const scope = groupId == null ? guests : guests.filter((g) => g.groupId === groupId);
+  const byKey = new Map<string, HouseholdCandidate<G>>();
+  for (const g of scope) {
+    const lastName = formatGuestLastName(g);
+    if (!lastName) continue;
+    const key = `${g.groupId ?? ''}|${lastName.toLocaleUpperCase('fr')}`;
+    let bucket = byKey.get(key);
+    if (!bucket) {
+      bucket = { key, lastName, groupId: g.groupId ?? null, members: [], unassigned: [] };
+      byKey.set(key, bucket);
+    }
+    bucket.members.push(g);
+    if (!g.householdId) bucket.unassigned.push(g);
+  }
+  return [...byKey.values()]
+    .filter((c) => c.unassigned.length > 0)
+    .sort((a, b) => a.lastName.localeCompare(b.lastName, 'fr'));
+}
+
+export function householdsRemaining<
+  G extends Pick<Guest, 'id' | 'firstName' | 'lastName' | 'nameParticle' | 'groupId' | 'householdId'>,
+>(guests: G[], groupId?: string | null): number {
+  return householdCandidates(guests, groupId).length;
+}
+
+// ─── A household's category ──────────────────────────────────────────────────
+
+/**
+ * A household's invitation category: the single `groupId` its members share, or
+ * NOTHING as soon as they don't all share one.
+ *
+ * Derived, never stored: a `groupId` on the household would be a second source
+ * of truth, and last-writer-wins-per-entity merge would make the divergence
+ * permanent.
+ */
+export function householdCategory<G extends Pick<Guest, 'groupId'>>(members: G[]): string | null {
+  if (members.length === 0) return null;
+  const first = members[0].groupId ?? null;
+  if (!first) return null;
+  return members.every((m) => (m.groupId ?? null) === first) ? first : null;
+}
+

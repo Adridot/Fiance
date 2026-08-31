@@ -1,13 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import type { Guest, Household } from './schema.js';
 import {
+  createHousehold,
   updateHousehold,
   pruneEmptyHouseholds,
   householdMembers,
   householdName,
   deriveHouseholdName,
+  householdCandidates,
+  householdsRemaining,
   materializeHousehold,
   proposeHouseholdName,
+  householdCategory,
 } from './households.js';
 
 function guest(id: string, firstName: string, lastName: string, extra: Partial<Guest> = {}): Guest {
@@ -90,6 +94,54 @@ describe('label — a READ fallback, never a write', () => {
     const next = updateHousehold([household('h1', { address: 'ici' })], 'h1', { name: 'Les X' });
     expect(next[0].name).toBe('Les X');
     expect(next[0].address).toBe('ici');
+  });
+});
+
+describe('assisted forming — the likely matches', () => {
+  const roster = [
+    guest('a', 'Arthur', 'MERY', { groupId: 'fontaines' }),
+    guest('b', 'Charlotte', 'MERY', { groupId: 'fontaines' }),
+    guest('c', 'Dedette', 'MERY', { groupId: 'fontaines' }),
+    guest('d', 'Alix', 'PORTIER', { groupId: 'fontaines' }),
+    guest('e', 'Sophie', 'MERY', { groupId: 'amis' }),
+  ];
+
+  it('matches on last name WITHIN a category', () => {
+    const candidates = householdCandidates(roster);
+    const mery = candidates.filter((c) => c.lastName === 'MERY');
+    expect(mery).toHaveLength(2);
+    expect(mery.map((c) => c.groupId).sort()).toEqual(['amis', 'fontaines']);
+  });
+
+  it('shows the already-attached people next to those who are not', () => {
+    const withOne = [...roster.slice(0, 1).map((g) => ({ ...g, householdId: 'h1' })), ...roster.slice(1)];
+    const mery = householdCandidates(withOne, 'fontaines').find((c) => c.lastName === 'MERY')!;
+    expect(mery.members).toHaveLength(3);
+    expect(mery.unassigned.map((g) => g.id)).toEqual(['b', 'c']);
+  });
+
+  it('a match whose members ALL have a household stops showing up', () => {
+    const all = roster.map((g) => (g.lastName === 'MERY' ? { ...g, householdId: 'h1' } : g));
+    expect(householdCandidates(all).some((c) => c.lastName === 'MERY')).toBe(false);
+    const assigned = roster.map((g) => ({ ...g, householdId: 'h1' }));
+    expect(householdCandidates(assigned)).toHaveLength(0);
+    expect(householdsRemaining(assigned, 'fontaines')).toBe(0);
+  });
+
+  it('the scope follows the gesture: opened from a category, it shows only that one', () => {
+    const candidates = householdCandidates(roster, 'amis');
+    expect(candidates.every((c) => c.groupId === 'amis')).toBe(true);
+    expect(candidates.flatMap((c) => c.members).map((g) => g.id)).toEqual(['e']);
+  });
+
+  it('splits a cluster of six into two households from the matches alone', () => {
+    const six = Array.from({ length: 6 }, (_, i) => guest(`g${i}`, `P${i}`, 'LA GASTINES'));
+    const cluster = householdCandidates(six)[0];
+    expect(cluster.unassigned).toHaveLength(6);
+    const first = createHousehold([], six, ['g0', 'g1', 'g2'], 'h1');
+    const second = createHousehold(first.households, first.guests, ['g3', 'g4', 'g5'], 'h2');
+    expect(second.households).toHaveLength(2);
+    expect(householdCandidates(second.guests)).toHaveLength(0);
   });
 });
 
@@ -200,6 +252,34 @@ describe('the READ fallback is unchanged — the proposal sits beside it, not in
     expect(JSON.stringify(members)).toBe(before);
     expect(JSON.stringify(h)).toBe(beforeHousehold);
     expect(h.name).toBeNull();
+  });
+});
+
+describe('a household category is derived, and refused when mixed', () => {
+  it('all in the same category: that is the one', () => {
+    const members = [
+      guest('a', 'Henri', 'FLEITH', { groupId: 'fontaines' }),
+      guest('b', 'Pia', 'FLEITH', { groupId: 'fontaines' }),
+    ];
+    expect(householdCategory(members)).toBe('fontaines');
+  });
+
+  it('two categories mixed: no category, and not either of the two', () => {
+    const members = [
+      guest('a', 'Henri', 'FLEITH', { groupId: 'fontaines' }),
+      guest('b', 'Pia', 'DURAND', { groupId: 'amis' }),
+    ];
+    expect(householdCategory(members)).toBeNull();
+  });
+
+  it('one member with no category is enough to put the household out of category', () => {
+    const members = [
+      guest('a', 'Henri', 'FLEITH', { groupId: 'fontaines' }),
+      guest('b', 'Pia', 'FLEITH', { groupId: null }),
+    ];
+    expect(householdCategory(members)).toBeNull();
+    expect(householdCategory([guest('a', 'Henri', 'FLEITH', { groupId: null })])).toBeNull();
+    expect(householdCategory([])).toBeNull();
   });
 });
 
