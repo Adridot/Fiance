@@ -172,11 +172,11 @@ export default function GuestDetailScreen() {
   const [activeSheet, setActiveSheet] = useState<SheetKey | null>(null);
   const rsvpUrl = useGuestRsvpUrl(isNew ? undefined : id, activeEntry);
 
-  const canSave = firstName.trim().length > 0 && lastName.trim().length > 0;
+  const canSave = lastName.trim().length > 0;
 
   const handleSave = () => {
-    if (!firstName.trim() || !lastName.trim()) {
-      Alert.alert(t("common:error"), t("firstLastRequired"));
+    if (!lastName.trim()) {
+      Alert.alert(t("common:error"), t("lastNameRequired"));
       return;
     }
     if (isNew && !canAddGuest) {
