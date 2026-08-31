@@ -42,6 +42,7 @@ import {
   GUEST_ROW_NARROW,
   guestRowColumns,
 } from "@/components/GuestListRow";
+import { GuestQuickAddModal, type QuickAddContext } from "@/components/GuestQuickAddModal";
 import { InlineSelectMenu, type InlineSelectAnchor } from "@/components/InlineSelectMenu";
 import { InlineChoiceSheet } from "@/components/InlineChoiceSheet";
 import { usePointerRegime } from "@/lib/usePointerRegime";
@@ -158,6 +159,7 @@ function GroupHeader({
   onStartCapture,
   onFinishCapture,
   onOpenHouseholds,
+  onAddGuest,
 }: {
   group: GuestGroup;
   count: number;
@@ -175,6 +177,7 @@ function GroupHeader({
   onStartCapture: (() => void) | null;
   onFinishCapture: () => void;
   onOpenHouseholds: (() => void) | null;
+  onAddGuest: (() => void) | null;
 }) {
   const { t } = useTranslation("guests");
   const [hovered, setHovered] = useState(false);
@@ -202,6 +205,18 @@ function GroupHeader({
           </Display>
         </View>
         <Text style={{ fontSize: 13, color: GP.mute }}>{count}</Text>
+        {onAddGuest && hovered ? (
+          <Pressable
+            onPress={onAddGuest}
+            accessibilityRole="button"
+            accessibilityLabel={t("quickAdd.addToGroup")}
+            className="rounded-full items-center justify-center active:opacity-60"
+            style={{ width: 24, height: 24, backgroundColor: GP.claySoft }}
+            {...survol}
+          >
+            <Plus size={13} color={GP.olive} />
+          </Pressable>
+        ) : null}
         <View className="flex-1" style={{ height: 1, backgroundColor: GP.hair }} />
 
         {missingCount > 0 && onStartCapture ? (
@@ -566,13 +581,54 @@ function GuestsView() {
   >(null);
   const listRef = useRef<any>(null);
 
+  // ─── Création rapide ───────────────────────────────────────────────────────
+  //
+  // Le contexte vit ici, pas dans la modale : le fermer ne doit pas le perdre.
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [quickAddContext, setQuickAddContext] = useState<QuickAddContext | null>(null);
+
+  const openQuickAdd = useCallback(
+    (groupId?: string) => {
+      if (!canAddGuest) {
+        refuserAuQuota();
+        return;
+      }
+      setQuickAddContext((prev) => {
+        const base: QuickAddContext = prev ?? {
+          groupId: visibleGroupIds[0] ?? null,
+          invitationType: "FULL",
+          rsvpStatus: "PENDING",
+          sameHousehold: false,
+          lastName: "",
+          nameParticle: "",
+          lastCreatedId: null,
+        };
+        // Le « + » d'un en-tête prime sur la catégorie mémorisée.
+        return groupId === undefined ? base : { ...base, groupId };
+      });
+      setQuickAddOpen(true);
+    },
+    [canAddGuest, refuserAuQuota, visibleGroupIds],
+  );
+
   const handleAddGuest = useCallback(() => {
+    if (pointer) {
+      openQuickAdd();
+      return;
+    }
     if (!canAddGuest) {
       refuserAuQuota();
       return;
     }
     router.push({ pathname: "/(tabs)/guests/[id]", params: { id: "new" } });
-  }, [canAddGuest, refuserAuQuota, router]);
+  }, [pointer, openQuickAdd, canAddGuest, refuserAuQuota, router]);
+
+  // La liste range la ligne d'elle-même ; l'écran ne fait que déplier.
+  const handleQuickAddCreated = useCallback((guest: Guest) => {
+    const groupId = guest.groupId;
+    if (!groupId) return;
+    setExpandedGroups((prev) => (prev.has(groupId) ? prev : new Set(prev).add(groupId)));
+  }, []);
 
   const closeCell = useCallback(() => setCell(null), []);
 
@@ -753,6 +809,9 @@ function GuestsView() {
             onStartCapture={canEditGuests ? () => startCapture(item.group.id) : null}
             onFinishCapture={() => setCapture(null)}
             onOpenHouseholds={canEditGuests ? () => openHouseholds(item.group.id) : null}
+            onAddGuest={
+              canEditGuests && pointer ? () => openQuickAdd(item.group.id) : null
+            }
           />
         );
       }
@@ -818,6 +877,7 @@ function GuestsView() {
       openCell,
       commitRename,
       commitFirstName,
+      openQuickAdd,
       router,
     ]
   );
@@ -1140,6 +1200,20 @@ function GuestsView() {
         onDismiss={closeCell}
       />
 
+      {pointer && quickAddOpen && quickAddContext && (
+        <GuestQuickAddModal
+          context={quickAddContext}
+          onContextChange={(patch) =>
+            setQuickAddContext((prev) => (prev ? { ...prev, ...patch } : prev))
+          }
+          onCreated={handleQuickAddCreated}
+          onOpenRecord={(guestId) => {
+            setQuickAddOpen(false);
+            router.push({ pathname: "/(tabs)/guests/[id]", params: { id: guestId } });
+          }}
+          onClose={() => setQuickAddOpen(false)}
+        />
+      )}
     </View>
   );
 }
