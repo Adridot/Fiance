@@ -1,6 +1,8 @@
 // NodeNext .js extension required
 import type { Guest, Table, GuestGroup } from './schema.js';
 
+export type NamedGuest = Pick<Guest, 'firstName' | 'lastName' | 'nameParticle'>;
+
 export interface GuestCounts {
   total: number;
   accepted: number;

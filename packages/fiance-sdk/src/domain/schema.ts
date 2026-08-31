@@ -58,6 +58,10 @@ export interface Guest {
   shuttlePickupTime: string | null;
   parkingNeeded: boolean | null;
   parkingNotes: string | null;
+  // Name particle, stored apart from the surname and deliberately OUT of the
+  // sort key: sorting on `lastName` files « de la Presle » under P with no sort
+  // code touched. Additive field — `BACKUP_VERSION` is NOT bumped.
+  nameParticle?: string | null;
   arrivalNotes: string | null;
   transportMode: string | null; // TransportMode enum
   createdAt: string | null;
