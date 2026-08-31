@@ -1,6 +1,6 @@
 {
   "version": 16,
-  "timestamp": "2026-07-15T19:36:00.923Z",
+  "timestamp": "2026-08-31T21:09:45.420Z",
   "wedding": {
     "id": 1,
     "partner1Name": "Sophie",
@@ -5440,6 +5440,7 @@
       "updatedAt": "2026-07-01T10:00:00.000Z"
     }
   ],
+  "households": [],
   "vendors": [
     {
       "id": "big-v-001",
@@ -6390,7 +6391,7 @@
       "description": null,
       "status": "TODO",
       "priority": "MEDIUM",
-      "dueDate": "2025-11-03T01:00:00.000Z",
+      "dueDate": "2025-11-03T00:00:00.000Z",
       "monthsBefore": 11,
       "isSystem": false,
       "vendorId": null,
@@ -6408,7 +6409,7 @@
       "description": null,
       "status": "DONE",
       "priority": "MEDIUM",
-      "dueDate": "2025-12-03T01:00:00.000Z",
+      "dueDate": "2025-12-03T00:00:00.000Z",
       "monthsBefore": 10,
       "isSystem": false,
       "vendorId": "big-v-009",
@@ -6426,7 +6427,7 @@
       "description": "Tâche importante à ne pas oublier.",
       "status": "TODO",
       "priority": "HIGH",
-      "dueDate": "2026-01-03T01:00:00.000Z",
+      "dueDate": "2026-01-03T00:00:00.000Z",
       "monthsBefore": 9,
       "isSystem": false,
       "vendorId": null,
@@ -6444,7 +6445,7 @@
       "description": null,
       "status": "TODO",
       "priority": "CRITICAL",
-      "dueDate": "2026-02-03T01:00:00.000Z",
+      "dueDate": "2026-02-03T00:00:00.000Z",
       "monthsBefore": 8,
       "isSystem": false,
       "vendorId": "big-v-011",
@@ -6462,7 +6463,7 @@
       "description": null,
       "status": "TODO",
       "priority": "MEDIUM",
-      "dueDate": "2026-03-03T01:00:00.000Z",
+      "dueDate": "2026-03-03T00:00:00.000Z",
       "monthsBefore": 7,
       "isSystem": false,
       "vendorId": null,
