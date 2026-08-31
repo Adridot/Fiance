@@ -260,6 +260,160 @@ export function pousséeEnAttenteAuDémarrage(): boolean {
   try { return readCollection<boolean>(CLÉ_POUSSÉE_EN_ATTENTE) === true; } catch { return false; }
 }
 
+// ─── MODIFICATION LOCALE — les versions que CET appareil a poussées ───────────
+//
+// À ne pas confondre avec `_collectionState`, qui porte lui aussi des `rev` :
+// celui-là est réamorcé DEPUIS LE SERVEUR à chaque hydratation, donc il dit ce
+// que le serveur détient. Cette table-ci dit ce que cet appareil a écrit, elle
+// n'est alimentée que par une poussée réussie, et elle est DURABLE.
+//
+// Elle sert deux invariants qui n'en font qu'un :
+//   – à la LECTURE, écarter une version antérieure à ce qu'on a poussé (une
+//     réponse tardive, un cache, une lecture partie avant notre écriture) ;
+//   – à l'ÉCRITURE, réamorcer `_collectionState` au démarrage, sans quoi
+//     `buildCollectionDoc` réestampille TOUT et bat les `rev` de tous les pairs.
+//
+// Le magasin persisté ne peut pas la remplacer : il ne porte que des entités
+// nues, sans aucun `rev`.
+const CLÉ_VERSIONS_POUSSÉES = 'sync.versionsPoussees';
+
+/** type de collection → { id d'entité → version poussée }. */
+const _revPoussées = new Map<string, Record<string, number>>();
+let _revPousséesChargées = false;
+
+function chargerRevPoussées(): void {
+  if (_revPousséesChargées) return;
+  _revPousséesChargées = true;
+  try {
+    const lu = readCollection<Record<string, Record<string, number>>>(CLÉ_VERSIONS_POUSSÉES);
+    if (lu) for (const [type, rev] of Object.entries(lu)) _revPoussées.set(type, rev);
+  } catch { /* KV indisponible : on repart d'une table vide, comme avant */ }
+}
+
+/** Les versions poussées pour un type, ou un objet vide. */
+function revPousséesPour(type: string): Record<string, number> {
+  chargerRevPoussées();
+  return _revPoussées.get(type) ?? {};
+}
+
+/** Note les versions qu'une poussée réussie vient de porter au serveur. */
+function noterVersionsPoussées(type: string, rev: Record<string, number>): void {
+  chargerRevPoussées();
+  _revPoussées.set(type, { ...rev });
+  try {
+    writeCollection(CLÉ_VERSIONS_POUSSÉES, Object.fromEntries(_revPoussées));
+  } catch { /* KV indisponible */ }
+}
+
+// ─── MODIFICATION LOCALE — le suivi de ce qui reste à pousser est durable ─────
+//
+// Amorcer les `rev` poussés ne suffit PAS : `buildCollectionDoc` réestampille
+// une entité si son `rev` est inconnu OU si elle figure dans `changedIds`, et
+// `changedIds` se calcule contre `_collectionEntityJson`, vide au démarrage.
+// Toutes les entités y figurent, et la réestampille a lieu quand même.
+//
+// Au fond, au démarrage l'appareil ne sait pas ce qui a changé depuis sa
+// dernière poussée. « Rien n'a changé » perdrait la modification en attente ;
+// « tout a changé » — ce qu'il fait aujourd'hui — bat les `rev` de tous les
+// pairs. Il n'y a pas de troisième voie sans persister ce qu'on a poussé.
+//
+// On persiste donc le document tel qu'il est parti, un par collection, et on en
+// reconstruit au démarrage les trois tables. C'est exactement ce que
+// `_lastPushedCollectionJson` détient déjà en mémoire : le rendre durable ne
+// change pas sa sémantique, il rend le rechargement INVISIBLE au suivi.
+const CLÉ_DERNIÈRES_POUSSÉES = 'sync.dernieresPousseesParCollection';
+
+let _référencesAmorcées = false;
+
+// ─── … et cette référence-là est PAR FENÊTRE ─────────────────────────────────
+//
+// Elle répond à la question « qu'ai-je poussé, MOI ? », et c'est ce point de vue
+// qui distingue les deux seules situations que le démarrage ne savait pas
+// séparer :
+//
+//   – une saisie faite ici et jamais poussée  → à pousser ;
+//   – la saisie d'un pair, pas encore relue   → à laisser.
+//
+// Partagée entre fenêtres (stockage local), la référence dit « le document
+// contient Liloux » — et une fenêtre restée sur « Lilou » en conclut, de son
+// point de vue légitimement, qu'on a modifié g1 ici. Elle réestampille, et
+// écrase le travail de l'autre. Par fenêtre, elle dit « MOI j'ai poussé Lilou »,
+// l'entité apparaît inchangée, garde son ancienne version, et perd la fusion
+// face au pair — ce qui est exactement le résultat voulu.
+//
+// `sessionStorage` est par onglet ET survit au rechargement : les deux
+// propriétés dont on a besoin. Ce qu'il ne survit pas — la fermeture de
+// l'onglet — reste couvert par le marqueur durable, lui partagé et en stockage
+// local : on ne perd donc jamais une saisie, au pire on la repousse.
+//
+// Sur natif il n'existe pas, et il n'y a pas non plus de seconde fenêtre : le
+// repli en mémoire suffit, et un redémarrage de l'app y vaut fermeture.
+const _référencesEnMémoire = new Map<string, string>();
+
+function magasinParFenêtre(): { get(k: string): string | null; set(k: string, v: string): void } {
+  try {
+    const ss = (globalThis as { sessionStorage?: Storage }).sessionStorage;
+    if (ss) return { get: (k) => ss.getItem(k), set: (k, v) => ss.setItem(k, v) };
+  } catch { /* accès refusé (navigation privée) : repli en mémoire */ }
+  return {
+    get: (k) => _référencesEnMémoire.get(k) ?? null,
+    set: (k, v) => { _référencesEnMémoire.set(k, v); },
+  };
+}
+
+function persisterDernièresPoussées(): void {
+  try {
+    magasinParFenêtre().set(CLÉ_DERNIÈRES_POUSSÉES, JSON.stringify(Object.fromEntries(_lastPushedCollectionJson)));
+  } catch { /* quota, ou stockage indisponible */ }
+}
+
+/**
+ * Reconstruit, au démarrage, le suivi de ce qui reste à pousser.
+ *
+ * Idempotente, et sans effet si l'état en mémoire est déjà garni : une
+ * hydratation qui a réamorcé depuis le serveur fait autorité, elle est plus
+ * fraîche que ce qu'on a poussé.
+ */
+export function amorcerRéférencesDePoussée(): void {
+  if (_référencesAmorcées) return;
+  _référencesAmorcées = true;
+  let lu: Record<string, string> | null = null;
+  try {
+    const brut = magasinParFenêtre().get(CLÉ_DERNIÈRES_POUSSÉES);
+    lu = brut ? (JSON.parse(brut) as Record<string, string>) : null;
+  } catch { return; }
+  if (!lu) return;
+
+  const itemsParType = new Map(collectionSources().map((src) => [src.type, src.items]));
+  for (const [nodeId, json] of Object.entries(lu)) {
+    if (_lastPushedCollectionJson.has(nodeId)) continue; // déjà garni, plus frais
+    const type = nodeId.split(':')[1];
+    if (!type) continue;
+    let doc: CollectionDoc;
+    try { doc = JSON.parse(json) as CollectionDoc; } catch { continue; }
+    if (!doc || typeof doc !== 'object' || !doc.items) continue;
+
+    _lastPushedCollectionJson.set(nodeId, json);
+    for (const [id, e] of Object.entries(doc.items)) {
+      _collectionEntityJson.set(id, stableStringify(e as Record<string, unknown>));
+    }
+
+    // GARDE — un magasin local VIDE alors que le document poussé portait des
+    // entités est la signature d'un magasin qui n'a pas fini de charger, pas
+    // d'une suppression en masse. Restaurer les `rev` dans ce cas ferait
+    // tombstoner toute la collection à la poussée suivante — une perte de
+    // données provoquée par le correctif lui-même. On restaure alors les
+    // pierres tombales seules : la suppression réelle, si c'en est une, partira
+    // après l'hydratation, qui aura confirmé l'état.
+    const locaux = itemsParType.get(type) ?? [];
+    const magasinSuspect = locaux.length === 0 && Object.keys(doc.items).length > 0;
+    _collectionState.set(type, {
+      rev: magasinSuspect ? {} : { ...doc.rev },
+      tombstones: { ...doc.tombstones },
+    });
+  }
+}
+
 /**
  * Fait partir tout de suite la poussée que le débouncement retenait.
  *
@@ -422,6 +576,13 @@ export function resetDirtyPushBaseline(): void {
   _lastPushedCollectionJson.clear();
   _collectionState.clear();
   _collectionEntityJson.clear();
+  // La table des versions poussées appartient au mariage qu'on quitte. Le KV
+  // étant préfixé par mariage, la vider ici suffit : la relecture paresseuse
+  // ira chercher celle du mariage entrant.
+  _revPoussées.clear();
+  _revPousséesChargées = false;
+  _référencesAmorcées = false;
+  _référencesEnMémoire.clear();
   _lastHydrateSawLegacy = false;
   // MODIFICATION LOCALE — l'arriéré de réessai appartient au mariage qu'on quitte.
   // Le laisser courir ferait retenter la poussée d'un instantané qui n'a plus cours,
@@ -430,6 +591,9 @@ export function resetDirtyPushBaseline(): void {
   _pushRetryAttempt = 0;
   _pushDeferred = false;
   _lastPushWriteDenied = false;
+  // Avant de décider ce qui reste à pousser : sans ce réamorçage, un démarrage
+  // considère les 352 invités comme modifiés et bat les `rev` de tous les pairs.
+  amorcerRéférencesDePoussée();
   // L'arriéré appartient au mariage qu'on quitte, la note durable aussi.
   effacerPousséeEnAttente();
   useSyncPendingStore.getState().setUnsavedChanges(false);
@@ -732,7 +896,12 @@ export async function pushSpaceSnapshot(
       pushCollectionDoc(session, spaceId, b.node, b.doc, now).then((ok) => {
         if (!ok) return false;
         _lastPushedCollectionJson.set(b.node.id, stableStringify(b.doc));
+        persisterDernièresPoussées();
         _collectionState.set(b.type, b.nextState);
+        // Au succès de CHAQUE collection, pas au succès global : une poussée à
+        // moitié réussie doit laisser la table cohérente avec ce qui est
+        // réellement arrivé au serveur.
+        noterVersionsPoussées(b.type, b.nextState.rev);
         for (const [id, j] of b.entityJson) _collectionEntityJson.set(id, j);
         return true;
       }),
