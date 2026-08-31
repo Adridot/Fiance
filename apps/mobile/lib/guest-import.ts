@@ -183,6 +183,7 @@ type GuestField =
   | "phoneMobile"
   | "phone"
   | "group"
+  | "invitationType"
   | "rsvp"
   | "table"
   | "addressStreet"
@@ -197,6 +198,15 @@ const HEADER_SYNONYMS: Record<GuestField, string[]> = {
   phoneMobile: ["telephone portable", "portable", "mobile"],
   phone: ["telephone", "phone", "tel"],
   group: ["groupe", "group"],
+  invitationType: [
+    "cadre",
+    "cadres",
+    "cadre d'invitation",
+    "type d'invitation",
+    "type invitation",
+    "invitation",
+    "invitation type",
+  ],
   rsvp: ["confirme", "statut", "rsvp", "reponse", "status"],
   table: ["table"],
   addressStreet: ["adresse", "address"],
