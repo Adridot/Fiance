@@ -215,3 +215,39 @@ describe("base64ToBytes", () => {
     expect(Buffer.from(base64ToBytes(b64)).toString("utf8")).toBe("hello!");
   });
 });
+
+// ─── mapRowsToGuests — invitation types ──────────────────────────────────────
+
+describe("mapRowsToGuests — invitation types", () => {
+  const sheetWith = (header: string, values: string[]) => ({
+    headers: ["Prénom", "Nom", header],
+    rows: values.map((v, i) => [`Prenom${i}`, `Nom${i}`, v]),
+  });
+  const ids = () => {
+    let n = 0;
+    return () => `id-${n++}`;
+  };
+
+  it("reuses an existing type, by id or by label, without duplicating it", () => {
+    const existing = [
+      { id: "FULL", label: "Journée complète", isDefault: true, needsSleeping: false, createdAt: null, updatedAt: null },
+    ];
+    const r = mapRowsToGuests(
+      sheetWith("Cadre", ["FULL", "Journée complète", "journee complete"]),
+      { groups: [], tables: [], invitationTypes: existing },
+      { makeId: ids() },
+    );
+    expect(r.invitationTypes).toHaveLength(0);
+    expect(r.guests.map((g) => g.invitationType)).toEqual(["FULL", "FULL", "FULL"]);
+  });
+
+  it("creates a new type only once when several rows repeat it", () => {
+    const r = mapRowsToGuests(
+      sheetWith("Cadre", ["Brunch", "Brunch", "Brunch"]),
+      { groups: [], tables: [] },
+      { makeId: ids() },
+    );
+    expect(r.invitationTypes).toHaveLength(1);
+    expect(new Set(r.guests.map((g) => g.invitationType)).size).toBe(1);
+  });
+});
