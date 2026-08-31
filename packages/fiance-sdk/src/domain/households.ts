@@ -104,3 +104,158 @@ export function householdAddress(
   return household?.address?.trim() || null;
 }
 
+// ─── Reducers ────────────────────────────────────────────────────────────────
+
+/**
+ * Creates a household and attaches the named members. A guest belongs to AT
+ * MOST one household, so the ones they leave behind empty disappear.
+ */
+export function createHousehold<G extends Pick<Guest, 'id' | 'householdId' | 'updatedAt'>>(
+  households: Household[],
+  guests: G[],
+  memberIds: string[],
+  id: string,
+  fields: Partial<Pick<Household, 'name' | 'address'>> = {},
+): { households: Household[]; guests: G[] } {
+  const now = new Date().toISOString();
+  const household: Household = {
+    id,
+    name: fields.name ?? null,
+    address: fields.address ?? null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const next = attachToHousehold(guests, memberIds, id);
+  return {
+    households: pruneEmptyHouseholds([...households, household], next),
+    guests: next,
+  };
+}
+
+export function updateHousehold(
+  households: Household[],
+  id: string,
+  updates: Partial<Household>,
+): Household[] {
+  const now = new Date().toISOString();
+  return households.map((h) => (h.id === id ? { ...h, ...updates, id: h.id, updatedAt: now } : h));
+}
+
+/**
+ * Brings a household's entity into existence on first input, without touching
+ * its composition.
+ *
+ * Keyed off `Guest.householdId`, never off `Recipient.id`: the latter holds a
+ * GUEST id for an unattached guest, so an upsert on it would mint entities
+ * nobody references — orphaned, dropped by the next `pruneEmptyHouseholds`, and
+ * the address entered would vanish without a word.
+ *
+ * `updateHousehold` stays a pure `map` and creates nothing, so a caller cannot
+ * create an entity while believing it updates one.
+ */
+export function materializeHousehold<G extends Pick<Guest, 'id' | 'householdId' | 'updatedAt'>>(
+  households: Household[],
+  guests: G[],
+  memberIds: string[],
+  fields: Partial<Pick<Household, 'name' | 'address'>>,
+  newId: string,
+): { households: Household[]; guests: G[]; id: string } {
+  const byId = new Map(guests.map((g) => [g.id, g]));
+  let carried: string | null = null;
+  for (const mid of memberIds) {
+    const id = byId.get(mid)?.householdId;
+    if (id) {
+      carried = id;
+      break;
+    }
+  }
+
+  if (!carried) {
+    const r = createHousehold(households, guests, memberIds, newId, fields);
+    return { ...r, id: newId };
+  }
+
+  const exists = households.some((h) => h.id === carried);
+  if (exists) {
+    return { households: updateHousehold(households, carried, fields), guests, id: carried };
+  }
+  const now = new Date().toISOString();
+  const household: Household = {
+    id: carried,
+    name: fields.name ?? null,
+    address: fields.address ?? null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  return { households: [...households, household], guests, id: carried };
+}
+
+export function attachToHousehold<G extends Pick<Guest, 'id' | 'householdId' | 'updatedAt'>>(
+  guests: G[],
+  guestIds: string[],
+  householdId: string,
+): G[] {
+  const now = new Date().toISOString();
+  const ids = new Set(guestIds);
+  return guests.map((g) =>
+    ids.has(g.id) && g.householdId !== householdId ? { ...g, householdId, updatedAt: now } : g,
+  );
+}
+
+/**
+ * Removes members from their household. Each one stays a guest — an implicit
+ * one-person household. A household the removal empties disappears, address
+ * included.
+ */
+export function detachFromHousehold<G extends Pick<Guest, 'id' | 'householdId' | 'updatedAt'>>(
+  households: Household[],
+  guests: G[],
+  guestIds: string[],
+): { households: Household[]; guests: G[] } {
+  const now = new Date().toISOString();
+  const ids = new Set(guestIds);
+  const next = guests.map((g) =>
+    ids.has(g.id) && g.householdId ? { ...g, householdId: null, updatedAt: now } : g,
+  );
+  return { households: pruneEmptyHouseholds(households, next), guests: next };
+}
+
+/**
+ * Splits a household: the named members move into a new one, the rest stay.
+ * Splitting IS creating with a subset of the members, so the two cannot diverge.
+ */
+export function splitHousehold<G extends Pick<Guest, 'id' | 'householdId' | 'updatedAt'>>(
+  households: Household[],
+  guests: G[],
+  memberIds: string[],
+  newId: string,
+  fields: Partial<Pick<Household, 'name' | 'address'>> = {},
+): { households: Household[]; guests: G[] } {
+  return createHousehold(households, guests, memberIds, newId, fields);
+}
+
+/** Deletes a household. Its members stay guests, without a household. */
+export function removeHousehold<G extends Pick<Guest, 'id' | 'householdId' | 'updatedAt'>>(
+  households: Household[],
+  guests: G[],
+  id: string,
+): { households: Household[]; guests: G[] } {
+  const now = new Date().toISOString();
+  const next = guests.map((g) =>
+    g.householdId === id ? { ...g, householdId: null, updatedAt: now } : g,
+  );
+  return { households: households.filter((h) => h.id !== id), guests: next };
+}
+
+/**
+ * Drops the memberless households. Call after any operation that can empty one,
+ * guest DELETION included.
+ */
+export function pruneEmptyHouseholds(
+  households: Household[],
+  guests: Pick<Guest, 'householdId'>[],
+): Household[] {
+  const populated = new Set(guests.map((g) => g.householdId).filter(Boolean) as string[]);
+  return households.filter((h) => populated.has(h.id));
+}
+
