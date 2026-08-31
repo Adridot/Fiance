@@ -11,6 +11,7 @@ import {
   updateTable as sdkUpdateTable,
   removeTable as sdkRemoveTable,
   addGroup as sdkAddGroup,
+  sortGroups,
   updateGroup as sdkUpdateGroup,
   removeGroup as sdkRemoveGroup,
   getGuestsByTable as sdkGetGuestsByTable,
@@ -75,7 +76,7 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
   groups: [],
   setGuests: (guests) => set({ guests }),
   setTables: (tables) => set({ tables }),
-  setGroups: (groups) => set({ groups }),
+  setGroups: (groups) => set({ groups: sortGroups(groups) }),
   addGuest: (guest) => {
     set((s) => ({ guests: sdkAddGuest(s.guests, guest) }));
     const storage = getStorage();
@@ -86,7 +87,7 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
   importGuestData: ({ guests, groups, tables }) => {
     set((s) => ({
       guests: [...s.guests, ...guests],
-      groups: [...s.groups, ...groups],
+      groups: sortGroups([...s.groups, ...groups]),
       tables: [...s.tables, ...tables],
     }));
     const storage = getStorage();
@@ -178,13 +179,13 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
     notifySync();
   },
   addGroup: (group) => {
-    set((s) => ({ groups: sdkAddGroup(s.groups, group) }));
+    set((s) => ({ groups: sortGroups(sdkAddGroup(s.groups, group)) }));
     const storage = getStorage();
     if (storage) persistGroups(storage);
     notifySync();
   },
   updateGroup: (id, updates) => {
-    set((s) => ({ groups: sdkUpdateGroup(s.groups, id, updates) }));
+    set((s) => ({ groups: sortGroups(sdkUpdateGroup(s.groups, id, updates)) }));
     const storage = getStorage();
     if (storage) persistGroups(storage);
     notifySync();

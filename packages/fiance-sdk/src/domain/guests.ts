@@ -1,5 +1,5 @@
 // NodeNext .js extension required
-import type { Guest, Table, GuestGroup } from './schema.js';
+import type { Guest, Table, GuestGroup, GuestGroupSide, Wedding } from './schema.js';
 
 export type NamedGuest = Pick<Guest, 'firstName' | 'lastName' | 'nameParticle'>;
 
@@ -258,5 +258,186 @@ export function guestNameMatches(g: NamedGuest, query: string): boolean {
     (g.lastName ?? "").toLowerCase().includes(q) ||
     formatGuestName(g).toLowerCase().includes(q)
   );
+}
+
+// ─── Category side and order ─────────────────────────────────────────────────
+//
+// Array order is NOT insertion order once a device hydrates from the Space:
+// groups come back out of an `Object.entries()` over an id-keyed document, so
+// the order is a serialisation accident that differs from device to device.
+// Sorting explicitly is what makes the order a contract.
+
+const SIDE_RANK: Record<GuestGroupSide, number> = {
+  PARTNER_1: 0,
+  PARTNER_2: 1,
+  BOTH: 2,
+};
+
+function sideRank(side: GuestGroupSide | null | undefined): number {
+  return side ? SIDE_RANK[side] : 3;
+}
+
+/** Sorts categories: side, then declared rank, then name. */
+export function sortGroups(groups: GuestGroup[]): GuestGroup[] {
+  return [...groups].sort((a, b) => {
+    const bySide = sideRank(a.side) - sideRank(b.side);
+    if (bySide !== 0) return bySide;
+    // Compared rather than subtracted: Infinity - Infinity is NaN, which would
+    // silently stop two rankless categories from being ordered by name.
+    const ra = a.sortOrder ?? Infinity;
+    const rb = b.sortOrder ?? Infinity;
+    if (ra !== rb) return ra < rb ? -1 : 1;
+    // `sensitivity: "base"` so an accent or a capital does not exile a category
+    // to the other end of the list — « Émile » must neighbour « Emile ».
+    return a.name.localeCompare(b.name, "fr", { sensitivity: "base" });
+  });
+}
+
+// ─── Side deduced from the label prefix ──────────────────────────────────────
+//
+// Categories predating the `side` field still carry a bracketed prefix —
+// « [A] Didot », « [A&E] Amis communs ». Deducing the side from it avoids a
+// data migration and WRITES NOTHING: a category that declares `side` never
+// reaches this path, so it dies out on its own. Nothing is hardcoded — prefix
+// tokens are matched against the WEDDING's partner first names, and a prefix
+// that matches nobody deduces nothing rather than guessing.
+
+const SIDE_PREFIX = /^\s*\[([^\]]+)\]\s*/;
+
+/** Display-only: the STORED label keeps its prefix. */
+export function formatGuestGroupName(name: string): string {
+  return (name ?? "").replace(SIDE_PREFIX, "").trim() || (name ?? "").trim();
+}
+
+function sideFromPrefix(
+  name: string,
+  wedding: Pick<Wedding, "partner1Name" | "partner2Name"> | null | undefined,
+): GuestGroupSide | null {
+  const m = SIDE_PREFIX.exec(name ?? "");
+  if (!m) return null;
+  const tokens = m[1]
+    .split(/[&+,/]/)
+    .map((t) => t.trim().toLocaleLowerCase("fr"))
+    .filter(Boolean);
+  if (tokens.length === 0) return null;
+
+  const matches = (firstName: string | null | undefined) => {
+    const p = (firstName ?? "").trim().toLocaleLowerCase("fr");
+    return p !== "" && tokens.some((t) => p.startsWith(t));
+  };
+  const one = matches(wedding?.partner1Name);
+  const two = matches(wedding?.partner2Name);
+  if (one && two) return "BOTH";
+  if (one) return "PARTNER_1";
+  if (two) return "PARTNER_2";
+  return null;
+}
+
+/**
+ * Categories with their side resolved — declared if it is, deduced otherwise.
+ *
+ * A read PROJECTION: nothing is written, nothing is synced. Everything that
+ * orders or groups categories starts here, so one place decides what a
+ * category's side is.
+ */
+export function resolveGroupSides(
+  groups: GuestGroup[],
+  wedding: Pick<Wedding, "partner1Name" | "partner2Name"> | null | undefined,
+): GuestGroup[] {
+  return groups.map((g) =>
+    g.side ? g : { ...g, side: sideFromPrefix(g.name, wedding) },
+  );
+}
+
+/** Labels the app supplies to compose a side. */
+export interface GuestGroupSideLabels {
+  /** Named template, `{name}` replaced by the partner's first name. */
+  named: string;
+  /** Fallbacks used when the wedding gives no first name for the partner. */
+  partner1: string;
+  partner2: string;
+  both: string;
+  none: string;
+}
+
+export function formatGuestGroupSide(
+  side: GuestGroupSide | null | undefined,
+  wedding: Pick<Wedding, "partner1Name" | "partner2Name"> | null | undefined,
+  labels: GuestGroupSideLabels,
+): string {
+  if (side === "BOTH") return labels.both;
+  if (side === "PARTNER_1" || side === "PARTNER_2") {
+    const name = (side === "PARTNER_1" ? wedding?.partner1Name : wedding?.partner2Name)?.trim();
+    if (name) return labels.named.replace("{name}", name);
+    return side === "PARTNER_1" ? labels.partner1 : labels.partner2;
+  }
+  return labels.none;
+}
+
+export interface GuestGroupSideSection {
+  side: GuestGroupSide | null;
+  groups: GuestGroup[];
+}
+
+/**
+ * Categories grouped under their side. One sort only, `sortGroups`, so the
+ * category screen and the guest list show the same order.
+ */
+export function groupsBySide(groups: GuestGroup[]): GuestGroupSideSection[] {
+  const sections: GuestGroupSideSection[] = [];
+  for (const g of sortGroups(groups)) {
+    const side = g.side ?? null;
+    const last = sections[sections.length - 1];
+    if (last && last.side === side) last.groups.push(g);
+    else sections.push({ side, groups: [g] });
+  }
+  return sections;
+}
+
+// ─── List data and header positions ──────────────────────────────────────────
+//
+// Sticky headers are declared as a list of INDICES INTO the flattened items, so
+// a stale index pins the wrong row. Items and indices therefore come out of one
+// computation: producing them apart would be two sources for one truth.
+
+export type GuestListEntry<G, GR> =
+  | { kind: "guest"; guest: G }
+  | { kind: "side-header"; side: GuestGroupSide | null }
+  | { kind: "group-header"; group: GR; count: number; collapsed: boolean };
+
+export interface GuestListData<G, GR> {
+  items: GuestListEntry<G, GR>[];
+  stickyIndices: number[];
+}
+
+export function buildGuestListData<
+  G,
+  GR extends { id: string; side?: GuestGroupSide | null },
+>(
+  ungrouped: readonly G[],
+  sections: readonly { group: GR; guests: readonly G[] }[],
+  expandedGroupIds: ReadonlySet<string>,
+): GuestListData<G, GR> {
+  const items: GuestListEntry<G, GR>[] = ungrouped.map((guest) => ({ kind: "guest", guest }));
+  const stickyIndices: number[] = [];
+  // `sections` arrives sorted by side then rank, so a side header is needed
+  // only where the side CHANGES — no second ordering to diverge from the first.
+  let prevSide: GuestGroupSide | null | undefined;
+  for (const { group, guests } of sections) {
+    const side = group.side ?? null;
+    if (prevSide === undefined || side !== prevSide) {
+      items.push({ kind: "side-header", side });
+      prevSide = side;
+    }
+    const collapsed = !expandedGroupIds.has(group.id);
+    // Only CATEGORY headers stick: `LegendList` pins one item at a time, and
+    // the category is the one to keep in view while scrolling its guests.
+    stickyIndices.push(items.length);
+    items.push({ kind: "group-header", group, count: guests.length, collapsed });
+    if (!collapsed) {
+      for (const guest of guests) items.push({ kind: "guest", guest });
+    }
+  }
+  return { items, stickyIndices };
 }
 
