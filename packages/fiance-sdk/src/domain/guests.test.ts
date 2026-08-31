@@ -8,6 +8,8 @@ import {
   resolveGroupSides,
   formatGuestGroupName,
   buildGuestListData,
+  isFirstNameToComplete,
+  computeGroupProgress,
   formatGuestName,
   removeGuest,
   removeGuests,
@@ -418,6 +420,64 @@ describe('rsvpStatusUpdate — the guest-record rule, applied per guest', () => 
     expect(rsvpStatusUpdate(g, 'PENDING', NOW)).toEqual({
       rsvpStatus: 'PENDING',
       rsvpDate: EARLIER,
+    });
+  });
+});
+
+describe('first name still to be filled in', () => {
+  const i = (firstName: string, lastName: string, groupId: string | null = 'g1') =>
+    ({ firstName, lastName, groupId });
+
+  describe('isFirstNameToComplete', () => {
+    it('recognises an empty first name, whitespace included', () => {
+      expect(isFirstNameToComplete({ firstName: '' })).toBe(true);
+      expect(isFirstNameToComplete({ firstName: '   ' })).toBe(true);
+    });
+
+    it('recognises a first name manufactured by the import', () => {
+      expect(isFirstNameToComplete({ firstName: 'Luc 1' })).toBe(true);
+      expect(isFirstNameToComplete({ firstName: 'Luc 2' })).toBe(true);
+      expect(isFirstNameToComplete({ firstName: 'Marie Helene 12' })).toBe(true);
+    });
+
+    it('a filled-in first name is not missing', () => {
+      expect(isFirstNameToComplete({ firstName: 'Luc' })).toBe(false);
+      expect(isFirstNameToComplete({ firstName: 'Marie Helene' })).toBe(false);
+    });
+
+    it('the rule is self-correcting: a fix already made stays made', () => {
+      expect(isFirstNameToComplete({ firstName: 'Luc 2' })).toBe(true);
+      expect(isFirstNameToComplete({ firstName: 'Sophie' })).toBe(false);
+    });
+
+    it('a number anywhere but glued at the end does not make a manufactured first name', () => {
+      expect(isFirstNameToComplete({ firstName: '2 Luc' })).toBe(false);
+      expect(isFirstNameToComplete({ firstName: 'Luc2' })).toBe(false);
+    });
+  });
+
+  describe('computeGroupProgress', () => {
+    const r = (firstName: string, lastName: string, groupId: string | null, rsvpStatus: string | null) =>
+      ({ firstName, lastName, groupId, rsvpStatus });
+
+    it('counts headcount, names left to fill in and answers per category', () => {
+      const m = computeGroupProgress([
+        r('', 'ARDOUIN', 'g1', 'PENDING'),
+        r('', 'MERY', 'g1', 'ACCEPTED'),
+        r('Luc', 'ARDOUIN', 'g1', 'DECLINED'),
+        r('', 'SIMON', 'g2', 'MAYBE'),
+      ]);
+      expect(m.get('g1')).toEqual({ total: 3, missingFirstName: 2, answered: 2 });
+      expect(m.get('g2')).toEqual({ total: 1, missingFirstName: 1, answered: 0 });
+    });
+
+    it('a completed category carries a zero remainder, and says so', () => {
+      const m = computeGroupProgress([r('Luc', 'ARDOUIN', 'g1', 'ACCEPTED')]);
+      expect(m.get('g1')).toEqual({ total: 1, missingFirstName: 0, answered: 1 });
+    });
+
+    it('ignores guests with no category', () => {
+      expect(computeGroupProgress([r('', 'ARDOUIN', null, 'PENDING')]).size).toBe(0);
     });
   });
 });

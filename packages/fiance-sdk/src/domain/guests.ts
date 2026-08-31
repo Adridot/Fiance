@@ -374,6 +374,61 @@ export function formatGuestGroupSide(
   return labels.none;
 }
 
+// ─── The first name still to be found ────────────────────────────────────────
+//
+// An EMPTY first name is a legitimate state — a gap that shows, counts and gets
+// corrected — where a fabricated one would pass itself off as data. Everything
+// below is COMPUTED on read: a maintained counter would be a second state to
+// keep in agreement with the first.
+
+export type IncompleteGuest = Pick<Guest, "firstName" | "lastName" | "groupId">;
+
+// First names fabricated by an import: a name, a space, a number. « Luc 1 » is
+// a household contact given a disambiguation suffix, « Luc 2 » is their spouse,
+// lent the same name for want of a better one. Neither is a first name.
+const SYNTHETIC_FIRST_NAME = /\s\d+$/;
+
+/**
+ * A guest whose first name is still to be found.
+ *
+ * The rule is SELF-CORRECTING, which is what makes it safe: as soon as a first
+ * name is entered it stops matching, so nothing has to be written down for the
+ * count to be right.
+ */
+export function isFirstNameToComplete(g: Pick<Guest, "firstName">): boolean {
+  const p = (g.firstName ?? "").trim();
+  return p === "" || SYNTHETIC_FIRST_NAME.test(p);
+}
+
+export interface GuestGroupProgress {
+  total: number;
+  missingFirstName: number;
+  /** Guests who answered — accepted or declined, like the global response rate. */
+  answered: number;
+}
+
+/**
+ * Per-category progress, in one pass. A category with no guest is absent from
+ * the map; the display decides what it says about that.
+ */
+export function computeGroupProgress(
+  guests: (IncompleteGuest & Pick<Guest, "rsvpStatus">)[],
+): Map<string, GuestGroupProgress> {
+  const out = new Map<string, GuestGroupProgress>();
+  for (const g of guests) {
+    if (!g.groupId) continue;
+    let p = out.get(g.groupId);
+    if (!p) {
+      p = { total: 0, missingFirstName: 0, answered: 0 };
+      out.set(g.groupId, p);
+    }
+    p.total++;
+    if (isFirstNameToComplete(g)) p.missingFirstName++;
+    if (g.rsvpStatus === "ACCEPTED" || g.rsvpStatus === "DECLINED") p.answered++;
+  }
+  return out;
+}
+
 export interface GuestGroupSideSection {
   side: GuestGroupSide | null;
   groups: GuestGroup[];
