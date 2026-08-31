@@ -161,30 +161,6 @@ export default function GroupsScreen() {
                     )}
                   </View>
                 </View>
-
-                {/* Group members */}
-                {groupGuests.length > 0 ? (
-                  groupGuests.map((g) => (
-                    <View
-                      key={g.id}
-                      className="flex-row items-center py-2 border-t border-hair"
-                    >
-                      <View className="w-7 h-7 rounded-lg bg-accent-paper items-center justify-center mr-2">
-                        <Text className="text-xs font-bold text-mute">
-                          {g.firstName[0]}
-                          {g.lastName[0]}
-                        </Text>
-                      </View>
-                      <Text className="text-sm text-ink-soft flex-1">
-                        {g.firstName} {g.lastName}
-                      </Text>
-                    </View>
-                  ))
-                ) : (
-                  <Text className="text-sm text-mute mt-1">
-                    {t("noGroupMembers")}
-                  </Text>
-                )}
               </View>
             );
           })}
