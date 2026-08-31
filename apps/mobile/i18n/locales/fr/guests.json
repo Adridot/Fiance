@@ -354,5 +354,21 @@
   "inlineApplyToHousehold_other": "Appliquer à tout le foyer · {{count}}",
   "inlineHouseholdApplied_one": "Appliqué à {{count}} membre du foyer",
   "inlineHouseholdApplied_other": "Appliqué aux {{count}} membres du foyer",
-  "nameCaptureFinish": "Terminer"
+  "nameCaptureFinish": "Terminer",
+  "quickAdd": {
+    "title": "Ajouter des invités",
+    "context": "Pour cette série",
+    "firstName": "Prénom",
+    "sameHousehold": "Même foyer que le précédent",
+    "child": "Enfant",
+    "addAndChain": "Ajouter et enchaîner",
+    "enterHint": "Entrée",
+    "addAndClose": "Ajouter et fermer",
+    "undoLast": "Annuler le dernier",
+    "added_one": "{{count}} ajouté",
+    "added_other": "{{count}} ajoutés",
+    "nameIsEnough": "Un nom suffit — le prénom pourra être complété plus tard.",
+    "addToGroup": "Ajouter dans cette catégorie",
+    "close": "Fermer"
+  }
 }
