@@ -33,3 +33,11 @@ ios/
 
 *.xlsx
 *.crash
+
+# Sessions et artefacts d'outillage (hors application)
+.claude/
+build.log
+rebuild.log
+.pnpm-store/
+apps/mobile/dist.old/
+.smoke.mjs
