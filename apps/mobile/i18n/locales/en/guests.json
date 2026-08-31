@@ -297,6 +297,7 @@
   "namesToComplete_one": "{{count}} first name to complete",
   "namesToComplete_other": "{{count}} first names to complete",
   "rsvpProgress": "{{answered}}/{{total}} answered",
+  "nameQueueFirstName": "First name",
   "household": {
     "section": "Household",
     "explain": "A household is what an invitation is addressed to, and what a reply is expected from. An address is entered once for all its members.",
@@ -335,5 +336,7 @@
     "removeExplain": "Its members stay in the guest list, without a household. The household's address and label are removed.",
     "gone": "This household no longer exists."
   },
-  "communicationPartialHousehold": "Sent to part of the household"
+  "communicationPartialHousehold": "Sent to part of the household",
+  "inlineRename": "Rename",
+  "inlineEditHint": "Enter to save · Esc to cancel"
 }

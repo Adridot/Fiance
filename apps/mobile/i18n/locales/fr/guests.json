@@ -297,6 +297,7 @@
   "namesToComplete_one": "{{count}} prénom à compléter",
   "namesToComplete_other": "{{count}} prénoms à compléter",
   "rsvpProgress": "{{answered}}/{{total}} réponses",
+  "nameQueueFirstName": "Prénom",
   "household": {
     "section": "Foyer",
     "explain": "Le foyer est ce à quoi le faire-part est adressé, et ce dont une réponse est attendue. Une adresse s'y saisit une fois pour tous ses membres.",
@@ -335,5 +336,7 @@
     "removeExplain": "Ses membres restent dans la liste d'invités, sans foyer. L'adresse et l'intitulé du foyer disparaissent.",
     "gone": "Ce foyer n'existe plus."
   },
-  "communicationPartialHousehold": "Envoi fait pour une partie du foyer"
+  "communicationPartialHousehold": "Envoi fait pour une partie du foyer",
+  "inlineRename": "Renommer",
+  "inlineEditHint": "Entrée pour valider · Échap pour annuler"
 }
