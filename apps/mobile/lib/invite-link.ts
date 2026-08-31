@@ -1,12 +1,23 @@
 import * as Linking from "expo-linking";
 import * as Crypto from "expo-crypto";
 import { createSpaceInviteLink, getSyncNamespace, roleCanWrite, serializeSpaceInviteStore, isWithinFreeLimit } from "@fiance/sdk";
-import { resolveSessionConfig } from "@/lib/server";
+import { normalizeSyncBase, resolveServerUrl, resolveSessionConfig } from "@/lib/server";
+// MODIFICATION LOCALE — le lien passe de ~1342 à ~81 caractères : jeton chiffré
+// déposé derrière un code court, clé dans le fragment. Voir `invitation-courte.ts`.
+import {
+  chiffrerLeJeton,
+  construireLeLienCourt,
+  deposer,
+  retirer,
+  tirerUnCode,
+} from "@/lib/invitation-courte";
 import { ensureSpaceProvisioned } from "@/lib/space-provision";
 import { pushSpaceSnapshot } from "@/lib/space-sync";
 import { usePermissionsStore } from "@/store/usePermissionsStore";
-import { writeCollection } from "@/lib/kv-storage";
+import { readCollection, writeCollection } from "@/lib/kv-storage";
 import { isPremium } from "@/lib/premium";
+// MODIFICATION LOCALE — la limite porte sur les personnes, pas sur les liens.
+import { estUnCollaborateurConnu, nombreDeCollaborateursDistincts } from "@/lib/collaborateurs";
 import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
 
 /** KV key holding the serialized space-invite store (edPub/kemPub/cap handles per invite),
@@ -24,7 +35,19 @@ export const SPACE_INVITE_STORE_KEY = "spaceInviteStore";
 export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: string, name?: string): Promise<string> {
   // Defensive backstop — the primary gate is the paywall prompt in settings/index.tsx's
   // handleInvite. Free tier allows 1 invited member (the partner); the 2nd+ requires premium.
-  if (!isWithinFreeLimit("members", usePermissionsStore.getState().assignments.length, isPremium())) {
+  //
+  // MODIFICATION LOCALE — la limite compte des PERSONNES, pas des liens.
+  //
+  // Chaque lien crée une affectation de plus : compter les affectations
+  // interdirait à un propriétaire au palier gratuit de RENVOYER un lien perdu à
+  // quelqu'un qu'il a déjà invité — l'exact contraire du besoin. Réémettre pour
+  // une personne déjà collaboratrice n'est donc opposable à aucune limite.
+  const affectations = usePermissionsStore.getState().assignments;
+  const réémission = estUnCollaborateurConnu(affectations, name);
+  if (
+    !réémission &&
+    !isWithinFreeLimit("members", nombreDeCollaborateursDistincts(affectations), isPremium())
+  ) {
     throw new Error("FREE_MEMBER_LIMIT");
   }
 
@@ -96,5 +119,58 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
     console.warn("[invite] roster diagnostics failed", err);
   }
 
-  return link;
+  // MODIFICATION LOCALE — la forme courte. Le format long est conservé en repli :
+  // un dépôt injoignable ne doit pas empêcher d'inviter quelqu'un.
+  const fragment = link.includes("#") ? link.slice(link.indexOf("#") + 1) : link;
+  try {
+    const { depot, cle } = await chiffrerLeJeton(fragment);
+    const code = tirerUnCode();
+    await deposer(normalizeSyncBase(cfg.serverUrl), code, depot);
+    const court = construireLeLienCourt(origin, code, cle);
+    enregistrerLeCodeDuLien(entry.id, code);
+    return court;
+  } catch (err) {
+    console.warn("[invite] dépôt du lien court impossible, repli sur le format long", err);
+    return link;
+  }
+}
+
+/** Les codes de dépôt émis pour ce mariage, pour pouvoir les retirer plus tard. */
+export const INVITE_CODES_KEY = "inviteDepotCodes";
+
+function enregistrerLeCodeDuLien(weddingId: string, code: string): void {
+  try {
+    const connus = (readCollection<Record<string, string[]>>(INVITE_CODES_KEY) ?? {}) as Record<string, string[]>;
+    writeCollection(INVITE_CODES_KEY, { ...connus, [weddingId]: [...(connus[weddingId] ?? []), code] });
+  } catch (err) {
+    console.warn("[invite] code de dépôt non mémorisé", err);
+  }
+}
+
+/** Les codes de dépôt encore mémorisés pour ce mariage, du plus ancien au plus récent. */
+export function codesDeDepot(weddingId: string): string[] {
+  try {
+    return (readCollection<Record<string, string[]>>(INVITE_CODES_KEY) ?? {})[weddingId] ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Retire un dépôt avant son terme.
+ *
+ * Le dépôt vidé se lit ensuite comme un dépôt absent, et l'écran de jonction
+ * présente le message d'EXPIRATION — distinct de celui d'une invitation invalide.
+ */
+export async function retirerLeDepot(entry: WeddingRegistryEntry, code: string): Promise<void> {
+  const serverUrl = resolveServerUrl(entry);
+  if (!serverUrl) throw new Error("INVITE_NO_SESSION");
+  await retirer(normalizeSyncBase(serverUrl), code);
+  try {
+    const connus = (readCollection<Record<string, string[]>>(INVITE_CODES_KEY) ?? {}) as Record<string, string[]>;
+    writeCollection(INVITE_CODES_KEY, {
+      ...connus,
+      [entry.id]: (connus[entry.id] ?? []).filter((c) => c !== code),
+    });
+  } catch { /* la mémoire des codes est un confort, pas une garantie */ }
 }

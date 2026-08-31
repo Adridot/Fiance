@@ -1,18 +1,23 @@
 /**
  * RSVP sync — v3 starfish-spaces implementation.
  *
- * Each guest gets a per-node `rsvp` ObjectNode (access:'invite', enc:false)
+ * Each recipient gets a per-node `rsvp` ObjectNode (access:'invite', enc:false)
  * under the publicPage node. The owner mints a combined guest link that bundles:
  *  - page-read cap (publicPage node, read-only)
  *  - rsvp-write cap (rsvp node, write-capable)
  *
  * Guest submits via `writeNodeWithLinkCap`. Owner reads submissions via
  * `objInvPull` (space:member privilege) on boot and foreground.
+ *
+ * The recipient is the HOUSEHOLD when the guest has one, the guest otherwise —
+ * one link, one page, one answer per envelope.
  */
 
 import { useEffect, useState } from "react";
 import { Platform } from "react-native";
 import { useGuestsStore } from "@/store/useGuestsStore";
+import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
+import type { Guest } from "@/db/schema";
 import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
 import {
   updateObjectIndex,
@@ -21,6 +26,12 @@ import {
   objInvPull,
   createNodeInviteLink,
   rsvpToNode,
+  buildHouseholdRsvpDoc,
+  householdRsvpUpdates,
+  rsvpMemberFromGuest,
+  resolveHousehold,
+  householdName,
+  type HouseholdRsvpDoc,
   type Session,
   type ObjectNode,
 } from "@fiance/sdk";
@@ -32,23 +43,7 @@ import { encodeGuestLink } from "@/lib/guest-link";
 // Types
 // ---------------------------------------------------------------------------
 
-export interface RsvpSubmission {
-  guestId: string;
-  firstName?: string | null;
-  lastName?: string | null;
-  /** Guest's companion ID, seeded by owner so the form can show companion details. */
-  companionGuestId?: string | null;
-  companionFirstName?: string | null;
-  companionLastName?: string | null;
-  rsvpStatus: string | null;
-  diet?: string | null;
-  dietNotes?: string | null;
-  plusOneGuestId?: string | null;
-  plusOneRsvpStatus?: string | null;
-  plusOneDiet?: string | null;
-  childrenCount?: number | null;
-  submittedAt: string | null;
-}
+export type { HouseholdRsvpDoc, RsvpMember, HouseholdRsvpSubmission } from "@fiance/sdk";
 
 // ---------------------------------------------------------------------------
 // Hooks
@@ -76,20 +71,22 @@ export function useGuestRsvpUrl(
 
       if (!session || !spaceId || !weddingNodeId) return;
 
-      const guests = useGuestsStore.getState().guests;
-      const guest = guests.find((g) => g.id === guestId);
-      const guestName = guest ? `${guest.firstName} ${guest.lastName}`.trim() : guestId;
-      const firstName = guest?.firstName ?? null;
-      const lastName = guest?.lastName ?? null;
-      const allGuests = useGuestsStore.getState().guests;
-      const companion = guest?.companionId ? allGuests.find((g) => g.id === guest.companionId) : null;
+      const { guests, households } = useGuestsStore.getState();
+      // Invitation labels are seeded with the members: the public form cannot
+      // resolve an invitation-type id (see RsvpMember.invitationLabel).
+      const invitationLabels = Object.fromEntries(
+        useInvitationTypesStore.getState().invitationTypes.map((it) => [it.id, it.label]),
+      );
+      const { household, members } = resolveHousehold(households, guests, guestId);
+      if (members.length === 0) return;
+      const recipientId = household?.id ?? guestId;
+      const label = householdName(household, members);
 
       (async () => {
         try {
-          const link = await getGuestInviteLink(
-            session, spaceId, weddingNodeId, guestId, guestName,
-            firstName, lastName,
-            companion?.id ?? null, companion?.firstName ?? null, companion?.lastName ?? null,
+          const link = await getHouseholdInviteLink(
+            session, spaceId, weddingNodeId, recipientId, label,
+            household?.id ?? null, members, invitationLabels,
           );
           if (!cancelled) setUrl(link);
         } catch {
@@ -108,24 +105,24 @@ export function useGuestRsvpUrl(
 // RSVP ObjectNode management (owner-side)
 // ---------------------------------------------------------------------------
 
-/** Derive the `rsvp` ObjectNode ID from the guest entity ID. */
-export function rsvpNodeId(guestId: string): string {
-  return `rsvp-${guestId}`;
+/** Derive the `rsvp` ObjectNode ID from the RECIPIENT id — household or guest. */
+export function rsvpNodeId(recipientId: string): string {
+  return `rsvp-${recipientId}`;
 }
 
 /**
- * Ensure the RSVP ObjectNode for a guest exists in the space index.
+ * Ensure the RSVP ObjectNode for a recipient exists in the space index.
  * Idempotent. Returns the rsvp nodeId.
  */
 export async function ensureRsvpNode(
   session: Session,
   spaceId: string,
   weddingNodeId: string,
-  guestId: string,
+  recipientId: string,
 ): Promise<string> {
-  const nodeId = rsvpNodeId(guestId);
+  const nodeId = rsvpNodeId(recipientId);
   const pageNodeId = publicPageNodeId(weddingNodeId);
-  const desc = rsvpToNode(nodeId, pageNodeId, guestId);
+  const desc = rsvpToNode(nodeId, pageNodeId, recipientId);
 
   await withIndexLock(spaceId, () => updateObjectIndex(session, spaceId, (nodes, now) => {
     const exists = nodes.some((n) => n.id === nodeId);
@@ -149,20 +146,21 @@ export async function ensureRsvpNode(
 }
 
 /**
- * Seed the RSVP node with the guest's initial data so guests can see their
- * name (and companion name) when they open the RSVP form. Names are private —
- * stored only in the per-guest node, not visible to other guests.
+ * Seed the household document with its members, so the family recognises itself
+ * when it opens the link.
+ *
+ * NOT a seed-if-absent: a household's composition keeps moving, and a document
+ * frozen at first seed would show the family a stale roster with no signal. The
+ * roster comes from the guest records; each member's already-given answer is
+ * carried over from the existing document and never overwritten.
  */
 export async function seedRsvpNodeContent(
   session: Session,
   spaceId: string,
   nodeId: string,
-  guestId: string,
-  firstName: string | null,
-  lastName: string | null,
-  companionGuestId?: string | null,
-  companionFirstName?: string | null,
-  companionLastName?: string | null,
+  householdId: string | null,
+  members: Guest[],
+  invitationLabels: Record<string, string>,
 ): Promise<void> {
   const handle = await getNodeAccess(
     spaceId,
@@ -171,57 +169,59 @@ export async function seedRsvpNodeContent(
     session,
     null,
   );
-  const initial: RsvpSubmission = {
-    guestId,
-    firstName: firstName ?? null,
-    lastName: lastName ?? null,
-    companionGuestId: companionGuestId ?? null,
-    companionFirstName: companionFirstName ?? null,
-    companionLastName: companionLastName ?? null,
-    rsvpStatus: null,
-    submittedAt: null,
-  };
-  // Seed-if-absent: never clobber a guest's already-submitted RSVP.
   const existing = await handle.client
     .pull(objInvPull(spaceId, nodeId))
-    .catch(() => null) as { hash?: string } | null;
-  if (existing?.hash) return;
+    .catch(() => null) as { hash?: string; data?: HouseholdRsvpDoc } | null;
+
+  const alreadyAnswered = new Map(
+    (existing?.data?.members ?? []).map((m) => [m.guestId, m]),
+  );
+  const doc: HouseholdRsvpDoc = {
+    ...buildHouseholdRsvpDoc(householdId, members, invitationLabels),
+    members: members.map((g) => {
+      const fresh = rsvpMemberFromGuest(g, invitationLabels);
+      const previous = alreadyAnswered.get(g.id);
+      if (!previous?.respondedAt) return fresh;
+      return {
+        ...fresh,
+        rsvpStatus: previous.rsvpStatus,
+        diet: previous.diet,
+        dietNotes: previous.dietNotes,
+        respondedAt: previous.respondedAt,
+      };
+    }),
+    submittedAt: existing?.data?.submittedAt ?? null,
+  };
+
   await handle.client.push(
     objInvPush(spaceId, nodeId),
-    initial as unknown as Record<string, unknown>,
-    "",  // "" not null: creates when absent; heals a degraded stored hash
+    doc as unknown as Record<string, unknown>,
+    existing?.hash ?? "",  // "" not null: creates when absent; heals a degraded stored hash
   );
 }
 
 /**
- * Mint a combined page-read + rsvp-write link for a specific guest.
+ * Mint a combined page-read + rsvp-write link for a recipient.
  * Ensures the publicPage node and rsvp node both exist, seeds the rsvp node
- * with the guest's name, and returns a single URL with both caps bundled.
+ * with the household document, and returns a single URL with both caps bundled.
  */
-export async function getGuestInviteLink(
+export async function getHouseholdInviteLink(
   session: Session,
   spaceId: string,
   weddingNodeId: string,
-  guestId: string,
-  guestName: string,
-  firstName: string | null,
-  lastName: string | null,
-  companionGuestId?: string | null,
-  companionFirstName?: string | null,
-  companionLastName?: string | null,
+  recipientId: string,
+  recipientName: string,
+  householdId: string | null,
+  members: Guest[],
+  invitationLabels: Record<string, string>,
 ): Promise<string> {
   const origin = getAppOrigin();
 
   // Ensure both nodes exist.
   const pageNodeId = await ensurePublicPageNode(session, spaceId, weddingNodeId);
-  const nodeId = await ensureRsvpNode(session, spaceId, weddingNodeId, guestId);
+  const nodeId = await ensureRsvpNode(session, spaceId, weddingNodeId, recipientId);
 
-  // Seed the rsvp node with the guest's initial data (idempotent at server level — last write wins).
-  await seedRsvpNodeContent(
-    session, spaceId, nodeId, guestId,
-    firstName, lastName,
-    companionGuestId, companionFirstName, companionLastName,
-  );
+  await seedRsvpNodeContent(session, spaceId, nodeId, householdId, members, invitationLabels);
 
   // Mint page-read token (read-only).
   const { token: pageToken } = await createNodeInviteLink(
@@ -239,7 +239,7 @@ export async function getGuestInviteLink(
     session,
     spaceId,
     nodeId,
-    guestName,
+    recipientName,
     { enc: false },
     true, // write-capable
     origin,
@@ -249,12 +249,12 @@ export async function getGuestInviteLink(
 }
 
 // ---------------------------------------------------------------------------
-// Owner inbox — apply submissions by guestId
+// Owner inbox — apply household RSVP documents
 // ---------------------------------------------------------------------------
 
 /**
- * Apply a list of v3 RSVP submissions (keyed by guestId) to the guests store.
- * Returns the count of applied updates.
+ * Apply household RSVP documents to the guests store — one update per member who
+ * answered. Returns the count of applied updates.
  *
  * Idempotent w.r.t. local edits: a submission is only applied when it is strictly newer
  * than the guest's current `rsvpDate`. Without this guard, this function re-runs on every
@@ -263,43 +263,20 @@ export async function getGuestInviteLink(
  * with the (now stale) public-page submission — then re-push the reverted value via
  * updateGuest's notifySync(), clobbering the edit on the server too.
  */
-export function applyRsvpSubmissionsByGuestId(submissions: RsvpSubmission[]): number {
+export function applyHouseholdRsvpDocs(docs: HouseholdRsvpDoc[]): number {
   const { guests } = useGuestsStore.getState();
   const updateGuest = useGuestsStore.getState().updateGuest;
   let applied = 0;
 
-  for (const sub of submissions) {
-    if (!sub.guestId || !sub.rsvpStatus || !sub.submittedAt) continue;
-
-    const guest = guests.find((g) => g.id === sub.guestId);
-    if (!guest) continue;
-
-    // Skip a submission that isn't newer than what's already stored — protects a manual
-    // edit (which stamps a fresh rsvpDate) from being reverted by a stale re-apply.
-    if (guest.rsvpDate && sub.submittedAt <= guest.rsvpDate) continue;
-
-    const updates: Record<string, unknown> = {
-      rsvpStatus: sub.rsvpStatus,
-      rsvpDate: sub.submittedAt,
-    };
-    if (sub.diet) updates.diet = sub.diet;
-    if (sub.dietNotes) updates.dietNotes = sub.dietNotes;
-    if (sub.childrenCount != null) updates.childrenCount = sub.childrenCount;
-    updateGuest(guest.id, updates);
-    applied++;
-
-    // Apply companion RSVP (companion ID may come from submission or from the guest's companionId).
-    const companionId = sub.plusOneGuestId ?? guest.companionId ?? null;
-    if (sub.plusOneRsvpStatus && companionId) {
-      const companion = guests.find((g) => g.id === companionId);
-      if (companion && (!companion.rsvpDate || sub.submittedAt > companion.rsvpDate)) {
-        const companionUpdates: Record<string, unknown> = {
-          rsvpStatus: sub.plusOneRsvpStatus,
-          rsvpDate: sub.submittedAt,
-        };
-        if (sub.plusOneDiet) companionUpdates.diet = sub.plusOneDiet;
-        updateGuest(companionId, companionUpdates);
-      }
+  for (const doc of docs) {
+    for (const { guestId, updates, respondedAt } of householdRsvpUpdates(doc)) {
+      const guest = guests.find((g) => g.id === guestId);
+      if (!guest) continue;
+      // Skip a submission that isn't newer than what's already stored — protects a manual
+      // edit (which stamps a fresh rsvpDate) from being reverted by a stale re-apply.
+      if (guest.rsvpDate && respondedAt <= guest.rsvpDate) continue;
+      updateGuest(guestId, updates as Record<string, unknown>);
+      applied++;
     }
   }
 

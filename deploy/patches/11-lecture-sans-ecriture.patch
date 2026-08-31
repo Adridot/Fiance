@@ -1,0 +1,456 @@
+diff --git a/apps/mobile/__tests__/public-page-push.test.ts b/apps/mobile/__tests__/public-page-push.test.ts
+new file mode 100644
+index 0000000..3a3da70
+--- /dev/null
++++ b/apps/mobile/__tests__/public-page-push.test.ts
+@@ -0,0 +1,285 @@
++/**
++ * MODIFICATION LOCALE — la page publique ne se repousse pas pour rien.
++ *
++ * Ce fichier existe à cause d'une boucle mesurée en production le 22 août 2026 :
++ * 120 requêtes/minute, sans personne devant l'écran. `pushPublicPageContent`
++ * écrivait à chaque appel, y compris quand rien n'avait changé ; l'écriture
++ * émettait un événement, l'événement déclenchait une hydratation, et
++ * l'hydratation rappelait la poussée.
++ *
++ * Ce qui est vérifié ici tient en trois points, et le TROISIÈME est celui qui
++ * distingue un correctif d'une illusion de correctif :
++ *
++ *   - un document identique n'écrit pas,
++ *   - un document réellement modifié écrit toujours (sans quoi on aurait éteint
++ *     la fonctionnalité au lieu de la boucle),
++ *   - le `timestamp`, seul à changer, ne suffit PAS à déclencher une écriture —
++ *     et surtout : la deuxième poussée d'une session n'écrit pas non plus, alors
++ *     même que `handle.push` appelle son mutateur avec `cur = null` dans ce cas
++ *     (chemin rapide de `makeHandle`, cache de documents chaud). C'est très
++ *     exactement le trou par lequel une garde naïve ne corrigerait rien.
++ */
++import { describe, it, expect, vi, beforeEach } from "vitest";
++
++vi.mock("react-native", () => ({ Platform: { OS: "web" } }));
++vi.mock("@/lib/premium", () => ({ isPremium: () => false }));
++vi.mock("@/lib/seo-urls", () => ({ BASE_URL: "https://exemple.test" }));
++vi.mock("@/lib/index-lock", () => ({
++  withIndexLock: (_id: string, fn: () => unknown) => fn(),
++}));
++
++// ─── Magasins ────────────────────────────────────────────────────────────────
++// `dayOfItems` est réassigné par référence à chaque « hydratation » simulée,
++// comme le fait `hydrateFromSpace` : c'est la moitié du défaut d'origine.
++let dayOfItems: Record<string, unknown>[] = [];
++let wedding: Record<string, unknown> | null = {
++  partner1Name: "Adrien",
++  partner2Name: "Emma",
++  weddingDate: "2027-06-12",
++  venueName: "Le Domaine",
++  description: null,
++  faq: null,
++};
++
++vi.mock("@/store/useWeddingStore", () => ({
++  useWeddingStore: { getState: () => ({ wedding }) },
++}));
++vi.mock("@/store/usePlanningStore", () => ({
++  usePlanningStore: { getState: () => ({ dayOfItems }) },
++}));
++vi.mock("@/store/useGiftsStore", () => ({
++  useGiftsStore: { getState: () => ({ gifts: [] }) },
++}));
++vi.mock("@/store/useWeddingEventsStore", () => ({
++  useWeddingEventsStore: { getState: () => ({ weddingEvents: [] }) },
++}));
++
++// ─── Le SDK ──────────────────────────────────────────────────────────────────
++// `handle.push` est reproduit dans son comportement qui compte : il rend au
++// mutateur ce que le « serveur » détient, et n'écrit que si le mutateur rend
++// autre chose que `null`.
++const écritures: Record<string, unknown>[] = [];
++/** Le « serveur », PAR NŒUD — un document unique partagé par tous les nœuds
++ *  ferait croire à tort qu'une empreinte fuit de l'un à l'autre. */
++const serveurs = new Map<string, Record<string, unknown>>();
++const NŒUD_PAR_DÉFAUT = "/pull/sp1/pub-w1";
++/** Rejoue le CHEMIN RAPIDE de `makeHandle` : mutateur appelé avec `null`, sans
++ *  relire le serveur. C'est ce que fait le vrai SDK dès que son cache connaît
++ *  le hash du document — et, le cache de pull étant PERSISTÉ, dès la première
++ *  poussée qui suit un rechargement de page. C'est pourquoi le défaut est
++ *  `true` : c'est l'état ordinaire en production, pas un cas de bord. */
++let cheminRapide = true;
++/** Lectures explicites faites par `pushPublicPageContent` (garde 2). */
++const lectures: string[] = [];
++
++const push = vi.fn(
++  async (
++    chemin: string,
++    _pushPath: string,
++    mutateur: (cur: Record<string, unknown> | null) => Record<string, unknown> | null,
++  ) => {
++    const suivant = mutateur(cheminRapide ? null : (serveurs.get(chemin) ?? null));
++    if (suivant === null) return;
++    serveurs.set(chemin, suivant);
++    écritures.push(suivant);
++    cheminRapide = true; // le cache est désormais chaud, comme dans le vrai SDK
++  },
++);
++
++const clientPull = vi.fn(async (chemin: string) => {
++  lectures.push(chemin);
++  const doc = serveurs.get(chemin);
++  return doc ? { data: doc, hash: `h-${chemin}`, timestamp: 1 } : { data: {}, hash: "" };
++});
++
++vi.mock("@fiance/sdk", () => ({
++  getNodeAccess: vi.fn(async () => ({
++    push,
++    encryptor: null,
++    client: { pull: clientPull },
++    isOwnerOpen: true,
++  })),
++  objInvPull: (s: string, n: string) => `/pull/${s}/${n}`,
++  objInvPush: (s: string, n: string) => `/push/${s}/${n}`,
++  updateObjectIndex: vi.fn(),
++  createNodeInviteLink: vi.fn(),
++  encodeNodeInviteLink: vi.fn(),
++  publicPageToNode: vi.fn(),
++}));
++
++import {
++  pushPublicPageContent,
++  empreintePagePublique,
++  oublierEmpreintesPagePublique,
++  buildPublicPageDocument,
++} from "@/lib/public-page";
++
++const session = {} as never;
++
++beforeEach(() => {
++  écritures.length = 0;
++  lectures.length = 0;
++  serveurs.clear();
++  cheminRapide = true;
++  push.mockClear();
++  clientPull.mockClear();
++  oublierEmpreintesPagePublique();
++  dayOfItems = [];
++  wedding = {
++    partner1Name: "Adrien",
++    partner2Name: "Emma",
++    weddingDate: "2027-06-12",
++    venueName: "Le Domaine",
++    description: null,
++    faq: null,
++  };
++});
++
++describe("empreintePagePublique", () => {
++  it("écarte `timestamp` — le seul champ qui change à chaque construction", () => {
++    const a = { version: 2, timestamp: "2026-08-24T09:00:00.000Z", about: { x: 1 } };
++    const b = { version: 2, timestamp: "2026-08-24T09:00:02.000Z", about: { x: 1 } };
++    expect(empreintePagePublique(a)).toBe(empreintePagePublique(b));
++  });
++
++  it("ne dépend pas de l'ordre des clés — le relu du serveur peut différer du construit", () => {
++    expect(empreintePagePublique({ a: 1, b: { c: 2, d: 3 } })).toBe(
++      empreintePagePublique({ b: { d: 3, c: 2 }, a: 1 }),
++    );
++  });
++
++  it("traite `undefined` et absent à l'identique — JSON perd l'un et pas l'autre", () => {
++    expect(empreintePagePublique({ a: 1, gifts: undefined })).toBe(
++      empreintePagePublique({ a: 1 }),
++    );
++  });
++
++  it("distingue un vrai changement", () => {
++    expect(empreintePagePublique({ about: { venueName: "A" } })).not.toBe(
++      empreintePagePublique({ about: { venueName: "B" } })
++    );
++  });
++
++  it("distingue l'ordre d'une liste — le programme public est ordonné", () => {
++    expect(empreintePagePublique({ timeline: [{ id: "a" }, { id: "b" }] })).not.toBe(
++      empreintePagePublique({ timeline: [{ id: "b" }, { id: "a" }] }),
++    );
++  });
++});
++
++describe("pushPublicPageContent", () => {
++  it("écrit la première fois — sans quoi le lien public resterait mort", async () => {
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    expect(écritures).toHaveLength(1);
++  });
++
++  it("n'écrit PAS une seconde fois quand rien n'a changé", async () => {
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    expect(écritures).toHaveLength(1);
++  });
++
++  it("n'OUVRE même pas le nœud au second appel — la boucle coûtait aussi des lectures", async () => {
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    push.mockClear();
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    expect(push).not.toHaveBeenCalled();
++  });
++
++  it("tient alors même que le mutateur ne voit jamais `cur` (chemin rapide du SDK)", async () => {
++    // Le piège : le cache de pull étant persisté, le mutateur ne voit plus
++    // l'état du serveur — y compris au PREMIER appel après un rechargement de
++    // page. Une garde fondée sur le seul `cur` n'aurait rien corrigé.
++    // Ici la relecture explicite (garde 2) referme le trou : on simule un
++    // rechargement en oubliant l'empreinte, le serveur détenant déjà notre
++    // document.
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    expect(écritures).toHaveLength(1);
++    oublierEmpreintesPagePublique(); // rechargement de page
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    expect(écritures).toHaveLength(1); // pas de seconde écriture
++  });
++
++  it("échange l'écriture contre une LECTURE au premier appel d'une page", async () => {
++    // Le reste corrigé par 9.7 : avant, chaque chargement de page réécrivait le
++    // nœud à l'identique. Une lecture n'émet aucun événement, donc ne réamorce
++    // rien — c'est tout l'intérêt de l'échange.
++    serveurs.set(NŒUD_PAR_DÉFAUT, { ...buildPublicPageDocument(), timestamp: "1999-01-01T00:00:00.000Z" });
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    expect(écritures).toHaveLength(0);
++    expect(lectures).toHaveLength(1);
++  });
++
++  it("ne relit pas quand l'empreinte en mémoire suffit — la boucle ne coûte rien", async () => {
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    lectures.length = 0;
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    expect(lectures).toHaveLength(0);
++    expect(push).toHaveBeenCalledTimes(1);
++  });
++
++  it("écrit quand même si la relecture échoue — un réseau coupé ne fait pas taire la publication", async () => {
++    clientPull.mockImplementationOnce(async () => { throw new Error("réseau"); });
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    expect(écritures).toHaveLength(1);
++  });
++
++  it("le temps qui passe seul ne déclenche rien", async () => {
++    const a = buildPublicPageDocument();
++    await new Promise((r) => setTimeout(r, 5));
++    const b = buildPublicPageDocument();
++    expect(a.timestamp).not.toBe(b.timestamp);
++    expect(empreintePagePublique(a)).toBe(empreintePagePublique(b));
++  });
++
++  it("une hydratation qui ne change rien n'écrit rien, même en remplaçant les références", async () => {
++    dayOfItems = [{ id: "d1", title: "Cocktail", time: "18:00", isPublic: true }];
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    expect(écritures).toHaveLength(1);
++
++    // L'hydratation : mêmes données, objets NEUFS — la moitié du défaut d'origine.
++    dayOfItems = [{ id: "d1", title: "Cocktail", time: "18:00", isPublic: true }];
++    wedding = { ...(wedding as Record<string, unknown>) };
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    expect(écritures).toHaveLength(1);
++  });
++
++  it("écrit de nouveau dès qu'une donnée change VRAIMENT", async () => {
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    dayOfItems = [{ id: "d1", title: "Vin d'honneur", time: "18:00", isPublic: true }];
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    expect(écritures).toHaveLength(2);
++  });
++
++  it("retient l'empreinte par nœud, pas globalement", async () => {
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    await pushPublicPageContent(session, "sp2", "pub-w2");
++    expect(écritures).toHaveLength(2);
++  });
++
++  it("n'écrit pas quand le serveur détient déjà l'équivalent au premier appel", async () => {
++    // Cache froid, chemin lent : le serveur rend un document identique au nôtre,
++    // à l'horodatage près. C'est le cas d'un rechargement de page.
++    serveurs.set(NŒUD_PAR_DÉFAUT, { ...buildPublicPageDocument(), timestamp: "1999-01-01T00:00:00.000Z" });
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    expect(écritures).toHaveLength(0);
++  });
++
++  it("après ce constat, l'appel suivant n'écrit pas non plus", async () => {
++    // Sans mémorisation sur la branche « le serveur l'avait déjà », le cache du
++    // SDK serait chaud et l'appel suivant repartirait en écriture : la boucle
++    // reviendrait par ce trou-là.
++    serveurs.set(NŒUD_PAR_DÉFAUT, { ...buildPublicPageDocument(), timestamp: "1999-01-01T00:00:00.000Z" });
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    cheminRapide = true;
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    expect(écritures).toHaveLength(0);
++  });
++
++  it("réessaie après un échec réseau — l'empreinte n'est pas retenue sur exception", async () => {
++    push.mockImplementationOnce(async () => { throw new Error("réseau"); });
++    await expect(pushPublicPageContent(session, "sp1", "pub-w1")).rejects.toThrow("réseau");
++    await pushPublicPageContent(session, "sp1", "pub-w1");
++    expect(écritures).toHaveLength(1);
++  });
++});
+diff --git a/apps/mobile/lib/public-page.ts b/apps/mobile/lib/public-page.ts
+index 76d1c6a..2d1e956 100644
+--- a/apps/mobile/lib/public-page.ts
++++ b/apps/mobile/lib/public-page.ts
+@@ -142,6 +142,90 @@ export async function ensurePublicPageNode(
+ // Owner-side: push page content to objinv
+ // ---------------------------------------------------------------------------
+ 
++// ─── MODIFICATION LOCALE — une poussée qui n'a rien à écrire n'écrit pas ─────
++//
++// Ce nœud-ci était repoussé à CHAQUE hydratation, identique ou non. Seul, le
++// défaut ne coûtait qu'une écriture inutile par retour au premier plan. Avec le
++// flux d'événements (`fiance-sync`), il s'est refermé en BOUCLE : la poussée
++// émet un événement → l'onglet auteur reçoit son propre écho → il hydrate →
++// l'hydratation repousse. 120 requêtes/minute mesurées le 22 août 2026, sans
++// personne devant l'écran.
++//
++// Quatre faits anodins séparément le composaient : l'abonnement de
++// `providers.tsx` compare des RÉFÉRENCES de magasin ; une hydratation les
++// remplace toujours par des objets neufs, identiques ou non ; le mutateur
++// ci-dessous ignorait `cur` ; et `buildPublicPageDocument` réestampille
++// `timestamp` à chaque construction.
++//
++// D'où les deux gardes ci-dessous. Il en faut DEUX, et c'est le point à ne pas
++// défaire par simplification :
++//
++//   1. L'EMPREINTE EN MÉMOIRE, consultée avant même d'ouvrir le nœud. Elle est
++//      seule à tenir dans le cas qui boucle, parce que `handle.push` a un
++//      chemin rapide : quand son cache de documents connaît déjà le hash du
++//      chemin de poussée — c'est-à-dire dès la DEUXIÈME poussée de la session —
++//      il appelle le mutateur avec `cur = null` SANS relire le serveur
++//      (`starfish-spaces`, `makeHandle`). Une garde qui ne regarderait que
++//      `cur` ne verrait donc jamais rien à comparer, et n'éteindrait rien.
++//      C'est le même piège que celui qui oblige `fiance-db` à vider ce cache
++//      avant chaque écriture.
++//   2. LA RELECTURE EXPLICITE, pour le premier appel d'un chargement de page —
++//      là où l'empreinte en mémoire ne sait encore rien. Elle ne peut PAS être
++//      déléguée au mutateur : `makeHandle` interroge d'abord `client.peekCache`,
++//      qui relit un cache PERSISTÉ survivant au rechargement, si bien que le
++//      chemin rapide est pris dès la première poussée d'une page et que `cur`
++//      n'est jamais vu. Mesuré en production le 24 août 2026 : chaque
++//      chargement de page réécrivait le nœud à l'identique.
++//      On relit donc soi-même — `client.pull` ne sert du cache que si on le lui
++//      demande (`staleWhileRevalidate`), ce qu'on ne fait pas. Une LECTURE
++//      remplace ainsi une ÉCRITURE, et une lecture n'émet aucun événement,
++//      donc ne réamorce rien. Pas de `dropPullCache` global à la `fiance-db` :
++//      il jetterait le cache des 352 invités pour vérifier un document.
++//   3. LA COMPARAISON À `cur`, en dernier recours — si la relecture ci-dessus a
++//      échoué (réseau), `handle.push` refait sa propre lecture et le mutateur
++//      voit alors un `cur` réel.
++//
++// `timestamp` est écarté de la comparaison des deux côtés : il change à chaque
++// construction, donc l'inclure ferait conclure « différent » à tous les coups
++// et ramènerait exactement le défaut corrigé ici.
++
++/** Empreinte comparable d'un document de page publique : `timestamp` retiré,
++ *  clés triées à toute profondeur, `undefined` écarté (le passage par JSON les
++ *  perd de toute façon, donc les garder ferait diverger le construit du relu). */
++export function empreintePagePublique(doc: unknown): string {
++  const normaliser = (v: unknown): unknown => {
++    if (Array.isArray(v)) return v.map(normaliser);
++    if (v && typeof v === "object") {
++      const src = v as Record<string, unknown>;
++      const out: Record<string, unknown> = {};
++      for (const k of Object.keys(src).sort()) {
++        if (src[k] === undefined) continue;
++        out[k] = normaliser(src[k]);
++      }
++      return out;
++    }
++    return v;
++  };
++  const sansHorodatage =
++    doc && typeof doc === "object" && !Array.isArray(doc)
++      ? (() => {
++          const { timestamp: _ignoré, ...reste } = doc as Record<string, unknown>;
++          return reste;
++        })()
++      : doc;
++  return JSON.stringify(normaliser(sansHorodatage));
++}
++
++/** Dernière empreinte réellement poussée, par nœud. Volontairement en mémoire :
++ *  la persister ferait taire la poussée d'amorçage après un rechargement, alors
++ *  que c'est elle qui rend le lien public vivant dès la création du mariage. */
++const _dernièreEmpreintePoussée = new Map<string, string>();
++
++/** @internal Pour les tests — l'empreinte retenue est un état de module. */
++export function oublierEmpreintesPagePublique(): void {
++  _dernièreEmpreintePoussée.clear();
++}
++
+ /** Push the current public page content to the `publicPage` ObjectNode's objinv. */
+ export async function pushPublicPageContent(
+   session: Session,
+@@ -149,6 +233,13 @@ export async function pushPublicPageContent(
+   pageNodeId: string,
+ ): Promise<void> {
+   const content = buildPublicPageDocument();
++  const empreinte = empreintePagePublique(content);
++  const clé = `${spaceId}/${pageNodeId}`;
++
++  // Garde 1 — rien n'a changé depuis notre dernière poussée : ni écriture, ni
++  // lecture, ni ouverture du nœud. C'est celle qui éteint la boucle.
++  if (_dernièreEmpreintePoussée.get(clé) === empreinte) return;
++
+   const handle = await getNodeAccess(
+     spaceId,
+     pageNodeId,
+@@ -156,11 +247,54 @@ export async function pushPublicPageContent(
+     session,
+     null,
+   );
++
++  // Garde 2 — relire nous-mêmes ce que le serveur détient. Voir plus haut :
++  // déléguer cette comparaison au mutateur ne marche pas, le chemin rapide de
++  // `handle.push` l'empêchant de jamais voir l'état du serveur.
++  try {
++    const actuel = await handle.client.pull(objInvPull(spaceId, pageNodeId));
++    if (actuel?.hash) {
++      const données = handle.encryptor
++        ? await handle.encryptor.decrypt(actuel.data)
++        : actuel.data;
++      if (empreintePagePublique(données) === empreinte) {
++        _dernièreEmpreintePoussée.set(clé, empreinte);
++        return;
++      }
++    }
++  } catch {
++    // Réseau indisponible ou document absent : on continue, la garde 3 prendra
++    // le relais si `handle.push` parvient, lui, à relire.
++  }
++
++  // Vrai dès que le serveur est établi porteur de ce document — qu'on vienne de
++  // l'écrire, ou qu'on ait constaté qu'il l'avait déjà.
++  let serveurÀJour = false;
+   await handle.push(
+     objInvPull(spaceId, pageNodeId),
+     objInvPush(spaceId, pageNodeId),
+-    () => content as unknown as Record<string, unknown>,
++    (cur) => {
++      // Garde 3 — le serveur détient déjà l'équivalent. `null` demande à
++      // `handle.push` de ne rien écrire (« or null to skip the push »), comme
++      // le fait `ensurePublicPageNode` ci-dessus.
++      if (cur && empreintePagePublique(cur) === empreinte) {
++        serveurÀJour = true;
++        return null;
++      }
++      serveurÀJour = true;
++      return content as unknown as Record<string, unknown>;
++    },
+   );
++  // Retenue APRÈS coup, et seulement si l'appel est allé à son terme : mémoriser
++  // avant ferait taire la ré-poussée qui doit suivre un échec réseau (une
++  // exception ici saute cette ligne, et la tentative suivante repartira).
++  //
++  // La garde 3 compte AUTANT que la poussée elle-même, et c'est nécessaire :
++  // elle a relu le serveur, donc réchauffé le cache de documents (`docKey`
++  // ramène chemins de lecture et d'écriture à la même clé). Sans retenir ici,
++  // l'appel suivant prendrait le chemin rapide, recevrait `cur = null`, et
++  // écrirait — le trou par lequel la boucle serait revenue.
++  if (serveurÀJour) _dernièreEmpreintePoussée.set(clé, empreinte);
+ }
+ 
+ // ---------------------------------------------------------------------------

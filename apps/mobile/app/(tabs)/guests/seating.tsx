@@ -34,7 +34,7 @@ export default function SeatingScreen() {
         eyebrow={t("seatingTitle")}
         title={`${tables.length} / ${tables.reduce((s, tbl) => s + (tbl.capacity ?? 0), 0)}`}
         titleSize={22}
-        right={<Script size={14} color="#c9922f">auto-fit</Script>}
+        right={<Script size={14} color={GP.mustard}>auto-fit</Script>}
       />
 
       {/* Seating plan canvas */}

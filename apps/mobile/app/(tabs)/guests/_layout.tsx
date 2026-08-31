@@ -3,7 +3,7 @@ import { useColorScheme } from "react-native";
 import { View } from "react-native-css/components";
 import { Stack, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { BedDouble, Tag, Mail, FolderOpen, LayoutGrid, Users, UsersRound } from "lucide-react-native";
+import { BedDouble, Tag, Mail, FolderOpen, LayoutGrid, Users, UsersRound, Home } from "lucide-react-native";
 import { useSettingsStore } from "@/store/useSettingsStore";
 import { useGuestsStore } from "@/store/useGuestsStore";
 import { useCanAddMore, FREE_LIMITS } from "@/lib/limits";
@@ -12,6 +12,7 @@ import { toast } from "@/lib/toast/sonner";
 import { StackMenu } from "@/components/StackMenu";
 import { HeaderAddButton } from "@/components/HeaderAddButton";
 import { useIsWideScreen } from "@/lib/useIsWideScreen";
+import { theme as GP } from "@/lib/theme";
 
 export default function InvitesLayout() {
   const { t } = useTranslation("guests");
@@ -38,7 +39,7 @@ export default function InvitesLayout() {
           title: "",
           headerShown: !isWide,
           headerShadowVisible: false,
-          headerStyle: { backgroundColor: isDark ? "#1a1510" : "#f2ece0" },
+          headerStyle: { backgroundColor: isDark ? GP.paperDark : GP.paper },
           headerRight: () => (
             <View className="flex-row items-center">
               <HeaderAddButton
@@ -60,6 +61,11 @@ export default function InvitesLayout() {
                     label: t("groups"),
                     icon: FolderOpen,
                     onPress: () => router.push("/(tabs)/guests/groups"),
+                  },
+                  {
+                    label: t("household.recipientsTitle"),
+                    icon: Home,
+                    onPress: () => router.push("/(tabs)/guests/recipients"),
                   },
                   {
                     label: t("tables"),
@@ -99,6 +105,9 @@ export default function InvitesLayout() {
       />
       <Stack.Screen name="[id]" options={{ title: t("guestDetailScreen") }} />
       <Stack.Screen name="groups" options={{ title: t("groups") }} />
+      <Stack.Screen name="households" options={{ title: t("household.title") }} />
+      <Stack.Screen name="recipients" options={{ title: t("household.recipientsTitle") }} />
+      <Stack.Screen name="household/[id]" options={{ title: t("household.section") }} />
       <Stack.Screen name="table-management" options={{ title: t("tables") }} />
       <Stack.Screen name="tables" options={{ title: t("tablesPlanScreen") }} />
       <Stack.Screen name="accommodations" options={{ title: t("accommodations") }} />

@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
 import { PlusCircle, Link, ArrowLeft, CheckCircle2, ScanLine } from "lucide-react-native";
 import { generatePassphrase, parseSpaceInviteUrl } from "@/lib/identity";
 import { joinWeddingByToken } from "@/lib/join-space";
-import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
+import { useWeddingRegistryStore, SingleWeddingInstanceError } from "@/store/useWeddingRegistryStore";
 import type { SpaceInviteLinkToken } from "@fiance/sdk";
 import { QRScannerScreen } from "@/components/QRScannerScreen";
 import { analytics } from "@/lib/analytics";
@@ -16,10 +16,12 @@ import { Script } from "@/components/Script";
 import { PageHeader } from "@/components/PageHeader";
 import { DateRow } from "@/components/FormSection";
 import { setPendingWeddingSeed, consumePendingWeddingSeed } from "@/lib/pending-wedding-seed";
+import { theme as GP } from "@/lib/theme";
 
 type Mode = "choose" | "create" | "join";
 
 export default function OnboardingScreen() {
+  const { t: tSettings } = useTranslation("settings");
   const [mode, setMode] = useState<Mode>("choose");
   const [inviteToken, setInviteToken] = useState<SpaceInviteLinkToken | null>(null);
   const createWedding = useWeddingRegistryStore((s) => s.createWedding);
@@ -57,6 +59,13 @@ export default function OnboardingScreen() {
             await createWedding(label, passphrase);
           } catch (e) {
             consumePendingWeddingSeed(); // discard the stale seed on failure
+            // MODIFICATION LOCALE — instance à mariage unique. Cet écran reste
+            // atteignable par URL directe même quand un mariage existe ; le
+            // verrou du store le bloque, mais son message est un code technique.
+            // CreateWeddingForm affiche e.message tel quel, d'où la traduction ici.
+            if (e instanceof SingleWeddingInstanceError) {
+              throw new Error(tSettings("singleWeddingInstanceHint"));
+            }
             throw e;
           }
           analytics.capture("wedding_created", { method: "new" });
@@ -116,7 +125,7 @@ function ChooseMode({ onSelect }: { onSelect: (m: Mode) => void }) {
           className="bg-accent-card rounded-2xl py-4 items-center border border-hair active:opacity-80"
         >
           <View className="flex-row items-center">
-            <Link size={20} color="#b96a4a" />
+            <Link size={20} color={GP.clay} />
             <Text className="text-ink font-semibold text-base ml-2">
               {t("onboarding.joinWedding")}
             </Text>

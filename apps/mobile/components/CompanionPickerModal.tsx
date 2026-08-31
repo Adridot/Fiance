@@ -5,6 +5,8 @@ import { Search, Check } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { useGuestsStore } from "@/store/useGuestsStore";
 import { Sheet } from "@fiance/ui/components";
+import { formatGuestName, guestNameMatches } from "@fiance/sdk";
+import { theme as GP } from "@/lib/theme";
 
 interface CompanionPickerModalProps {
   visible: boolean;
@@ -40,11 +42,9 @@ export function CompanionPickerModal({
     if (!search.trim()) return others.sort((a, b) => a.lastName.localeCompare(b.lastName));
     const q = search.toLowerCase();
     return others
-      .filter(
-        (g) =>
-          g.firstName.toLowerCase().includes(q) ||
-          g.lastName.toLowerCase().includes(q)
-      )
+      // MODIFICATION LOCALE — cherche le nom composé, particule comprise.
+      // Le tri, lui, reste sur le nom NU : la particule en est exclue.
+      .filter((g) => guestNameMatches(g, q))
       .sort((a, b) => a.lastName.localeCompare(b.lastName));
   }, [guests, currentGuestId, search]);
 
@@ -101,9 +101,10 @@ export function CompanionPickerModal({
                 </Text>
               </View>
               <Text className="flex-1 text-base text-ink">
-                {g.firstName} {g.lastName}
+                {/* MODIFICATION LOCALE — nom composé, particule comprise. */}
+                {formatGuestName(g)}
               </Text>
-              {selected === g.id && <Check size={18} color="#EC4899" />}
+              {selected === g.id && <Check size={18} color={GP.clay} />}
             </Pressable>
           ))}
           {filteredGuests.length === 0 && (

@@ -13,6 +13,7 @@ import { purchasePremium, restorePremium, getPremiumPrice, redeemCode } from "@/
 import { useIsPremium } from "@/lib/premium";
 import { usePermissions } from "@/lib/permissions/usePermissions";
 import { analytics } from "@/lib/analytics";
+import { theme as GP } from "@/lib/theme";
 
 type PurchaseState = "idle" | "loading" | "unlocking" | "success" | "error";
 
@@ -109,7 +110,7 @@ export default function PremiumScreen() {
           </View>
           {premium && (
             <View style={{ position: "absolute", top: -12, left: 14 }}>
-              <Seal label="✓" sublabel={t("premiumUnlocked").toLowerCase().split(" ")[0]} color="#6e7a4a" size={42} angle={-8} />
+              <Seal label="✓" sublabel={t("premiumUnlocked").toLowerCase().split(" ")[0]} color={GP.olive} size={42} angle={-8} />
             </View>
           )}
           <PageHeader
@@ -132,7 +133,7 @@ export default function PremiumScreen() {
               className={`flex-row items-center px-4 py-4 gap-3${i < BENEFITS.length - 1 ? " border-b border-hair" : ""}`}
             >
               <View className="w-9 h-9 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center">
-                <Icon size={18} color="#b96a4a" />
+                <Icon size={18} color={GP.clay} />
               </View>
               <Text className="flex-1 text-sm font-medium text-ink">
                 {t(key)}

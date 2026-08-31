@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { FileSpreadsheet, Globe } from "lucide-react-native";
 import { SectionTitle, FormCard } from "@/components/FormSection";
 import { SettingsRow } from "@/components/SettingsRow";
+import { theme as GP } from "@/lib/theme";
 
 export default function ImportExternalScreen() {
   const { t } = useTranslation("settings");
@@ -25,7 +26,7 @@ export default function ImportExternalScreen() {
             onPress={() => router.push("/settings/import-file?source=file")}
           />
           <SettingsRow
-            icon={<Globe size={18} color="#b96a4a" />}
+            icon={<Globe size={18} color={GP.clay} />}
             label={t("importSourceMariagesNet")}
             sublabel={t("importSourceMariagesNetDesc")}
             onPress={() => router.push("/settings/import-file?source=mariagesnet")}

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { ScrollView, View, Pressable } from "react-native";
 import { useTranslation } from "react-i18next";
 import * as Crypto from "expo-crypto";
@@ -20,6 +20,16 @@ import { Chip } from "@/components/Chip";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { RenameSheet } from "@/components/RenameSheet";
 import { theme } from "@/lib/theme";
+// MODIFICATION LOCALE — réémettre un lien depuis la fiche d'un collaborateur.
+import { FicheCollaborateur } from "@/components/FicheCollaborateur";
+import { InviteQRSheet } from "@/components/InviteQRSheet";
+import { createInviteLink } from "@/lib/invite-link";
+import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
+import {
+  affectationsARereferencer,
+  regrouperLesCollaborateurs,
+  type Collaborateur,
+} from "@/lib/collaborateurs";
 
 type Level = "none" | PermissionAction;
 const LEVELS: Level[] = ["none", "view", "edit"];
@@ -58,7 +68,20 @@ export default function RolesScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [deleteRoleId, setDeleteRoleId] = useState<string | null>(null);
-  const [removeAssignmentId, setRemoveAssignmentId] = useState<string | null>(null);
+  // MODIFICATION LOCALE — l'avancement du rescellement pendant une révocation.
+  const [rescellement, setRescellement] = useState<{ fait: number; total: number } | null>(null);
+  // MODIFICATION LOCALE — réémission et révocation PAR LIEN.
+  const [reemission, setReemission] = useState<{ nom: string; roleId: string } | null>(null);
+  const [revocation, setRevocation] = useState<
+    { assignmentId: string; subjectUserId: string; dernier: boolean } | null
+  >(null);
+  const upsertAssignment = usePermissionsStore((s) => s.upsertAssignment);
+  const registry = useWeddingRegistryStore((s) => s.registry);
+  const activeEntry = registry?.weddings.find((w) => w.id === registry.activeWeddingId) ?? null;
+
+  // Une fiche par personne : les liens successifs d'une même personne ne sont
+  // pas des collaborateurs différents.
+  const collaborateurs = useMemo(() => regrouperLesCollaborateurs(assignments), [assignments]);
 
   const roleLabel = useCallback(
     (r: RoleDefinition) => (r.isSystem ? t(r.name) : r.name),
@@ -69,6 +92,35 @@ export default function RolesScreen() {
     [t],
   );
   const roleTone = (r: RoleDefinition) => (r.isSystem ? theme.olive : theme.clay);
+
+  const rolesProposables = useMemo(
+    () => roles.map((r) => ({ id: r.id, label: roleLabel(r) })),
+    [roles, roleLabel],
+  );
+
+  /**
+   * Le rôle appartient à la PERSONNE, pas au lien.
+   *
+   * Une personne peut détenir plusieurs liens, donc plusieurs affectations.
+   * N'en changer qu'une ferait diverger ses appareils — l'un gardant l'ancien
+   * rôle indéfiniment. Chaque `upsertAssignment` appelle `notifySync`, qui est
+   * débouncée : les N écritures se résolvent en UNE poussée.
+   */
+  const changerLeRoleDuGroupe = useCallback(
+    (groupe: Collaborateur, roleId: string) => {
+      const maintenant = new Date().toISOString();
+      for (const a of affectationsARereferencer(groupe, roleId, maintenant)) {
+        const source = assignments.find((x) => x.id === a.id);
+        if (source) upsertAssignment({ ...source, roleId, updatedAt: maintenant });
+      }
+    },
+    [assignments, upsertAssignment],
+  );
+
+  const regenerer = useCallback(
+    (roleId?: string, name?: string) => createInviteLink(activeEntry!, roleId, name),
+    [activeEntry],
+  );
 
   const roleSummary = useCallback(
     (r: RoleDefinition) => {
@@ -302,7 +354,7 @@ export default function RolesScreen() {
 
       <View style={{ height: 28 }} />
       <Label color={theme.clay} style={{ marginBottom: 10 }}>{t("collaboratorsSectionTitle")}</Label>
-      {assignments.length === 0 ? (
+      {collaborateurs.length === 0 ? (
         <View
           style={{
             backgroundColor: theme.card,
@@ -319,37 +371,20 @@ export default function RolesScreen() {
         </View>
       ) : (
         <View style={{ gap: 10 }}>
-          {assignments.map((a) => {
-            const role = roles.find((r) => r.id === a.roleId);
-            const name = a.label ?? (role ? roleLabel(role) : t("unknownRole"));
+          {collaborateurs.map((c) => {
+            const role = roles.find((r) => r.id === c.roleId);
             return (
-              <View
-                key={a.id}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 14,
-                  backgroundColor: theme.card,
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: theme.hair,
-                  paddingHorizontal: 14,
-                  paddingVertical: 14,
-                }}
-              >
-                <Monogram label={name} tone={theme.mustard} />
-                <View style={{ flex: 1 }}>
-                  <Display size={16} weight="500" color={theme.ink} numberOfLines={1}>
-                    {name}
-                  </Display>
-                  <Display size={12.5} color={theme.mute} numberOfLines={1} style={{ marginTop: 1 }}>
-                    {role ? roleLabel(role) : t("unknownRole")}
-                  </Display>
-                </View>
-                <Pressable onPress={() => setRemoveAssignmentId(a.id)} hitSlop={8}>
-                  <Trash2 size={17} color={theme.clay} />
-                </Pressable>
-              </View>
+              <FicheCollaborateur
+                key={c.cle}
+                collaborateur={c}
+                roleLabel={role ? roleLabel(role) : t("unknownRole")}
+                roles={rolesProposables}
+                onRegenerer={() => setReemission({ nom: c.nom ?? "", roleId: c.roleId })}
+                onChangerDeRole={(roleId) => changerLeRoleDuGroupe(c, roleId)}
+                onRevoquerLien={(assignmentId, subjectUserId, dernier) =>
+                  setRevocation({ assignmentId, subjectUserId, dernier })
+                }
+              />
             );
           })}
         </View>
@@ -367,29 +402,60 @@ export default function RolesScreen() {
         onCancel={() => setShowCreate(false)}
       />
 
+      {rescellement && (
+        <View
+          className="mx-4 mb-3 rounded-xl px-3 py-2 items-center"
+          style={{ backgroundColor: theme.claySoft }}
+        >
+          <Label color={theme.clay}>{t("rescellementEnCours", rescellement)}</Label>
+        </View>
+      )}
+
       <ConfirmSheet
-        visible={!!removeAssignmentId}
-        title={t("removeCollaboratorTitle")}
-        message={t("removeCollaboratorMsg")}
-        confirmLabel={t("removeCollaborator")}
+        visible={!!revocation}
+        title={t("revoquerCeLienTitre")}
+        message={revocation?.dernier ? t("revoquerDernierLienMsg") : t("revoquerCeLienMsg")}
+        confirmLabel={t("revoquerCeLien")}
         destructive
         onConfirm={() => {
-          const id = removeAssignmentId;
-          setRemoveAssignmentId(null);
+          const id = revocation?.assignmentId ?? null;
+          setRevocation(null);
           if (!id) return;
           const assignment = assignments.find((a) => a.id === id);
           if (!assignment) {
             removeAssignment(id);
             return;
           }
-          // Real eviction (keyring rotation + roster drop); falls back to a roster-only drop.
-          revokeCollaborator(assignment.subjectUserId, assignment.id).catch((err) => {
-            console.error("[roles] revokeCollaborator failed", err);
-            removeAssignment(id);
-            toast.error(t("collaboratorRemoveError"));
-          });
+          // MODIFICATION LOCALE — l'éviction n'est accomplie qu'une fois le
+          // contenu rescellé, et cela n'est plus instantané : on montre la
+          // progression, et une révocation incomplète se dit.
+          setRescellement({ fait: 0, total: 0 });
+          revokeCollaborator(assignment.subjectUserId, assignment.id, {
+            onAvancement: ({ fait, total }) => setRescellement({ fait, total }),
+          })
+            .then((résultat) => {
+              if (résultat.evicted) toast.success(t("revocationAccomplie"));
+              else if (résultat.aResceller?.length) {
+                toast.error(t("revocationIncomplete", { restant: résultat.aResceller.join(", ") }));
+              } else toast.error(t("collaboratorRemoveError"));
+            })
+            .catch((err) => {
+              console.error("[roles] revokeCollaborator failed", err);
+              removeAssignment(id);
+              toast.error(t("collaboratorRemoveError"));
+            })
+            .finally(() => setRescellement(null));
         }}
-        onCancel={() => setRemoveAssignmentId(null)}
+        onCancel={() => setRevocation(null)}
+      />
+
+      {/* La feuille de réémission : nom et rôle déjà remplis, elle génère seule. */}
+      <InviteQRSheet
+        visible={!!reemission}
+        onClose={() => setReemission(null)}
+        generate={regenerer}
+        initialName={reemission?.nom}
+        initialRoleId={reemission?.roleId}
       />
     </ScrollView>
   );

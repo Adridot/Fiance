@@ -190,11 +190,20 @@ export const RSVP_STATUS_LABELS: Record<RsvpStatus, string> = {
   MAYBE: "guests:rsvp.MAYBE",
 };
 
+// MODIFICATION LOCALE — couleurs de la palette du mariage, RECOPIÉES à la main.
+// Ce module est du domaine pur : il ne doit pas dépendre de la couche
+// d'interface, donc il ne peut pas lire `@fiance/ui/garden-theme`. Chaque
+// littéral porte le nom du jeton dont il est la copie.
+//
+// L'acceptation reste VERTE et le refus ROUGE : ce sont les deux états qui
+// doivent le moins se confondre, et c'est pour cela que le rose de la palette
+// (Wild Strawberry) n'a pas pris le rôle de confirmation — un refus rouge et
+// une confirmation rose sont deux couleurs voisines.
 export const RSVP_STATUS_COLORS: Record<RsvpStatus, string> = {
-  PENDING:  "#c9922f", // mustard
-  ACCEPTED: "#6e7a4a", // olive
-  DECLINED: "#EF4444",
-  MAYBE:    "#6b8aa3", // GP blue
+  PENDING:  "#85610b", // GP.mustard — attention
+  ACCEPTED: "#0a6b53", // GP.olive — confirmation (vert)
+  DECLINED: "#EF4444", // rouge, inchangé
+  MAYBE:    "#0e6a7a", // GP.blue — information
 };
 
 export const VENDOR_STATUS_LABELS: Record<VendorStatus, string> = {
@@ -206,11 +215,11 @@ export const VENDOR_STATUS_LABELS: Record<VendorStatus, string> = {
 };
 
 export const VENDOR_STATUS_COLORS: Record<VendorStatus, string> = {
-  PROSPECT:       "#8a8373", // mute
-  QUOTE_RECEIVED: "#6b8aa3", // GP blue
-  NEGOTIATING:    "#c9922f", // mustard
-  BOOKED:         "#6e7a4a", // olive
-  CANCELLED:      "#EF4444",
+  PROSPECT:       "#616f6a", // GP.mute
+  QUOTE_RECEIVED: "#0e6a7a", // GP.blue — information
+  NEGOTIATING:    "#85610b", // GP.mustard — attention
+  BOOKED:         "#0a6b53", // GP.olive — confirmation (vert)
+  CANCELLED:      "#EF4444", // rouge, inchangé
 };
 
 export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
@@ -226,10 +235,10 @@ export const PRIORITY_LABELS: Record<Priority, string> = {
 };
 
 export const PRIORITY_COLORS: Record<Priority, string> = {
-  LOW:      "#8a8373", // mute
-  MEDIUM:   "#6b8aa3", // GP blue
-  HIGH:     "#c9922f", // mustard
-  CRITICAL: "#EF4444",
+  LOW:      "#616f6a", // GP.mute
+  MEDIUM:   "#0e6a7a", // GP.blue — information
+  HIGH:     "#85610b", // GP.mustard — attention
+  CRITICAL: "#EF4444", // rouge, inchangé
 };
 
 export const DIET_LABELS: Record<Diet, string> = {

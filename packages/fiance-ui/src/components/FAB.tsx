@@ -2,6 +2,7 @@ import React from "react";
 import { Pressable } from "react-native";
 import { Plus } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
+import { theme as GP } from "../garden-theme";
 
 interface FABProps {
   onPress: () => void;
@@ -19,11 +20,15 @@ export function FAB({ onPress, icon: Icon = Plus }: FABProps) {
         width: 56,
         height: 56,
         borderRadius: 28,
-        backgroundColor: pressed ? "#a55c3e" : "#b96a4a",
+        // GP.olive est le primaire assombri : c'est l'état enfoncé du bouton,
+        // pas le vert de confirmation. Il remplace un littéral brun dérivé de
+        // l'ancien primaire, qui serait resté brun sous un bouton devenu vert
+        // sans lever la moindre erreur.
+        backgroundColor: pressed ? GP.olive : GP.clay,
         alignItems: "center",
         justifyContent: "center",
         elevation: 6,
-        shadowColor: "#b96a4a",
+        shadowColor: GP.clay,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.35,
         shadowRadius: 10,

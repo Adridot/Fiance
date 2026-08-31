@@ -37,6 +37,7 @@ import { PaywallSheet } from "@/components/PaywallSheet";
 import { useHasFeature, useCanAddMore, FREE_LIMITS } from "@/lib/limits";
 import { toast } from "@/lib/toast/sonner";
 import type { Vendor, VendorPayment } from "@/db/schema";
+import { theme as GP } from "@/lib/theme";
 
 const STATUS_OPTIONS: VendorStatus[] = [
   "PROSPECT",
@@ -213,7 +214,7 @@ export default function VendorDetailScreen() {
                   style={{ paddingHorizontal: 0, paddingTop: 0 }}
                 />
                 {status === "BOOKED" && (
-                  <Seal label="✓" sublabel={t("status.BOOKED").toLowerCase()} color="#6e7a4a" size={42} angle={-6} style={{ position: "absolute", top: -12, right: 8 }} />
+                  <Seal label="✓" sublabel={t("status.BOOKED").toLowerCase()} color={GP.olive} size={42} angle={-6} style={{ position: "absolute", top: -12, right: 8 }} />
                 )}
               </View>
             )}
@@ -452,7 +453,7 @@ function PaymentsTab({ vendorId }: { vendorId: string }) {
       {/* Total */}
       <View className="bg-primary-50 dark:bg-primary-950 rounded-2xl p-4 mb-3 flex-row items-center justify-between border border-primary-100 dark:border-primary-900">
         <Text className="text-sm font-medium text-mute">{t("totalPaid")}</Text>
-        <Display size={22} weight="500" color="#b96a4a">{totalPaid.toFixed(2)} €</Display>
+        <Display size={22} weight="500" color={GP.clay}>{totalPaid.toFixed(2)} €</Display>
       </View>
 
       {/* Payments list */}
@@ -592,7 +593,7 @@ function DocumentsTab({ vendorId }: { vendorId: string }) {
         const available = isDocumentAvailableOnDevice(doc.localUri);
         return (
           <View key={doc.id} className="bg-accent-card rounded-xl p-3.5 mb-2 border border-hair flex-row items-center">
-            <FileText size={18} color="#b96a4a" style={{ marginRight: 10 }} />
+            <FileText size={18} color={GP.clay} style={{ marginRight: 10 }} />
             <View className="flex-1">
               <Text className="text-base font-semibold text-ink" numberOfLines={1}>{doc.label}</Text>
               <Text className="text-xs text-mute mt-0.5">{doc.fileName}</Text>
@@ -621,7 +622,7 @@ function DocumentsTab({ vendorId }: { vendorId: string }) {
           onPress={handlePick}
           className="bg-primary-50 dark:bg-primary-950 rounded-xl py-3 flex-row items-center justify-center gap-2 border border-primary-200 dark:border-primary-800 active:opacity-80 mt-1"
         >
-          <Upload size={15} color="#b96a4a" />
+          <Upload size={15} color={GP.clay} />
           <Text className="text-sm font-semibold text-primary-500">{t("addDocument")}</Text>
         </Pressable>
       )}
@@ -712,7 +713,7 @@ function CustomFieldRenderer({
               className="flex-row items-center py-2"
             >
               {isChecked ? (
-                <CheckSquare size={20} color="#b96a4a" />
+                <CheckSquare size={20} color={GP.clay} />
               ) : (
                 <Square size={20} color="#D1D5DB" />
               )}

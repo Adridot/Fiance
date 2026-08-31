@@ -3,6 +3,8 @@ import type { SQLiteStorage } from "expo-sqlite/kv-store";
 import { View, Text, ActivityIndicator } from "react-native-css/components";
 import { initStorage, getStorage, closeStorage } from "@/lib/kv-storage";
 import { hydrateAllStores, clearAllStores } from "@/lib/persistence";
+// MODIFICATION LOCALE — marques de temps du démarrage.
+import { marquer } from "@/lib/demarrage-marques";
 import { WeddingSwitchOverlay } from "@/components/WeddingSwitchOverlay";
 // ─── Global storage singleton (accessible outside React) ─────────────────────
 
@@ -77,6 +79,9 @@ export function DatabaseProvider({ children, dbFileName }: DatabaseProviderProps
         if (!kv) throw new Error(`Failed to open storage: ${dbFileName}`);
 
         hydrateAllStores(kv);
+        // MODIFICATION LOCALE — les magasins sont remplis ; tout ce qui suit
+        // n'est plus de la donnée mais du rendu.
+        if (!isSwitch) marquer("magasins hydratés");
 
         // Keep the switch screen up for a short floor so the enter/exit
         // animation has room to play instead of flashing for a single frame.

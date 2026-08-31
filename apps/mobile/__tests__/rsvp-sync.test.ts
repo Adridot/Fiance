@@ -1,7 +1,7 @@
 /**
  * Tests for lib/rsvp-sync.ts — v3 starfish-spaces implementation.
  *
- * Tests focus on the pure helpers (rsvpNodeId, applyRsvpSubmissionsByGuestId)
+ * Tests focus on the pure helpers (rsvpNodeId, applyHouseholdRsvpDocs)
  * that don't require a live session.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -36,9 +36,14 @@ vi.mock("@/store/useGuestsStore", () => ({
   useGuestsStore: {
     getState: () => ({
       guests: mockGuests,
+      households: [],
       updateGuest: mockUpdateGuest,
     }),
   },
+}));
+
+vi.mock("@/store/useInvitationTypesStore", () => ({
+  useInvitationTypesStore: { getState: () => ({ invitationTypes: [] }) },
 }));
 
 vi.mock("react-native", () => ({
@@ -51,285 +56,218 @@ vi.mock("@/lib/public-page", () => ({
   ensurePublicPageNode: vi.fn().mockResolvedValue("pub-w1"),
 }));
 
-vi.mock("@fiance/sdk", () => ({
-  updateObjectIndex: vi.fn().mockResolvedValue(undefined),
-  getNodeAccess: vi.fn(),
-  objInvPush: vi.fn().mockReturnValue("/objinv/path"),
-  createNodeInviteLink: vi.fn().mockResolvedValue({ token: {}, link: "" }),
-  rsvpToNode: vi.fn().mockReturnValue({ id: "rsvp-g1", type: "rsvp", parentId: "pub-w1", title: "", access: "invite", enc: false, contentKind: "merge" }),
-}));
+// The pure household-document helpers come from the real SDK: stubbing them out
+// would leave these tests asserting nothing.
+vi.mock("@fiance/sdk", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@fiance/sdk")>();
+  return {
+    ...actual,
+    updateObjectIndex: vi.fn().mockResolvedValue(undefined),
+    getNodeAccess: vi.fn(),
+    objInvPush: vi.fn().mockReturnValue("/objinv/path"),
+    objInvPull: vi.fn().mockReturnValue("/objinv/path"),
+    createNodeInviteLink: vi.fn().mockResolvedValue({ token: {}, link: "" }),
+    rsvpToNode: vi.fn().mockReturnValue({ id: "rsvp-g1", type: "rsvp", parentId: "pub-w1", title: "", access: "invite", enc: false, contentKind: "merge" }),
+  };
+});
 
 vi.mock("@/lib/guest-link", () => ({
   encodeGuestLink: vi.fn().mockReturnValue("https://example.com/wedding/combined-token"),
 }));
 
-import { rsvpNodeId, applyRsvpSubmissionsByGuestId, type RsvpSubmission } from "@/lib/rsvp-sync";
+import { rsvpNodeId, applyHouseholdRsvpDocs, type HouseholdRsvpDoc } from "@/lib/rsvp-sync";
+
+const doc = (
+  members: Array<{
+    guestId: string;
+    rsvpStatus: string | null;
+    diet?: string | null;
+    dietNotes?: string | null;
+    respondedAt?: string | null;
+  }>,
+  householdId: string | null = "h1",
+): HouseholdRsvpDoc =>
+  ({
+    version: 2,
+    householdId,
+    members: members.map((m) => ({
+      firstName: "",
+      lastName: "",
+      invitationType: null,
+      diet: null,
+      ...m,
+    })),
+    submittedAt: members.find((m) => m.respondedAt)?.respondedAt ?? null,
+  }) as HouseholdRsvpDoc;
 
 // ─── rsvpNodeId ──────────────────────────────────────────────────────────────
 
 describe("rsvpNodeId", () => {
-  it("derives node id from guest id", () => {
+  it("prefixes the RECIPIENT id — household or guest alike", () => {
     expect(rsvpNodeId("g1")).toBe("rsvp-g1");
     expect(rsvpNodeId("abc-123")).toBe("rsvp-abc-123");
+    expect(rsvpNodeId("h-fontaines")).toBe("rsvp-h-fontaines");
   });
 });
 
-// ─── applyRsvpSubmissionsByGuestId ───────────────────────────────────────────
+// ─── applyHouseholdRsvpDocs ──────────────────────────────────────────────────
 
-describe("applyRsvpSubmissionsByGuestId", () => {
+describe("applyHouseholdRsvpDocs", () => {
   beforeEach(() => {
     mockUpdateGuest.mockClear();
-    // Reset rsvpStatus/rsvpDate on guests
-    mockGuests[0].rsvpStatus = null;
-    mockGuests[1].rsvpStatus = null;
-    mockGuests[0].rsvpDate = null;
-    mockGuests[1].rsvpDate = null;
-    mockGuests[0].companionId = null;
+    for (const g of mockGuests) {
+      g.rsvpStatus = null;
+      g.rsvpDate = null;
+      g.diet = "STANDARD";
+      g.companionId = null;
+    }
   });
 
-  it("returns 0 for empty submissions", () => {
-    expect(applyRsvpSubmissionsByGuestId([])).toBe(0);
+  it("applies nothing without a document", () => {
+    expect(applyHouseholdRsvpDocs([])).toBe(0);
   });
 
-  it("skips submissions with null rsvpStatus", () => {
-    const subs: RsvpSubmission[] = [{
-      guestId: "g1",
-      rsvpStatus: null,
-      submittedAt: null,
-    }];
-    expect(applyRsvpSubmissionsByGuestId(subs)).toBe(0);
+  it("ignores a member unknown to the guest list", () => {
+    const n = applyHouseholdRsvpDocs([
+      doc([{ guestId: "unknown", rsvpStatus: "ACCEPTED", respondedAt: "2026-09-01T10:00:00Z" }]),
+    ]);
+    expect(n).toBe(0);
     expect(mockUpdateGuest).not.toHaveBeenCalled();
   });
 
-  it("applies a matching submission by guestId and returns count", () => {
-    const subs: RsvpSubmission[] = [{
-      guestId: "g1",
-      rsvpStatus: "ACCEPTED",
-      submittedAt: "2026-04-08T10:00:00.000Z",
-    }];
-    const count = applyRsvpSubmissionsByGuestId(subs);
-    expect(count).toBe(1);
-    expect(mockUpdateGuest).toHaveBeenCalledWith("g1", expect.objectContaining({
-      rsvpStatus: "ACCEPTED",
-      rsvpDate: "2026-04-08T10:00:00.000Z",
-    }));
-  });
-
-  it("applies diet when provided", () => {
-    const subs: RsvpSubmission[] = [{
-      guestId: "g1",
-      rsvpStatus: "ACCEPTED",
-      diet: "VEGETARIAN",
-      submittedAt: "2026-04-08T10:00:00.000Z",
-    }];
-    applyRsvpSubmissionsByGuestId(subs);
-    expect(mockUpdateGuest).toHaveBeenCalledWith("g1", expect.objectContaining({
-      diet: "VEGETARIAN",
-    }));
-  });
-
-  it("skips unknown guestId", () => {
-    const subs: RsvpSubmission[] = [{
-      guestId: "unknown-id",
-      rsvpStatus: "ACCEPTED",
-      submittedAt: "2026-04-08T10:00:00.000Z",
-    }];
-    const count = applyRsvpSubmissionsByGuestId(subs);
-    expect(count).toBe(0);
+  it("ignores a member with no answer or no timestamp", () => {
+    expect(
+      applyHouseholdRsvpDocs([
+        doc([
+          { guestId: "g1", rsvpStatus: null, respondedAt: "2026-09-01T10:00:00Z" },
+          { guestId: "g2", rsvpStatus: "ACCEPTED", respondedAt: null },
+        ]),
+      ]),
+    ).toBe(0);
     expect(mockUpdateGuest).not.toHaveBeenCalled();
   });
 
-  it("processes multiple submissions independently", () => {
-    const subs: RsvpSubmission[] = [
-      { guestId: "g1", rsvpStatus: "ACCEPTED", submittedAt: "2026-04-08T10:00:00.000Z" },
-      { guestId: "unknown", rsvpStatus: "DECLINED", submittedAt: "2026-04-08T11:00:00.000Z" },
-    ];
-    const count = applyRsvpSubmissionsByGuestId(subs);
-    expect(count).toBe(1);
+  it("applies a member's answer and diet", () => {
+    const n = applyHouseholdRsvpDocs([
+      doc([
+        {
+          guestId: "g1",
+          rsvpStatus: "ACCEPTED",
+          diet: "VEGETARIAN",
+          dietNotes: "no nuts",
+          respondedAt: "2026-09-01T10:00:00Z",
+        },
+      ]),
+    ]);
+    expect(n).toBe(1);
+    expect(mockUpdateGuest).toHaveBeenCalledWith("g1", {
+      rsvpStatus: "ACCEPTED",
+      rsvpDate: "2026-09-01T10:00:00Z",
+      diet: "VEGETARIAN",
+      dietNotes: "no nuts",
+    });
+  });
+
+  it("a household accepts for one and declines for the other, in ONE document", () => {
+    const n = applyHouseholdRsvpDocs([
+      doc([
+        { guestId: "g1", rsvpStatus: "ACCEPTED", respondedAt: "2026-09-01T10:00:00Z" },
+        { guestId: "g2", rsvpStatus: "DECLINED", respondedAt: "2026-09-01T10:00:00Z" },
+      ]),
+    ]);
+    expect(n).toBe(2);
+    expect(mockUpdateGuest).toHaveBeenCalledWith("g1", expect.objectContaining({ rsvpStatus: "ACCEPTED" }));
+    expect(mockUpdateGuest).toHaveBeenCalledWith("g2", expect.objectContaining({ rsvpStatus: "DECLINED" }));
+  });
+
+  it("a SILENT member is not updated, hence not treated as having declined", () => {
+    const n = applyHouseholdRsvpDocs([
+      doc([
+        { guestId: "g1", rsvpStatus: "ACCEPTED", respondedAt: "2026-09-01T10:00:00Z" },
+        // Seeded from the guest record — pending, never answered.
+        { guestId: "g2", rsvpStatus: "PENDING", respondedAt: null },
+      ]),
+    ]);
+    expect(n).toBe(1);
     expect(mockUpdateGuest).toHaveBeenCalledTimes(1);
+    expect(mockUpdateGuest).not.toHaveBeenCalledWith("g2", expect.anything());
   });
 
-  it("applies plusOneRsvpStatus to companion via plusOneGuestId", () => {
-    const subs: RsvpSubmission[] = [{
-      guestId: "g1",
-      rsvpStatus: "ACCEPTED",
-      plusOneGuestId: "g2",
-      plusOneRsvpStatus: "DECLINED",
-      plusOneDiet: "VEGAN",
-      submittedAt: "2026-04-08T10:00:00.000Z",
-    }];
-    applyRsvpSubmissionsByGuestId(subs);
-    expect(mockUpdateGuest).toHaveBeenCalledWith("g2", expect.objectContaining({
-      rsvpStatus: "DECLINED",
-      diet: "VEGAN",
-    }));
-  });
-
-  it("falls back to guest.companionId when plusOneGuestId absent", () => {
-    mockGuests[0].companionId = "g2";
-    const subs: RsvpSubmission[] = [{
-      guestId: "g1",
-      rsvpStatus: "ACCEPTED",
-      plusOneRsvpStatus: "ACCEPTED",
-      submittedAt: "2026-04-08T10:00:00.000Z",
-    }];
-    applyRsvpSubmissionsByGuestId(subs);
-    expect(mockUpdateGuest).toHaveBeenCalledWith("g2", expect.objectContaining({
-      rsvpStatus: "ACCEPTED",
-    }));
+  it("applies several household documents in a single pass", () => {
+    const n = applyHouseholdRsvpDocs([
+      doc([{ guestId: "g1", rsvpStatus: "ACCEPTED", respondedAt: "2026-09-01T10:00:00Z" }], "h1"),
+      doc([{ guestId: "g2", rsvpStatus: "DECLINED", respondedAt: "2026-09-01T11:00:00Z" }], null),
+    ]);
+    expect(n).toBe(2);
   });
 });
 
 // ─── Bug A regression: idempotent re-apply — a manual edit must not be reverted ────
 //
-// applyRsvpSubmissionsByGuestId runs on EVERY hydrate and EVERY app foreground
-// (space-sync.ts's pullAndApplyRsvpNodes / providers.tsx's refreshRsvpInbox), not just
-// once. Before the fix it unconditionally called updateGuest with the submission's
-// values, so a manual edit made on another device (or by the couple, overriding a
-// guest's response) got silently reverted back to the stale public-page submission on
-// the very next foreground — and updateGuest's notifySync() re-pushed the reverted
-// value, clobbering the edit on the server too. The fix: only apply a submission when
-// it is strictly newer (by ISO-8601 string compare) than the guest's stored rsvpDate.
+// applyHouseholdRsvpDocs runs on EVERY hydrate and EVERY app foreground. Without
+// this guard a manual edit made on another device is overwritten by the now-stale
+// public-page submission, then re-pushed to the server by updateGuest's
+// notifySync() — clobbering the edit for everyone.
 
-describe("applyRsvpSubmissionsByGuestId — idempotent re-apply (Bug A regression)", () => {
+describe("applyHouseholdRsvpDocs — idempotent re-apply (Bug A regression)", () => {
   beforeEach(() => {
     mockUpdateGuest.mockClear();
-    mockGuests[0].rsvpStatus = null;
-    mockGuests[1].rsvpStatus = null;
-    mockGuests[0].rsvpDate = null;
-    mockGuests[1].rsvpDate = null;
-    mockGuests[0].companionId = null;
+    for (const g of mockGuests) {
+      g.rsvpStatus = null;
+      g.rsvpDate = null;
+      g.diet = "STANDARD";
+      g.companionId = null;
+    }
   });
 
-  it("does NOT revert a guest whose rsvpDate is newer than the incoming submission (manual edit wins)", () => {
-    // Simulates: guest already responded via the public link (old submission), then the
-    // couple manually changed the status locally, stamping a fresh rsvpDate.
-    mockGuests[0].rsvpStatus = "ACCEPTED";
-    mockGuests[0].rsvpDate = "2026-04-10T12:00:00.000Z"; // newer local edit
-    const subs: RsvpSubmission[] = [{
-      guestId: "g1",
-      rsvpStatus: "DECLINED", // stale public submission
-      diet: "VEGETARIAN",
-      submittedAt: "2026-04-08T10:00:00.000Z", // older than guest.rsvpDate
-    }];
-
-    const count = applyRsvpSubmissionsByGuestId(subs);
-
-    expect(count).toBe(0);
-    expect(mockUpdateGuest).not.toHaveBeenCalled();
-    // Guest state itself is untouched (updateGuest never ran).
-    expect(mockGuests[0].rsvpStatus).toBe("ACCEPTED");
-    expect(mockGuests[0].rsvpDate).toBe("2026-04-10T12:00:00.000Z");
+  it("applies an answer to a guest record that carries none", () => {
+    const n = applyHouseholdRsvpDocs([
+      doc([{ guestId: "g1", rsvpStatus: "ACCEPTED", respondedAt: "2026-09-01T10:00:00Z" }]),
+    ]);
+    expect(n).toBe(1);
   });
 
-  it("does NOT revert on repeated re-apply — calling it again is a true no-op", () => {
-    mockGuests[0].rsvpStatus = "ACCEPTED";
-    mockGuests[0].rsvpDate = "2026-04-10T12:00:00.000Z";
-    const subs: RsvpSubmission[] = [{
-      guestId: "g1",
-      rsvpStatus: "DECLINED",
-      submittedAt: "2026-04-08T10:00:00.000Z",
-    }];
-
-    // Simulate the real bug trigger: this runs on every foreground.
-    applyRsvpSubmissionsByGuestId(subs);
-    applyRsvpSubmissionsByGuestId(subs);
-    applyRsvpSubmissionsByGuestId(subs);
-
+  it("does NOT apply an answer older than what the guest record carries", () => {
+    mockGuests[0].rsvpStatus = "DECLINED";
+    mockGuests[0].rsvpDate = "2026-09-05T12:00:00Z"; // manual edit, newer
+    const n = applyHouseholdRsvpDocs([
+      doc([{ guestId: "g1", rsvpStatus: "ACCEPTED", respondedAt: "2026-09-01T10:00:00Z" }]),
+    ]);
+    expect(n).toBe(0);
     expect(mockUpdateGuest).not.toHaveBeenCalled();
   });
 
-  it("applies a submission strictly newer than the guest's stored rsvpDate", () => {
-    mockGuests[0].rsvpStatus = "PENDING";
-    mockGuests[0].rsvpDate = "2026-04-01T00:00:00.000Z"; // stale
-    const subs: RsvpSubmission[] = [{
-      guestId: "g1",
-      rsvpStatus: "ACCEPTED",
-      submittedAt: "2026-04-08T10:00:00.000Z", // newer — a genuine re-submission
-    }];
-
-    const count = applyRsvpSubmissionsByGuestId(subs);
-
-    expect(count).toBe(1);
-    expect(mockUpdateGuest).toHaveBeenCalledWith("g1", expect.objectContaining({
-      rsvpStatus: "ACCEPTED",
-      rsvpDate: "2026-04-08T10:00:00.000Z",
-    }));
-  });
-
-  it("applies when the guest has no stored rsvpDate yet (first submission ever)", () => {
-    mockGuests[0].rsvpDate = null;
-    const subs: RsvpSubmission[] = [{
-      guestId: "g1",
-      rsvpStatus: "ACCEPTED",
-      submittedAt: "2026-04-08T10:00:00.000Z",
-    }];
-
-    const count = applyRsvpSubmissionsByGuestId(subs);
-
-    expect(count).toBe(1);
-    expect(mockUpdateGuest).toHaveBeenCalledWith("g1", expect.objectContaining({
-      rsvpStatus: "ACCEPTED",
-    }));
-  });
-
-  it("treats an equal submittedAt/rsvpDate as already-applied (skips, no re-push)", () => {
+  it("does NOT apply the same answer twice", () => {
     mockGuests[0].rsvpStatus = "ACCEPTED";
-    mockGuests[0].rsvpDate = "2026-04-08T10:00:00.000Z";
-    const subs: RsvpSubmission[] = [{
-      guestId: "g1",
-      rsvpStatus: "ACCEPTED",
-      submittedAt: "2026-04-08T10:00:00.000Z", // same instant — already applied
-    }];
-
-    const count = applyRsvpSubmissionsByGuestId(subs);
-
-    expect(count).toBe(0);
+    mockGuests[0].rsvpDate = "2026-09-01T10:00:00Z";
+    const d = doc([{ guestId: "g1", rsvpStatus: "ACCEPTED", respondedAt: "2026-09-01T10:00:00Z" }]);
+    applyHouseholdRsvpDocs([d]);
+    applyHouseholdRsvpDocs([d]);
+    applyHouseholdRsvpDocs([d]);
     expect(mockUpdateGuest).not.toHaveBeenCalled();
   });
 
-  it("companion guard: skips reverting a companion whose rsvpDate is newer, independent of the primary guest", () => {
-    // Primary guest g1 has never responded — its own update still applies.
-    mockGuests[0].rsvpDate = null;
-    // Companion g2 already has a newer manual edit and must not be reverted.
-    mockGuests[1].rsvpStatus = "ACCEPTED";
-    mockGuests[1].rsvpDate = "2026-04-10T12:00:00.000Z";
-
-    const subs: RsvpSubmission[] = [{
-      guestId: "g1",
-      rsvpStatus: "ACCEPTED",
-      plusOneGuestId: "g2",
-      plusOneRsvpStatus: "DECLINED", // stale — must not revert g2
-      submittedAt: "2026-04-08T10:00:00.000Z", // older than g2.rsvpDate
-    }];
-
-    applyRsvpSubmissionsByGuestId(subs);
-
-    // g1 (primary) updated normally.
-    expect(mockUpdateGuest).toHaveBeenCalledWith("g1", expect.objectContaining({
-      rsvpStatus: "ACCEPTED",
-    }));
-    // g2 (companion) NOT reverted.
-    expect(mockUpdateGuest).not.toHaveBeenCalledWith("g2", expect.anything());
+  it("applies a STRICTLY newer answer — the household corrected itself", () => {
+    mockGuests[0].rsvpStatus = "ACCEPTED";
+    mockGuests[0].rsvpDate = "2026-09-01T10:00:00Z";
+    const n = applyHouseholdRsvpDocs([
+      doc([{ guestId: "g1", rsvpStatus: "DECLINED", respondedAt: "2026-09-05T18:00:00Z" }]),
+    ]);
+    expect(n).toBe(1);
+    expect(mockUpdateGuest).toHaveBeenCalledWith("g1", expect.objectContaining({ rsvpStatus: "DECLINED" }));
   });
 
-  it("companion guard: still applies a companion update that is genuinely newer", () => {
-    mockGuests[0].rsvpDate = null;
-    mockGuests[1].rsvpStatus = "PENDING";
-    mockGuests[1].rsvpDate = "2026-04-01T00:00:00.000Z"; // stale
-
-    const subs: RsvpSubmission[] = [{
-      guestId: "g1",
-      rsvpStatus: "ACCEPTED",
-      plusOneGuestId: "g2",
-      plusOneRsvpStatus: "ACCEPTED",
-      submittedAt: "2026-04-08T10:00:00.000Z", // newer than g2.rsvpDate
-    }];
-
-    applyRsvpSubmissionsByGuestId(subs);
-
-    expect(mockUpdateGuest).toHaveBeenCalledWith("g2", expect.objectContaining({
-      rsvpStatus: "ACCEPTED",
-    }));
+  it("the guard is per MEMBER: one member's edit does not block another", () => {
+    mockGuests[0].rsvpStatus = "DECLINED";
+    mockGuests[0].rsvpDate = "2026-09-05T12:00:00Z"; // g1 edited by hand
+    const n = applyHouseholdRsvpDocs([
+      doc([
+        { guestId: "g1", rsvpStatus: "ACCEPTED", respondedAt: "2026-09-01T10:00:00Z" },
+        { guestId: "g2", rsvpStatus: "ACCEPTED", respondedAt: "2026-09-01T10:00:00Z" },
+      ]),
+    ]);
+    expect(n).toBe(1);
+    expect(mockUpdateGuest).toHaveBeenCalledTimes(1);
+    expect(mockUpdateGuest).toHaveBeenCalledWith("g2", expect.objectContaining({ rsvpStatus: "ACCEPTED" }));
   });
 });

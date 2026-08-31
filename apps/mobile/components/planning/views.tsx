@@ -43,6 +43,7 @@ import { useShowPaywall } from "@/components/PaywallProvider";
 import { QuotaBadge } from "@/components/QuotaBadge";
 import { useCanAddMore, FREE_LIMITS } from "@/lib/limits";
 import { toast } from "@/lib/toast/sonner";
+import { theme as GP } from "@/lib/theme";
 
 type ViewMode = "timeline" | "kanban";
 type FilterKey = "ALL" | "TODO" | "DONE" | "OVERDUE";
@@ -205,7 +206,7 @@ export function PreparationView() {
               onPress={handleGenerateTemplate}
               className="flex-row items-center gap-1 px-2.5 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-900 active:opacity-80"
             >
-              <Sparkles size={14} color="#b96a4a" />
+              <Sparkles size={14} color={GP.clay} />
               <Text className="text-xs font-medium text-primary-500">{t("generate")}</Text>
             </Pressable>
             <SegmentedControl
@@ -259,7 +260,7 @@ export function PreparationView() {
               onPress={handleGenerateTemplate}
               className="bg-accent-card border border-primary-300 dark:border-primary-700 rounded-xl px-5 py-3 flex-row items-center gap-2 active:opacity-80"
             >
-              <Sparkles size={16} color="#b96a4a" />
+              <Sparkles size={16} color={GP.clay} />
               <Text className="text-primary-500 font-semibold text-sm">{t("generatePlanning")}</Text>
             </Pressable>
           </View>
@@ -385,7 +386,7 @@ export function AgendaView() {
       >
         <View className="flex-row items-start">
           <View className="w-14 items-center mr-3">
-            <Display size={20} weight="500" color="#b96a4a">
+            <Display size={20} weight="500" color={GP.clay}>
               {safeFormat(new Date(event.date + "T00:00:00"), "dd")}
             </Display>
             <Text className="text-xs text-mute capitalize">
@@ -554,7 +555,7 @@ export function DayOfView() {
               onPress={handleShareTimeline}
               className="flex-row items-center gap-1 px-2.5 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-900 active:opacity-80"
             >
-              <Share2 size={14} color="#b96a4a" />
+              <Share2 size={14} color={GP.clay} />
               <Text className="text-xs font-medium text-primary-500">{t("shareTimeline")}</Text>
             </Pressable>
           </View>
@@ -642,7 +643,7 @@ function DayOfTimelineCard({
   return (
     <TimelineItem
       left={
-        <Display size={14} weight="500" color="#b96a4a" style={{ marginTop: 14 }}>
+        <Display size={14} weight="500" color={GP.clay} style={{ marginTop: 14 }}>
           {item.time}
         </Display>
       }

@@ -625,7 +625,7 @@ function buildIdeas(
         category: item.category,
         vendorId: j % 2 === 0 ? vendors[ci % vendors.length]?.id ?? null : null,
         isFavorite: j === 0,
-        colorPalette: json(["#f2ece0", "#b96a4a", "#6e7a4a"]),
+        colorPalette: json(["#fdf4ef", "#00916e", "#0a6b53"]),
         createdAt: TS,
         updatedAt: TS,
       });
@@ -1023,6 +1023,9 @@ export function buildWeddingSnapshot(profile: SampleProfile): WeddingSnapshot {
     guestGroups,
     guests,
     tables,
+    // MODIFICATION LOCALE — les foyers. Les jeux d'essai n'en constituent pas :
+    // une liste sans foyers reste une liste d'envois, un par personne.
+    households: [],
     vendors,
     quotePricings,
     vendorPayments,
@@ -1055,7 +1058,8 @@ export function buildWeddingSnapshot(profile: SampleProfile): WeddingSnapshot {
 }
 
 export function buildWeddingBackup(profile: SampleProfile): BackupData {
-  return createBackupDocument(buildWeddingSnapshot(profile));
+  // Figé : samples.test.ts réécrit les fixtures à chaque exécution.
+  return { ...createBackupDocument(buildWeddingSnapshot(profile)), timestamp: TS };
 }
 
 export function backupToJson(backup: BackupData): string {

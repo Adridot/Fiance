@@ -1,0 +1,17 @@
+services:
+  fiance-web:
+    image: nginx:1.27-alpine
+    container_name: fiance-web
+    restart: unless-stopped
+    volumes:
+      - /home/adidot/fiance/apps/mobile/dist:/usr/share/nginx/html:ro
+      # Directory mount (not a single file) so edits survive editors that
+      # replace the inode, e.g. `sed -i`.
+      - /home/adidot/fiance/deploy/conf.d:/etc/nginx/conf.d:ro
+    networks:
+      - npm
+
+networks:
+  npm:
+    external: true
+    name: nginx-proxy-manager-sqllite-goaccess_default

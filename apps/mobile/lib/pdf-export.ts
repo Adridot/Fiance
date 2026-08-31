@@ -4,6 +4,9 @@
  */
 
 import { Platform } from "react-native";
+// MODIFICATION LOCALE — la composition du nom vit dans le SDK : un document
+// imprimé doit nommer un invité exactement comme la liste le nomme.
+import { formatGuestName } from "@fiance/sdk";
 import type { Guest, Table, GuestGroup, Vendor, DayOfItem, Wedding, VendorPayment, GuestMealSelection, WeddingEvent, CeremonyItem, Speech, PlaylistTrack, WeddingRole } from "@/db/schema";
 import type { BudgetSummary } from "@/store/useBudgetStore";
 
@@ -23,9 +26,16 @@ function formatMoney(amount: number, currency = "EUR"): string {
   }).format(amount);
 }
 
+// MODIFICATION LOCALE — les gabarits de document portent la palette du
+// mariage. Les valeurs sont RECOPIÉES : ce sont des chaînes CSS injectées dans
+// un document imprimé, qui ne peut pas lire les jetons.
+//   #00916E = GP.clay (accent primaire)   #FDF4EF = GP.paper
+//   #CFEAE2 = GP.claySoft (filet)
+// Les gris neutres (#1F2937, #6B7280, #9CA3AF…) et les couleurs de statut
+// (accepté / refusé / en attente) sont ceux de l'amont et restent inchangés.
 const BASE_STYLES = `
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1F2937; margin: 20px; font-size: 12px; }
-  h1 { font-size: 20px; color: #EC4899; margin-bottom: 4px; }
+  h1 { font-size: 20px; color: #00916E; margin-bottom: 4px; }
   h2 { font-size: 14px; color: #6B7280; margin-top: 16px; border-bottom: 1px solid #E5E7EB; padding-bottom: 4px; }
   table { width: 100%; border-collapse: collapse; margin-top: 8px; }
   th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #F3F4F6; }
@@ -62,7 +72,7 @@ export function buildGuestListHtml(
     .map(
       (g) => `
     <tr>
-      <td>${escapeHtml(g.lastName)} ${escapeHtml(g.firstName)}</td>
+      <td>${escapeHtml(formatGuestName(g))}</td>
       <td><span class="badge ${RSVP_CLASS[g.rsvpStatus ?? "PENDING"]}">${g.rsvpStatus}</span></td>
       <td>${g.diet ?? "—"}</td>
       <td>${g.tableId ? escapeHtml(tableMap.get(g.tableId) ?? "") : "—"}</td>
@@ -111,7 +121,7 @@ export function buildMenuSummaryHtml(
       const detailRows = selections
         .map((s) => {
           const g = guestMap.get(s.guestId);
-          const name = g ? `${escapeHtml(g.firstName)} ${escapeHtml(g.lastName)}` : "—";
+          const name = g ? escapeHtml(formatGuestName(g)) : "—";
           return `<tr><td>${name}</td><td>${escapeHtml(mealChoiceLabels[s.mealChoice] ?? s.mealChoice)}</td></tr>`;
         })
         .join("");
@@ -170,7 +180,7 @@ const PUBLIC_STYLES = `
     color: #1F2937;
     margin: 0;
     padding: 24px 28px;
-    background: #FFF9F5;
+    background: #FDF4EF;
     font-size: 13px;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
@@ -178,14 +188,14 @@ const PUBLIC_STYLES = `
   .header {
     text-align: center;
     padding-bottom: 20px;
-    border-bottom: 2px solid #F3E8E0;
+    border-bottom: 2px solid #CFEAE2;
     margin-bottom: 24px;
   }
   .subtitle {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 3px;
-    color: #C9956B;
+    color: #00916E;
     margin-bottom: 8px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
@@ -203,12 +213,12 @@ const PUBLIC_STYLES = `
   .date-header {
     font-size: 11px;
     font-weight: 600;
-    color: #C9956B;
+    color: #00916E;
     text-transform: uppercase;
     letter-spacing: 2px;
     margin: 22px 0 12px 0;
     padding-bottom: 6px;
-    border-bottom: 1px solid #F3E8E0;
+    border-bottom: 1px solid #CFEAE2;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
   .item {
@@ -227,7 +237,7 @@ const PUBLIC_STYLES = `
   .time {
     font-size: 15px;
     font-weight: bold;
-    color: #C9956B;
+    color: #00916E;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
   .end-time {
@@ -241,7 +251,7 @@ const PUBLIC_STYLES = `
     background: #FFFFFF;
     border-radius: 10px;
     padding: 10px 14px;
-    border: 1px solid #F3E8E0;
+    border: 1px solid #CFEAE2;
     box-shadow: 0 1px 4px rgba(232,180,184,0.12);
   }
   .title {
@@ -251,7 +261,7 @@ const PUBLIC_STYLES = `
   }
   .location {
     font-size: 11px;
-    color: #C9956B;
+    color: #00916E;
     margin-top: 5px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
@@ -333,7 +343,7 @@ const BOOKLET_STYLES = `
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 3px;
-    color: #C9956B;
+    color: #00916E;
     text-align: center;
     margin-top: 26px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -368,7 +378,7 @@ const BOOKLET_STYLES = `
   .ceremony-performer {
     text-align: center;
     font-size: 11px;
-    color: #C9956B;
+    color: #00916E;
     margin-top: 10px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
@@ -382,7 +392,7 @@ export function buildCeremonyBookletHtml(
   kindLabels: Record<string, string>,
   labels: { programOf: string; performedBy: string },
 ): string {
-  const guestMap = new Map(guests.map((g) => [g.id, `${g.firstName} ${g.lastName}`.trim()]));
+  const guestMap = new Map(guests.map((g) => [g.id, formatGuestName(g)]));
   const roleMap = new Map(roles.map((r) => [r.id, r.name]));
   const sorted = [...items].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 
@@ -436,7 +446,7 @@ export function buildDjWitnessPackHtml(
   roles: WeddingRole[],
   momentLabels: Record<string, string>,
 ): string {
-  const guestMap = new Map(guests.map((g) => [g.id, `${g.firstName} ${g.lastName}`.trim()]));
+  const guestMap = new Map(guests.map((g) => [g.id, formatGuestName(g)]));
   const roleMap = new Map(roles.map((r) => [r.id, r.name]));
   const dayOfMap = new Map(dayOfItems.map((d) => [d.id, d.time]));
 
@@ -615,7 +625,7 @@ export function buildGuestLogisticsCsv(guests: Guest[], vendors: Vendor[]): stri
   const header = ["Nom", "Transport", "Navette", "Lieu de prise en charge", "Heure", "Parking", "Notes d'arrivée"].join(";");
   const rows = sorted.map((g) =>
     [
-      `${g.lastName} ${g.firstName}`,
+      formatGuestName(g),
       g.transportMode ?? "",
       g.shuttleVendorId ? (vendorMap.get(g.shuttleVendorId) ?? "") : "",
       g.shuttlePickupLocation ?? "",

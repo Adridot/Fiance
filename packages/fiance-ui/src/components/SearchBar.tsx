@@ -1,6 +1,7 @@
 import React from "react";
 import { View, TextInput, Pressable } from "react-native-css/components";
 import { Search, XCircle } from "lucide-react-native";
+import { theme as GP } from "../garden-theme";
 
 // Local override of seahorse's SearchBar: seahorse hardcodes the inner box to
 // bg-background-0/border-outline-100 (pure white + grey hairline), which reads
@@ -20,17 +21,17 @@ export function SearchBar({ value, onChangeText, placeholder, right, className }
   return (
     <View className={className}>
       <View className="flex-row items-center h-11 bg-accent-card border border-hair rounded-lg px-3">
-        <Search size={18} color="#8a8373" />
+        <Search size={18} color={GP.mute} />
         <TextInput
           className="flex-1 ml-2 text-base text-ink"
           placeholder={placeholder}
-          placeholderTextColor="#8a8373"
+          placeholderTextColor={GP.mute}
           value={value}
           onChangeText={onChangeText}
         />
         {value.length > 0 && (
           <Pressable onPress={() => onChangeText("")} hitSlop={8} className="ml-1.5">
-            <XCircle size={18} color="#8a8373" />
+            <XCircle size={18} color={GP.mute} />
           </Pressable>
         )}
         {right}

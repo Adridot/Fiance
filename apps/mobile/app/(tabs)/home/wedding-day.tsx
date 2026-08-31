@@ -35,7 +35,7 @@ export default function WeddingDayScreen() {
   const systemScheme = useColorScheme();
   const isDark = appColorScheme === "dark" || (appColorScheme === "system" && systemScheme === "dark");
   const c = isDark
-    ? { bg: GP.paperDark, mute: "#a09585", accent: "#e8c06a", title: GP.inkDark }
+    ? { bg: GP.paperDark, mute: GP.muteDark, accent: GP.mustardSoft, title: GP.inkDark }
     : { bg: GP.paper, mute: GP.mute, accent: GP.mustard, title: GP.ink };
 
   const handleBack = useCallback(() => {
@@ -155,7 +155,7 @@ export default function WeddingDayScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#1a1510",
+    backgroundColor: GP.paperDark,
   },
   header: {
     flexDirection: "row",
@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   addBtnText: {
-    color: "#fdfaf1",
+    color: GP.card,
     fontFamily: "Inter_600SemiBold",
     fontSize: 14,
   },
@@ -195,18 +195,18 @@ const styles = StyleSheet.create({
   itemTime: {
     fontFamily: "Fraunces_500Medium",
     fontSize: 14,
-    color: "#e8c06a",
+    color: GP.mustardSoft,
     width: 44,
   },
   itemTitle: {
     fontFamily: "Inter_500Medium",
     fontSize: 13,
-    color: "#f4ecd8",
+    color: GP.inkDark,
   },
   itemNote: {
     fontFamily: "Fraunces_400Regular_Italic",
     fontSize: 11,
-    color: "#a09585",
+    color: GP.muteDark,
     marginTop: 1,
   },
 });

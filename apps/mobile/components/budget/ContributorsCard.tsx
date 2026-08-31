@@ -18,6 +18,7 @@ import { useContributorsStore } from "@/store/useContributorsStore";
 import { BUDGET_CATEGORIES, BUDGET_CATEGORY_LABELS } from "@/db/types";
 import type { Contributor } from "@/db/schema";
 import type { BudgetCategoryItem } from "@/store/useBudgetStore";
+import { theme as GP } from "@/lib/theme";
 
 interface ContributorsCardProps {
   target: number;
@@ -84,7 +85,7 @@ export function ContributorsCard({ target, totalEngaged, categories, categoryBud
           className="bg-accent-card rounded-2xl p-4 border border-hair flex-row items-center justify-between"
         >
           <View className="flex-row items-center gap-2 flex-1 mr-2">
-            <Users size={17} color="#b96a4a" />
+            <Users size={17} color={GP.clay} />
             <View className="flex-1">
               <Text className="text-base font-semibold text-ink">{t("contributors.title")}</Text>
               <Text className="text-xs text-mute mt-0.5">{t("contributors.subtitle")}</Text>
@@ -344,7 +345,7 @@ function ContributorSheet({
               );
             })}
             <Pressable onPress={addRow} className="flex-row items-center mt-1">
-              <Plus size={16} color="#b96a4a" />
+              <Plus size={16} color={GP.clay} />
               <Text className="text-primary-500 text-sm font-medium ml-1">
                 {t("contributors.addAllocation")}
               </Text>

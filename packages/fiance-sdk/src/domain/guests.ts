@@ -1,5 +1,7 @@
 // NodeNext .js extension required
-import type { Guest, Table, GuestGroup } from './schema.js';
+import type { Guest, Table, GuestGroup, GuestGroupSide, Wedding } from './schema.js';
+
+export type NamedGuest = Pick<Guest, 'firstName' | 'lastName' | 'nameParticle'>;
 
 export interface GuestCounts {
   total: number;
@@ -20,7 +22,20 @@ export interface GuestCounts {
   //    screen's invitation-type filter counts exactly.
   inv_by_type: Record<string, number>;
   inv_by_type_all: Record<string, number>;
+  // The head counts are a PARTITION: the per-invitation-type counters hold
+  // ADULTS only, the children counters hold the flagged records across all
+  // types, and every guest falls into exactly one of them —
+  //
+  //     Σ(inv_by_type)     + children_count     = billable_count
+  //     Σ(inv_by_type_all) + children_count_all = total
   children_count: number;
+  children_count_all: number;
+  // Children broken down by type. No quote uses them — the child rate is flat —
+  // they only make the partition readable next to the adult-only type counts.
+  children_by_type: Record<string, number>;
+  children_by_type_all: Record<string, number>;
+  /** The pool a quote is computed on — what `inv_by_type` splits up. */
+  billable_count: number;
   vegetarian_count: number;
   sleeping_count: number;
   response_rate: number;
@@ -38,9 +53,21 @@ export function computeCounts(guests: Guest[]): GuestCounts {
   // For per-invitation-type pricing: bill accepted guests of each exact type. Before any
   // RSVP (no accepted), estimate from non-declined guests so previews aren't all zero.
   const invPool = acceptedCount > 0 ? accepted : guests.filter((g) => g.rsvpStatus !== "DECLINED");
+  // One filter point, so no per-type counter can forget to exclude children.
+  const isChild = (g: Guest): boolean => g.isChild === true;
+  const adults = (pool: Guest[]): Guest[] => pool.filter((g) => !isChild(g));
+  const groupChildrenByType = (pool: Guest[]): Record<string, number> => {
+    const map: Record<string, number> = {};
+    for (const g of pool.filter(isChild)) {
+      const key = g.invitationType;
+      if (key == null) continue;
+      map[key] = (map[key] ?? 0) + 1;
+    }
+    return map;
+  };
   const groupByType = (pool: Guest[]): Record<string, number> => {
     const map: Record<string, number> = {};
-    for (const g of pool) {
+    for (const g of adults(pool)) {
       const key = g.invitationType;
       if (key == null) continue;
       map[key] = (map[key] ?? 0) + 1;
@@ -54,17 +81,22 @@ export function computeCounts(guests: Guest[]): GuestCounts {
     declined: declinedCount,
     pending: guests.filter((g) => g.rsvpStatus === "PENDING").length,
     maybe: guests.filter((g) => g.rsvpStatus === "MAYBE").length,
-    cocktail_count: accepted.filter((g) =>
+    cocktail_count: adults(accepted).filter((g) =>
       ["COCKTAIL", "FULL", "BOTH_DAYS"].includes(g.invitationType)
     ).length,
-    dinner_count: accepted.filter((g) =>
+    dinner_count: adults(accepted).filter((g) =>
       ["FULL", "BOTH_DAYS"].includes(g.invitationType)
     ).length,
-    full_count: accepted.filter((g) => g.invitationType === "FULL").length,
-    both_days_count: accepted.filter((g) => g.invitationType === "BOTH_DAYS").length,
+    full_count: adults(accepted).filter((g) => g.invitationType === "FULL").length,
+    both_days_count: adults(accepted).filter((g) => g.invitationType === "BOTH_DAYS").length,
     inv_by_type: groupByType(invPool),
     inv_by_type_all: groupByType(guests),
-    children_count: accepted.reduce((sum, g) => sum + (g.childrenCount ?? 0), 0),
+    // Flagged records, never a sum of the inert `childrenCount` (see schema).
+    children_count: invPool.filter(isChild).length,
+    children_count_all: guests.filter(isChild).length,
+    children_by_type: groupChildrenByType(invPool),
+    children_by_type_all: groupChildrenByType(guests),
+    billable_count: invPool.length,
     vegetarian_count: accepted.filter((g) =>
       ["VEGETARIAN", "VEGAN"].includes(g.diet || "")
     ).length,
@@ -86,11 +118,10 @@ export function addGuest(guests: Guest[], guest: Guest): Guest[] {
 }
 
 export function updateGuest(guests: Guest[], id: string, updates: Partial<Guest>): Guest[] {
-  const now = new Date().toISOString();
-  return guests.map(g => g.id === id ? { ...g, ...updates, updatedAt: now } : g);
+  return applyGuestUpdates(guests, [id], () => updates);
 }
 
-export function removeGuest(guests: Guest[], id: string): Guest[] {
+function removeOneGuest(guests: Guest[], id: string): Guest[] {
   const now = new Date().toISOString();
   // cascade unlinks: any guest pointing to the deleted guest as companion gets companionId=null
   const toUnlink = new Set(
@@ -102,6 +133,49 @@ export function removeGuest(guests: Guest[], id: string): Guest[] {
   return guests
     .filter(g => g.id !== id)
     .map(g => toUnlink.has(g.id) ? { ...g, companionId: null, updatedAt: now } : g);
+}
+
+// ─── Batch removal and update ────────────────────────────────────────────────
+//
+// A batch is the FOLD of the unit operation, so the two cannot diverge — the
+// companion-unlink cascade included. O(N·M) is deliberate: what costs in a bulk
+// delete is WRITING N times, and the store is what hoists the writes out of the
+// loop.
+
+export function removeGuests(guests: Guest[], ids: string[]): Guest[] {
+  return ids.reduce((acc, id) => removeOneGuest(acc, id), guests);
+}
+
+export function removeGuest(guests: Guest[], id: string): Guest[] {
+  return removeGuests(guests, [id]);
+}
+
+export function applyGuestUpdates(
+  guests: Guest[],
+  ids: string[],
+  updatesFor: (guest: Guest) => Partial<Guest>,
+): Guest[] {
+  const now = new Date().toISOString();
+  const targets = new Set(ids);
+  return guests.map(g => targets.has(g.id) ? { ...g, ...updatesFor(g), updatedAt: now } : g);
+}
+
+/**
+ * RSVP status and the date that goes with it — the single place that rule
+ * lives, so the guest screen and the batch path cannot read it differently.
+ */
+export function rsvpStatusUpdate(
+  guest: Pick<Guest, 'rsvpStatus' | 'rsvpDate'>,
+  status: string,
+  now: string,
+): Partial<Guest> {
+  return {
+    rsvpStatus: status,
+    rsvpDate:
+      status !== "PENDING" && status !== guest.rsvpStatus
+        ? now
+        : guest.rsvpDate || null,
+  };
 }
 
 export function linkCompanion(guests: Guest[], guestId: string, companionId: string): Guest[] {
@@ -182,4 +256,476 @@ export function countDuplicateGuests(guests: Guest[]): number {
   let dup = 0;
   for (const n of seen.values()) if (n > 1) dup += n;
   return dup;
+}
+
+// ─── Displayed name ──────────────────────────────────────────────────────────
+//
+// The particle is displayed but stays OUT of the sort key — that is the whole
+// point of storing it apart: the existing sort code becomes right untouched.
+
+/** Uppercased surname, particle included: « DE LA PRESLE ». */
+export function formatGuestLastName(g: NamedGuest): string {
+  const particle = (g.nameParticle ?? "").trim().toUpperCase();
+  const last = (g.lastName ?? "").trim();
+  if (!particle) return last;
+  // « D' » sticks to the name, « DE LA » is separated by a space.
+  const glue = /['’]$/.test(particle) ? "" : " ";
+  return last ? `${particle}${glue}${last}` : particle;
+}
+
+export function formatGuestName(g: NamedGuest): string {
+  return [formatGuestLastName(g), (g.firstName ?? "").trim()].filter(Boolean).join(" ");
+}
+
+// A name read on screen but not found when typed back is a trap: matching
+// `firstName` and `lastName` separately misses the particle and any two parts
+// in a row. Search therefore matches the COMPOSED name, from one place.
+export function guestNameMatches(g: NamedGuest, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    (g.firstName ?? "").toLowerCase().includes(q) ||
+    (g.lastName ?? "").toLowerCase().includes(q) ||
+    formatGuestName(g).toLowerCase().includes(q)
+  );
+}
+
+// ─── Category side and order ─────────────────────────────────────────────────
+//
+// Array order is NOT insertion order once a device hydrates from the Space:
+// groups come back out of an `Object.entries()` over an id-keyed document, so
+// the order is a serialisation accident that differs from device to device.
+// Sorting explicitly is what makes the order a contract.
+
+const SIDE_RANK: Record<GuestGroupSide, number> = {
+  PARTNER_1: 0,
+  PARTNER_2: 1,
+  BOTH: 2,
+};
+
+function sideRank(side: GuestGroupSide | null | undefined): number {
+  return side ? SIDE_RANK[side] : 3;
+}
+
+/** Sorts categories: side, then declared rank, then name. */
+export function sortGroups(groups: GuestGroup[]): GuestGroup[] {
+  return [...groups].sort((a, b) => {
+    const bySide = sideRank(a.side) - sideRank(b.side);
+    if (bySide !== 0) return bySide;
+    // Compared rather than subtracted: Infinity - Infinity is NaN, which would
+    // silently stop two rankless categories from being ordered by name.
+    const ra = a.sortOrder ?? Infinity;
+    const rb = b.sortOrder ?? Infinity;
+    if (ra !== rb) return ra < rb ? -1 : 1;
+    // `sensitivity: "base"` so an accent or a capital does not exile a category
+    // to the other end of the list — « Émile » must neighbour « Emile ».
+    return a.name.localeCompare(b.name, "fr", { sensitivity: "base" });
+  });
+}
+
+// ─── Side deduced from the label prefix ──────────────────────────────────────
+//
+// Categories predating the `side` field still carry a bracketed prefix —
+// « [A] Didot », « [A&E] Amis communs ». Deducing the side from it avoids a
+// data migration and WRITES NOTHING: a category that declares `side` never
+// reaches this path, so it dies out on its own. Nothing is hardcoded — prefix
+// tokens are matched against the WEDDING's partner first names, and a prefix
+// that matches nobody deduces nothing rather than guessing.
+
+const SIDE_PREFIX = /^\s*\[([^\]]+)\]\s*/;
+
+/** Display-only: the STORED label keeps its prefix. */
+export function formatGuestGroupName(name: string): string {
+  return (name ?? "").replace(SIDE_PREFIX, "").trim() || (name ?? "").trim();
+}
+
+function sideFromPrefix(
+  name: string,
+  wedding: Pick<Wedding, "partner1Name" | "partner2Name"> | null | undefined,
+): GuestGroupSide | null {
+  const m = SIDE_PREFIX.exec(name ?? "");
+  if (!m) return null;
+  const tokens = m[1]
+    .split(/[&+,/]/)
+    .map((t) => t.trim().toLocaleLowerCase("fr"))
+    .filter(Boolean);
+  if (tokens.length === 0) return null;
+
+  const matches = (firstName: string | null | undefined) => {
+    const p = (firstName ?? "").trim().toLocaleLowerCase("fr");
+    return p !== "" && tokens.some((t) => p.startsWith(t));
+  };
+  const one = matches(wedding?.partner1Name);
+  const two = matches(wedding?.partner2Name);
+  if (one && two) return "BOTH";
+  if (one) return "PARTNER_1";
+  if (two) return "PARTNER_2";
+  return null;
+}
+
+/**
+ * Categories with their side resolved — declared if it is, deduced otherwise.
+ *
+ * A read PROJECTION: nothing is written, nothing is synced. Everything that
+ * orders or groups categories starts here, so one place decides what a
+ * category's side is.
+ */
+export function resolveGroupSides(
+  groups: GuestGroup[],
+  wedding: Pick<Wedding, "partner1Name" | "partner2Name"> | null | undefined,
+): GuestGroup[] {
+  return groups.map((g) =>
+    g.side ? g : { ...g, side: sideFromPrefix(g.name, wedding) },
+  );
+}
+
+/** Labels the app supplies to compose a side. */
+export interface GuestGroupSideLabels {
+  /** Named template, `{name}` replaced by the partner's first name. */
+  named: string;
+  /** Fallbacks used when the wedding gives no first name for the partner. */
+  partner1: string;
+  partner2: string;
+  both: string;
+  none: string;
+}
+
+export function formatGuestGroupSide(
+  side: GuestGroupSide | null | undefined,
+  wedding: Pick<Wedding, "partner1Name" | "partner2Name"> | null | undefined,
+  labels: GuestGroupSideLabels,
+): string {
+  if (side === "BOTH") return labels.both;
+  if (side === "PARTNER_1" || side === "PARTNER_2") {
+    const name = (side === "PARTNER_1" ? wedding?.partner1Name : wedding?.partner2Name)?.trim();
+    if (name) return labels.named.replace("{name}", name);
+    return side === "PARTNER_1" ? labels.partner1 : labels.partner2;
+  }
+  return labels.none;
+}
+
+// ─── The first name still to be found ────────────────────────────────────────
+//
+// An EMPTY first name is a legitimate state — a gap that shows, counts and gets
+// corrected — where a fabricated one would pass itself off as data. Everything
+// below is COMPUTED on read: a maintained counter would be a second state to
+// keep in agreement with the first.
+
+export type IncompleteGuest = Pick<Guest, "firstName" | "lastName" | "groupId">;
+
+// First names fabricated by an import: a name, a space, a number. « Luc 1 » is
+// a household contact given a disambiguation suffix, « Luc 2 » is their spouse,
+// lent the same name for want of a better one. Neither is a first name.
+const SYNTHETIC_FIRST_NAME = /\s\d+$/;
+
+/**
+ * A guest whose first name is still to be found.
+ *
+ * The rule is SELF-CORRECTING, which is what makes it safe: as soon as a first
+ * name is entered it stops matching, so nothing has to be written down for the
+ * count to be right.
+ */
+export function isFirstNameToComplete(g: Pick<Guest, "firstName">): boolean {
+  const p = (g.firstName ?? "").trim();
+  return p === "" || SYNTHETIC_FIRST_NAME.test(p);
+}
+
+export interface GuestGroupProgress {
+  total: number;
+  missingFirstName: number;
+  /** Guests who answered — accepted or declined, like the global response rate. */
+  answered: number;
+}
+
+/**
+ * Per-category progress, in one pass. A category with no guest is absent from
+ * the map; the display decides what it says about that.
+ */
+export function computeGroupProgress(
+  guests: (IncompleteGuest & Pick<Guest, "rsvpStatus">)[],
+): Map<string, GuestGroupProgress> {
+  const out = new Map<string, GuestGroupProgress>();
+  for (const g of guests) {
+    if (!g.groupId) continue;
+    let p = out.get(g.groupId);
+    if (!p) {
+      p = { total: 0, missingFirstName: 0, answered: 0 };
+      out.set(g.groupId, p);
+    }
+    p.total++;
+    if (isFirstNameToComplete(g)) p.missingFirstName++;
+    if (g.rsvpStatus === "ACCEPTED" || g.rsvpStatus === "DECLINED") p.answered++;
+  }
+  return out;
+}
+
+function byName(a: IncompleteGuest, b: IncompleteGuest): number {
+  return `${a.lastName}${a.firstName}`.localeCompare(`${b.lastName}${b.firstName}`, "fr");
+}
+
+export interface FamilyToComplete<T> {
+  lastName: string;
+  named: T[];
+  missing: T[];
+}
+
+/**
+ * The families of a category with at least one first name to find, with ALL
+ * their members — those already named included.
+ *
+ * That is what makes the correction answerable: « AUGIER D'IVRY, ___ » cannot
+ * be answered, « AUGIER D'IVRY: François, and ___ » can — the blank is his
+ * spouse. Listing the unnamed on their own asks for a first name without
+ * saying whose.
+ */
+export function groupFamiliesToComplete<T extends IncompleteGuest & Pick<Guest, "nameParticle">>(
+  guests: T[],
+  groupId: string,
+): FamilyToComplete<T>[] {
+  const families = new Map<string, T[]>();
+  for (const g of guests) {
+    if (g.groupId !== groupId) continue;
+    const key = formatGuestLastName(g as NamedGuest).toLocaleLowerCase("fr");
+    const bucket = families.get(key);
+    if (bucket) bucket.push(g);
+    else families.set(key, [g]);
+  }
+
+  const out: (FamilyToComplete<T> & { sortKey: string })[] = [];
+  for (const members of families.values()) {
+    const missing = members.filter(isFirstNameToComplete).sort(byName);
+    if (missing.length === 0) continue;
+    out.push({
+      lastName: formatGuestLastName(members[0] as NamedGuest),
+      // The particle stays out of the sort key, as in the guest list:
+      // « de la Presle » files under P, not D.
+      sortKey: (members[0].lastName ?? "").trim(),
+      named: members.filter((g) => !isFirstNameToComplete(g)).sort(byName),
+      missing,
+    });
+  }
+  return out
+    .sort((a, b) => a.sortKey.localeCompare(b.sortKey, "fr", { sensitivity: "base" }))
+    .map(({ sortKey: _sortKey, ...family }) => family);
+}
+
+export interface GuestGroupSideSection {
+  side: GuestGroupSide | null;
+  groups: GuestGroup[];
+}
+
+/**
+ * Categories grouped under their side. One sort only, `sortGroups`, so the
+ * category screen and the guest list show the same order.
+ */
+export function groupsBySide(groups: GuestGroup[]): GuestGroupSideSection[] {
+  const sections: GuestGroupSideSection[] = [];
+  for (const g of sortGroups(groups)) {
+    const side = g.side ?? null;
+    const last = sections[sections.length - 1];
+    if (last && last.side === side) last.groups.push(g);
+    else sections.push({ side, groups: [g] });
+  }
+  return sections;
+}
+
+// ─── List data and header positions ──────────────────────────────────────────
+//
+// Sticky headers are declared as a list of INDICES INTO the flattened items, so
+// a stale index pins the wrong row. Items and indices therefore come out of one
+// computation: producing them apart would be two sources for one truth.
+
+export type GuestListEntry<G, GR> =
+  | { kind: "guest"; guest: G }
+  | { kind: "side-header"; side: GuestGroupSide | null }
+  | { kind: "group-header"; group: GR; count: number; collapsed: boolean };
+
+export interface GuestListData<G, GR> {
+  items: GuestListEntry<G, GR>[];
+  stickyIndices: number[];
+}
+
+export function buildGuestListData<
+  G,
+  GR extends { id: string; side?: GuestGroupSide | null },
+>(
+  ungrouped: readonly G[],
+  sections: readonly { group: GR; guests: readonly G[] }[],
+  expandedGroupIds: ReadonlySet<string>,
+): GuestListData<G, GR> {
+  const items: GuestListEntry<G, GR>[] = ungrouped.map((guest) => ({ kind: "guest", guest }));
+  const stickyIndices: number[] = [];
+  // `sections` arrives sorted by side then rank, so a side header is needed
+  // only where the side CHANGES — no second ordering to diverge from the first.
+  let prevSide: GuestGroupSide | null | undefined;
+  for (const { group, guests } of sections) {
+    const side = group.side ?? null;
+    if (prevSide === undefined || side !== prevSide) {
+      items.push({ kind: "side-header", side });
+      prevSide = side;
+    }
+    const collapsed = !expandedGroupIds.has(group.id);
+    // Only CATEGORY headers stick: `LegendList` pins one item at a time, and
+    // the category is the one to keep in view while scrolling its guests.
+    stickyIndices.push(items.length);
+    items.push({ kind: "group-header", group, count: guests.length, collapsed });
+    if (!collapsed) {
+      for (const guest of guests) items.push({ kind: "guest", guest });
+    }
+  }
+  return { items, stickyIndices };
+}
+
+// ─── Séquencement de la saisie en place ──────────────────────────────────────
+
+/**
+ * Le prochain prénom à trouver d'une catégorie, dans l'ordre d'affichage.
+ *
+ * Le rang de `afterId` est cherché parmi TOUS les invités de la catégorie, pas
+ * seulement parmi ceux à compléter : l'invité qu'on vient de nommer ne l'est
+ * justement plus, et c'est depuis sa place qu'il faut repartir. Une ancre
+ * disparue reprend au début plutôt que de rendre `null`.
+ */
+export function nextFirstNameToComplete<T extends IncompleteGuest & Pick<Guest, "id">>(
+  guests: readonly T[],
+  groupId: string,
+  afterId?: string | null,
+): T | null {
+  const ordered = guests.filter((g) => g.groupId === groupId).sort(byName);
+  const from = afterId ? ordered.findIndex((g) => g.id === afterId) + 1 : 0;
+  for (let i = from; i < ordered.length; i++) {
+    if (isFirstNameToComplete(ordered[i])) return ordered[i];
+  }
+  return null;
+}
+
+// ─── Plage de sélection ──────────────────────────────────────────────────────
+
+/**
+ * Les identifiants entre l'ancre et la cible, bornes incluses, dans l'ordre
+ * fourni — celui que la liste montre. Une ancre absente rend la seule cible :
+ * un clic-Maj dont l'ancre a été filtrée reste un clic ordinaire.
+ */
+export function selectRange(
+  visibleIds: readonly string[],
+  anchorId: string | null | undefined,
+  targetId: string,
+): string[] {
+  const target = visibleIds.indexOf(targetId);
+  if (target < 0) return [];
+  const anchor = anchorId ? visibleIds.indexOf(anchorId) : -1;
+  if (anchor < 0) return [targetId];
+  return anchor <= target
+    ? visibleIds.slice(anchor, target + 1)
+    : visibleIds.slice(target, anchor + 1);
+}
+
+// ─── Voisin dans la liste affichée ───────────────────────────────────────────
+
+/** L'invité précédent ou suivant dans les items de `buildGuestListData`, en-têtes ignorés. */
+export function adjacentGuestId<G extends { id: string }, GR>(
+  items: readonly GuestListEntry<G, GR>[],
+  currentId: string,
+  direction: "prev" | "next",
+): string | null {
+  const ids: string[] = [];
+  for (const item of items) if (item.kind === "guest") ids.push(item.guest.id);
+  const at = ids.indexOf(currentId);
+  if (at < 0) return null;
+  return ids[direction === "next" ? at + 1 : at - 1] ?? null;
+}
+
+// ─── Gabarit de création ─────────────────────────────────────────────────────
+
+export interface NewGuestInput {
+  id: string;
+  now: string;
+  firstName: string;
+  nameParticle?: string | null;
+  lastName: string;
+  groupId: string | null;
+  invitationType: string;
+  rsvpStatus: string;
+  isChild: boolean;
+  householdId?: string | null;
+}
+
+/**
+ * Les défauts de création, en un seul endroit : deux surfaces de création qui
+ * les recopieraient divergeraient en silence.
+ *
+ * Le patronyme est normalisé en capitales — la liste importée l'est tout
+ * entière ; la particule est gardée telle que tapée, l'affichage la met déjà
+ * en capitales.
+ */
+export function newGuestDraft(input: NewGuestInput): Guest {
+  const particle = (input.nameParticle ?? "").trim();
+  const rsvp = rsvpStatusUpdate(
+    { rsvpStatus: "PENDING", rsvpDate: null },
+    input.rsvpStatus,
+    input.now,
+  );
+  return {
+    id: input.id,
+    firstName: input.firstName.trim(),
+    nameParticle: particle || null,
+    lastName: input.lastName.trim().toLocaleUpperCase("fr"),
+    side: null,
+    invitationType: input.invitationType,
+    householdId: input.householdId ?? null,
+    isChild: input.isChild,
+    rsvpStatus: rsvp.rsvpStatus ?? input.rsvpStatus,
+    rsvpDate: rsvp.rsvpDate ?? null,
+    isSleeping: null,
+    childrenCount: null,
+    diet: "STANDARD",
+    dietNotes: null,
+    groupId: input.groupId,
+    tableId: null,
+    companionId: null,
+    noTableNeeded: false,
+    giftDescription: null,
+    thankYouSent: false,
+    thankYouSentDate: null,
+    accommodationId: null,
+    roomNumber: null,
+    rsvpToken: null,
+    email: null,
+    phone: null,
+    address: null,
+    notes: null,
+    shuttleVendorId: null,
+    shuttlePickupLocation: null,
+    shuttlePickupTime: null,
+    parkingNeeded: false,
+    parkingNotes: null,
+    arrivalNotes: null,
+    transportMode: "car",
+    createdAt: input.now,
+    updatedAt: input.now,
+  };
+}
+
+// ─── Foyer enchaîné ──────────────────────────────────────────────────────────
+
+export interface ChainedHousehold {
+  householdId: string | null;
+  /** Le précédent n'avait pas de foyer : il entre dans le foyer frais. */
+  attachPrevious: boolean;
+}
+
+/**
+ * Le foyer que reprend une création enchaînée. Le `mintedId` vient de
+ * l'appelant : le SDK ne tire pas d'aléa. Aucune entité n'est créée —
+ * l'appartenance seule fait le foyer.
+ */
+export function resolveChainedHousehold(
+  guests: readonly Pick<Guest, "id" | "householdId">[],
+  previousId: string | null | undefined,
+  mintedId: string,
+): ChainedHousehold {
+  const previous = previousId ? guests.find((g) => g.id === previousId) : undefined;
+  if (!previous) return { householdId: null, attachPrevious: false };
+  if (previous.householdId) return { householdId: previous.householdId, attachPrevious: false };
+  return { householdId: mintedId, attachPrevious: true };
 }

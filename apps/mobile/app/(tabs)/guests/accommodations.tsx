@@ -6,6 +6,7 @@ import { Home, Trash2, Pencil, ChevronDown, ChevronUp } from "lucide-react-nativ
 import * as Crypto from "expo-crypto";
 import { useAccommodationsStore } from "@/store/useAccommodationsStore";
 import { useGuestsStore } from "@/store/useGuestsStore";
+import { formatGuestName } from "@fiance/sdk";
 import { FAB } from "@/components/FAB";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
@@ -16,6 +17,7 @@ import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
 import { analytics } from "@/lib/analytics";
 import { Sprig } from "@/components/Sprig";
 import type { Accommodation } from "@/db/schema";
+import { theme as GP } from "@/lib/theme";
 
 type FormState = {
   name: string;
@@ -160,7 +162,7 @@ export default function AccommodationsScreen() {
             <View style={{ position: "relative" }}>
               <Sprig
                 size={52}
-                color="#6e7a4a"
+                color={GP.olive}
                 angle={12}
                 style={{ position: "absolute", top: -10, right: 14, zIndex: 1 }}
               />
@@ -170,7 +172,7 @@ export default function AccommodationsScreen() {
                 <Text className="text-xs text-mute">{t("roomCount")}</Text>
               </View>
               <View className="items-center">
-                <Display size={22} weight="400" color="#b96a4a">{assignedCount}</Display>
+                <Display size={22} weight="400" color={GP.clay}>{assignedCount}</Display>
                 <Text className="text-xs text-mute">{t("confirmed")}</Text>
               </View>
               <View className="items-center">
@@ -232,7 +234,7 @@ export default function AccommodationsScreen() {
                 <View className="flex-row items-center justify-between mb-1">
                   <View className="flex-row items-center flex-1">
                     <View className="w-8 h-8 rounded-lg bg-accent-blush dark:bg-primary-900 items-center justify-center mr-2">
-                      <Home size={16} color="#b96a4a" />
+                      <Home size={16} color={GP.clay} />
                     </View>
                     <Text className="text-base font-semibold text-ink flex-1">{acc.name}</Text>
                   </View>
@@ -291,7 +293,8 @@ export default function AccommodationsScreen() {
                       </Text>
                     </View>
                     <Text className="text-sm text-ink-soft flex-1">
-                      {g.firstName} {g.lastName}
+                      {/* MODIFICATION LOCALE — nom composé, particule comprise. */}
+                      {formatGuestName(g)}
                     </Text>
                     {g.roomNumber && (
                       <Text className="text-xs text-mute">#{g.roomNumber}</Text>

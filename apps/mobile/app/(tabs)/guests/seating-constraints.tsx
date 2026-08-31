@@ -8,6 +8,7 @@ import {
   SeatingConstraintType,
   SEATING_CONSTRAINT_TYPE_LABELS,
   getConstraintViolations,
+  formatGuestName,
 } from "@fiance/sdk";
 import { useSeatingConstraintsStore } from "@/store/useSeatingConstraintsStore";
 import { useGuestsStore } from "@/store/useGuestsStore";
@@ -19,6 +20,7 @@ import { GuestSelectList } from "@/components/GuestSelectList";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
 import { analytics } from "@/lib/analytics";
 import type { SeatingConstraint } from "@/db/schema";
+import { theme as GP } from "@/lib/theme";
 
 const TYPES = Object.keys(SEATING_CONSTRAINT_TYPE_LABELS) as SeatingConstraintType[];
 
@@ -55,7 +57,8 @@ export default function SeatingConstraintsScreen() {
 
   const guestName = (id: string) => {
     const g = guests.find((x) => x.id === id);
-    return g ? `${g.firstName} ${g.lastName}` : "?";
+    // MODIFICATION LOCALE — nom composé, particule comprise.
+    return g ? formatGuestName(g) : "?";
   };
 
   const handleSave = () => {
@@ -180,7 +183,7 @@ export default function SeatingConstraintsScreen() {
                       <Text className="text-base font-semibold text-ink">
                         {c.label || t(SEATING_CONSTRAINT_TYPE_LABELS[c.type as SeatingConstraintType])}
                       </Text>
-                      {hasViolation && <AlertTriangle size={14} color={c.isHard ? "#EF4444" : "#c9922f"} />}
+                      {hasViolation && <AlertTriangle size={14} color={c.isHard ? "#EF4444" : GP.mustard} />}
                     </View>
                     <Text className="text-xs text-mute mt-0.5">
                       {t(SEATING_CONSTRAINT_TYPE_LABELS[c.type as SeatingConstraintType])} · {c.guestIds.map(guestName).join(", ")}

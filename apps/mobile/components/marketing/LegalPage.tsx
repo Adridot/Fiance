@@ -7,6 +7,7 @@ import { MarketingLink } from "@/components/marketing/MarketingLink";
 import { getLegalDocs } from "@/lib/legal";
 import { Seo } from "@/components/Seo";
 import { localizedSeo, localizedPath } from "@/lib/seo-urls";
+import { theme as GP } from "@/lib/theme";
 
 interface LegalPageProps {
   docKey: "terms" | "privacy";
@@ -50,7 +51,7 @@ export function LegalPage({ docKey, metaTitle, metaDescription }: LegalPageProps
             <View key={section.title} style={{ marginBottom: 40 }}>
               {/* Number + rule */}
               <View className="flex-row items-center gap-3" style={{ marginBottom: 14 }}>
-                <Display size={13} weight="600" color="#b96a4a" style={{ letterSpacing: 1, minWidth: 26 }}>
+                <Display size={13} weight="600" color={GP.clay} style={{ letterSpacing: 1, minWidth: 26 }}>
                   {String(i + 1).padStart(2, "0")}
                 </Display>
                 <View className="flex-1 h-px bg-accent-rose-light" />

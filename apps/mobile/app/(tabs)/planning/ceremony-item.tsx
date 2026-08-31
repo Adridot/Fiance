@@ -3,7 +3,7 @@ import { View, Text, ScrollView, TextInput } from "react-native-css/components";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { useTranslation } from "react-i18next";
 import * as Crypto from "expo-crypto";
-import { CEREMONY_ITEM_KIND_LABELS } from "@fiance/sdk";
+import { CEREMONY_ITEM_KIND_LABELS, formatGuestName } from "@fiance/sdk";
 import type { CeremonyItemKind } from "@fiance/sdk";
 import { useCeremonyStore } from "@/store/useCeremonyStore";
 import { useWeddingEventsStore } from "@/store/useWeddingEventsStore";
@@ -156,7 +156,7 @@ export default function CeremonyItemScreen() {
             <HorizontalChipSelect
               options={[
                 { key: "", label: t("common:none") },
-                ...guests.map((g) => ({ key: g.id, label: `${g.firstName} ${g.lastName}`.trim() })),
+                ...guests.map((g) => ({ key: g.id, label: formatGuestName(g) })),
               ]}
               activeKey={guestId}
               onSelect={setGuestId}

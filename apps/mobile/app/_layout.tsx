@@ -1,3 +1,7 @@
+// MODIFICATION LOCALE — PREMIER import du point d'entrée, à dessein : les
+// imports s'évaluent dans l'ordre, et ce module pose sa marque à
+// l'évaluation. Le déplacer plus bas daterait un instant postérieur.
+import "@/lib/demarrage-marques";
 import "react-native-get-random-values";
 import "../global.css";
 import "@/i18n";
@@ -51,15 +55,20 @@ import { useSettingsStore } from "@/store/useSettingsStore";
 import { Toaster } from "@/lib/toast/sonner";
 import { TelemetryProvider, useTelemetryScreenTracking } from "@drakkar.software/dk-spaces-analytics-sdk";
 import { analytics, initAnalytics } from "@/lib/analytics";
-import { configureOnBoot, SyncInitializer, NotificationInitializer, RevenueCatInitializer, WeddingPremiumInitializer, WidgetInitializer } from "@/lib/providers";
+import { configureOnBoot, SyncInitializer, NotificationInitializer, WeddingPremiumInitializer, WidgetInitializer } from "@/lib/providers";
 import { DatabaseProvider, useDatabaseSwitching } from "@/db/provider";
 import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { ReadOnlyBanner } from "@/components/ReadOnlyBanner";
-import { FeatureWelcomeHost } from "@/lib/feature-welcomes";
+// MODIFICATION LOCALE — un contenu illisible n'est pas un mariage vide.
+import { BandeauLectureImpossible } from "@/components/BandeauLectureImpossible";
+// MODIFICATION LOCALE — le jumeau du bandeau de lecture seule.
+import { UnsavedChangesBanner } from "@/components/UnsavedChangesBanner";
 import { PaywallProvider } from "@/components/PaywallProvider";
 import { useFeatureTrialsStore } from "@/store/useFeatureTrialsStore";
 import { ObserveRoot, useObserve } from "expo-observe";
+// MODIFICATION LOCALE — l'indicateur de chargement du prérendu.
+import { masquerIndicateurDeChargement } from "@/lib/indicateur-de-chargement";
 
 // Configure octospaces-sdk at module load so deriveSession/buildSession are
 // available before any screen renders (home, settings, public-page all call
@@ -80,7 +89,29 @@ function ActiveWeddingRuntime({ wedding }: { wedding: WeddingRegistryEntry }) {
     <>
       <SyncInitializer wedding={wedding} />
       <NotificationInitializer />
-      <RevenueCatInitializer wedding={wedding} />
+      {/*
+        MODIFICATION LOCALE — `<RevenueCatInitializer />` N'EST PLUS MONTÉ.
+
+        Il dérivait une session entière pour son seul compte : `deriveSession`,
+        donc un Argon2id, mesuré à 3 173 ms le 21 août 2026 — la MOITIÉ des
+        6 373 ms qui séparaient le rendu de la liste de son apparition. Et il la
+        dérivait pour ne rien décider : le patch 01 pose `isPremium: true` dans
+        l'état initial de `useRevenueCatStore`, de façon synchrone, sans
+        RevenueCat. Tout ce que ce composant pouvait apprendre était déjà su.
+
+        Rien n'attendait son résultat : `useHasFeature` délègue à
+        `useIsPremium()`, qui lit ce même magasin et le drapeau persisté du
+        mariage ; `useIsEntitled` — le seul lecteur réactif de
+        `useEntitlementsStore` — n'a aucun appelant ; et `ownerId`, que ce
+        composant était seul à écrire, n'est lu que par le code qu'il appelait
+        lui-même.
+
+        Le composant amont RESTE en place dans `lib/providers.tsx`, sans
+        appelant, comme `FeatureWelcomeHost` ci-dessous : l'effacer produirait
+        un correctif large qui entrerait en conflit à chaque évolution amont,
+        pour un gain nul à l'exécution — du code non monté ne s'exécute pas. Le
+        paquet `react-native-purchases` reste installé pour la même raison.
+      */}
       <WeddingPremiumInitializer wedding={wedding} />
       <WidgetInitializer />
     </>
@@ -97,7 +128,12 @@ function AppContent() {
 
   // /join is handled like /onboarding: it must render even when the user has
   // no wedding yet, because that's exactly when the invite link deep-links in.
-  const isOnboardingLike = segments[0] === "onboarding" || segments[0] === "join";
+  // MODIFICATION LOCALE — `/i/<code>` est la forme COURTE de `/join` : elle doit
+  // rendre son écran même sans mariage, puisque c'est exactement le cas d'un
+  // invité qui arrive. Omise, la redirection vers l'accueil l'emporte et
+  // l'invitation n'est jamais vue.
+  const isOnboardingLike =
+    segments[0] === "onboarding" || segments[0] === "join" || segments[0] === "i";
 
   // Redirect to /onboarding when no wedding — skip on onboarding/join routes.
   useEffect(() => {
@@ -148,7 +184,9 @@ function AppContent() {
     <DatabaseProvider dbFileName={activeWedding?.dbFileName}>
       {activeWedding && <ActiveWeddingRuntime wedding={activeWedding} />}
       <View style={{ flex: 1 }}>
+        {activeWedding && <BandeauLectureImpossible />}
         {activeWedding && <ReadOnlyBanner />}
+        {activeWedding && <UnsavedChangesBanner />}
         <View style={{ flex: 1 }}>
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="onboarding" />
@@ -160,7 +198,21 @@ function AppContent() {
           </Stack>
         </View>
         {activeWedding && <OfflineBanner />}
-        {activeWedding && <FeatureWelcomeHost />}
+        {/*
+          MODIFICATION LOCALE — `<FeatureWelcomeHost />` N'EST PLUS MONTÉ.
+          Il ouvrait une modale plein écran à la première visite de chacune des
+          dix-neuf zones. Sur un appareil neuf — le téléphone d'un parent, un
+          navigateur qu'on vient d'ouvrir — c'était dix-neuf interruptions à
+          congédier avant de pouvoir travailler, et l'état « déjà vu » étant
+          local à l'appareil, chaque nouvel appareil recommençait la série.
+
+          Le composant amont, son registre (`lib/feature-welcomes.tsx`), ses
+          clés et ses traductions RESTENT en place, sans appelant : les effacer
+          produirait un correctif large qui entrerait en conflit à chaque
+          évolution amont, pour un gain nul à l'exécution — du code non monté ne
+          s'exécute pas. `apps/mobile/__tests__/no-feature-welcome-host.test.ts`
+          échoue si ce montage revient.
+        */}
       </View>
     </DatabaseProvider>
   );
@@ -251,6 +303,14 @@ function RootLayout() {
   }, [colorScheme, systemScheme]);
 
   const handleUnlock = useCallback(() => setLocked(false), []);
+
+  // MODIFICATION LOCALE — l'indicateur de chargement du prérendu cède la place.
+  //
+  // Ici, et non plus bas : `RootLayout` est le premier composant à monter, quel
+  // que soit ce qui suit — l'écran de verrouillage, le repli d'erreur, ou
+  // l'application. Un indicateur congédié depuis un écran particulier
+  // resterait posé par-dessus tous les autres.
+  useEffect(() => { masquerIndicateurDeChargement(); }, []);
 
   return (
     <SafeAreaProvider>

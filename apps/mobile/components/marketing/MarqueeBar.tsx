@@ -2,6 +2,7 @@ import React from "react";
 import { View, Text } from "react-native-css/components";
 import { useTranslation } from "react-i18next";
 import { Display } from "@/components/Display";
+import { theme as GP } from "@/lib/theme";
 
 const STAT_KEYS = ["offline", "noAds", "encrypted", "vendors"] as const;
 
@@ -17,7 +18,7 @@ export function MarqueeBar() {
       >
         {STAT_KEYS.map((key) => (
           <View key={key} className="flex-row items-center" style={{ gap: 10 }}>
-            <Display size={26} weight="700" color="#f5e6a8">
+            <Display size={26} weight="700" color={GP.postit}>
               {t(`landing.marquee.${key}.stat`)}
             </Display>
             <Text className="text-typography-400" style={{ fontSize: 13, lineHeight: 16, maxWidth: 120 }}>

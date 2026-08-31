@@ -4,6 +4,7 @@ import { StyleSheet } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useTranslation } from "react-i18next";
 import { X } from "lucide-react-native";
+import { theme as GP } from "@/lib/theme";
 
 interface QRScannerScreenProps {
   onScanned: (url: string) => void;
@@ -73,7 +74,7 @@ export function QRScannerScreen({ onScanned, onClose }: QRScannerScreenProps) {
         <View className="flex-1 bg-black/50" />
         <View className="flex-row">
           <View className="flex-1 bg-black/50" />
-          <View style={{ width: 220, height: 220, borderRadius: 16, borderWidth: 3, borderColor: "#EC4899" }} />
+          <View style={{ width: 220, height: 220, borderRadius: 16, borderWidth: 3, borderColor: GP.strawberry }} />
           <View className="flex-1 bg-black/50" />
         </View>
         <View className="flex-1 bg-black/50 items-center justify-start pt-6">

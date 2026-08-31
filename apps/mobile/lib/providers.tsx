@@ -21,7 +21,7 @@ import {
   getActiveWeddingNodeId,
 } from "@/lib/starfish";
 import { registerPull } from "@fiance/sdk";
-import { hydrateFromSpace, scheduleSyncPush, pushSpaceSnapshot, refreshRsvpInbox, refreshFromSpaceIfIdle, discoverOwnerWeddingRoot, hydrateSawLegacyNodes, resetDirtyPushBaseline } from "@/lib/space-sync";
+import { hydrateFromSpace, scheduleSyncPush, pushSpaceSnapshot, refreshRsvpInbox, refreshFromSpaceIfIdle, discoverOwnerWeddingRoot, hydrateSawLegacyNodes, resetDirtyPushBaseline, rejouerPousséeEnAttente, viderPousséeEnAttente } from "@/lib/space-sync";
 import { ensureSpaceProvisioned } from "@/lib/space-provision";
 import { resolveServerUrl, resolveSessionConfig, resolveOwnerUserId, normalizeSyncBase } from "@/lib/server";
 import { ensurePublicPageNode, pushPublicPageContent, publicPageNodeId } from "@/lib/public-page";
@@ -67,6 +67,20 @@ export function configureOnBoot(): void {
  * subsequent re-activation after teardownSync works normally.
  */
 const _activating = new Map<string, Promise<{ userId: string } | null>>();
+
+/**
+ * Resume only once the browser has actually painted. `requestAnimationFrame`
+ * runs BEFORE the paint and the `setTimeout` it arms runs AFTER it — the pair
+ * is what guarantees this, neither one on its own.
+ */
+function yieldToPaint(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const raf = (globalThis as { requestAnimationFrame?: (cb: () => void) => unknown })
+      .requestAnimationFrame;
+    if (typeof raf === "function") raf(() => setTimeout(resolve, 0));
+    else setTimeout(resolve, 0);
+  });
+}
 
 /**
  * Drop any in-flight activation for a wedding id so a subsequent activateSync()
@@ -162,6 +176,9 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
     let unsubSse: (() => void) | null = null;
 
     (async () => {
+      await yieldToPaint();
+      if (cancelled) return;
+
       const activated = await activateSync(wedding);
       if (cancelled || !activated) return;
       resolvedUserId = activated.userId;
@@ -170,6 +187,36 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
       const spaceId = getActiveSpaceId();
       const weddingNodeId = getActiveWeddingNodeId();
       if (!session || !spaceId || !weddingNodeId) return;
+
+      // MODIFICATION LOCALE — l'ordre de ces deux gestes est le sujet, pas un détail.
+      //
+      // 1. BRANCHER LE PLANIFICATEUR EN PREMIER. `registerPull("*")` était appelé
+      //    plus bas, APRÈS l'hydratation du démarrage. Entre le boot et lui,
+      //    `notifySync()` ne trouvait aucun écouteur : l'époque n'était pas
+      //    incrémentée, et la garde qui fait ABANDONNER une lecture recouvrant une
+      //    modification locale ne protégeait donc rien — pendant toute la durée de
+      //    l'hydratation initiale, qui est longue (index, puis lecture groupée des
+      //    collections). Une saisie faite devant l'écran de démarrage était
+      //    recouverte en silence. Le remonter ne coûte rien : `scheduleSyncPush`
+      //    n'arme qu'un minuteur, et l'exécution re-vérifie session/espace/nœud.
+      unregisterPush = registerPull("*", () => { scheduleSyncPush(); });
+
+      // 2. REJOUER CE QUI ATTENDAIT. La poussée est débouncée à 2 s ; si la page
+      //    est partie avant l'échéance, la modification n'a jamais quitté
+      //    l'appareil. Elle est toujours dans les magasins persistés — c'est
+      //    l'INTENTION de la pousser qui s'est perdue avec l'état de module. Le
+      //    marqueur durable posé par `scheduleSyncPush` la retrouve, et on la
+      //    pousse AVANT que l'hydratation ci-dessous puisse recouvrir les données
+      //    locales par un état du serveur antérieur à elle.
+      //
+      //    Avant le flux SSE, lui aussi : un événement pourrait déclencher une
+      //    hydratation concurrente pendant ce rattrapage.
+      //
+      //    Le marqueur n'est effacé qu'au succès : un rattrapage qui échoue est
+      //    retenté au démarrage suivant, et le réessai ordinaire s'en charge d'ici là.
+      if (!cancelled) {
+        await rejouerPousséeEnAttente(session, spaceId, weddingNodeId);
+      }
 
       // Real-time push: subscribe to server-sent events for this space so a peer's
       // change triggers a pull without waiting for foreground/backgrounding. Opened
@@ -228,8 +275,8 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
         }
       }
 
-      // B3: wire dispatchDocChange('*') → debounced server push.
-      unregisterPush = registerPull("*", () => { scheduleSyncPush(); });
+      // (le branchement de dispatchDocChange('*') a été remonté au-dessus de
+      //  l'hydratation — voir la modification locale plus haut)
 
       // B5: ensure the publicPage node exists in the space.
       // Retried with backoff: pull errors and transient 409s are common on first
@@ -272,7 +319,37 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
     })().catch((err) => console.warn("[providers] sync init failed:", err));
 
     // Re-pull entitlements on foreground.
+    // MODIFICATION LOCALE — `pagehide`, que `AppState` ne couvre PAS.
+    //
+    // `react-native-web` n'écoute que `visibilitychange` : ni `pagehide`, ni
+    // `unload`, ni `freeze` ne traversent `AppState`. Or `pagehide` est
+    // l'événement qui accompagne un rechargement ou une fermeture d'onglet —
+    // très exactement le geste qui perdait la saisie.
+    //
+    // Ce serait le premier `window.addEventListener` du code applicatif. D'où
+    // la garde DOUBLE employée ailleurs dans ce projet (`public-page.ts`,
+    // `rsvp-sync.ts`) : l'accroche est posée au montage, donc évaluée aussi
+    // sous le rendu web statique d'Expo, où `window` peut manquer.
+    //
+    // Pas `beforeunload` : peu fiable sur mobile, et l'employer pour retenir la
+    // page serait hostile.
+    let retirerPagehide: (() => void) | null = null;
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const auDépart = () => { viderPousséeEnAttente(); };
+      window.addEventListener("pagehide", auDépart);
+      retirerPagehide = () => window.removeEventListener("pagehide", auDépart);
+    }
+
     const foregroundSub = AppState.addEventListener("change", (state) => {
+      // MODIFICATION LOCALE — le départ, et non plus seulement le retour.
+      //
+      // `react-native-web` fait correspondre `AppState` à `visibilitychange`, et
+      // à lui seul : `hidden` rend `"background"`. Cette moitié du vidage ne
+      // demande donc aucun écouteur nouveau — il suffit d'ouvrir une branche
+      // avant le `return` ci-dessous, qui écartait tout ce qui n'était pas
+      // `"active"`. Sur natif, c'est le passage en arrière-plan, qui mérite le
+      // même traitement.
+      if (state === "background") { viderPousséeEnAttente(); return; }
       if (state !== "active" || !resolvedUserId) return;
       pullEntitlements(null, resolvedUserId)
         .then((features) => {
@@ -310,6 +387,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
     return () => {
       cancelled = true;
       foregroundSub.remove();
+      retirerPagehide?.();
       unregisterPush?.();
       unsubSse?.();
     };
@@ -319,6 +397,20 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
   // Debounced: collapses rapid per-keystroke changes into one network push.
   useEffect(() => {
     function pushPublicPageContentIfActive() {
+      // MODIFICATION LOCALE — la garde de rôle qui manquait ici.
+      //
+      // La poussée d'amorçage, cent lignes plus haut, ne s'autorise QUE pour le
+      // propriétaire (« a member's first sync must never push its local
+      // (possibly stale/empty) snapshot over the owner's real content »). Cette
+      // ré-poussée-ci, elle, n'avait aucune garde — un onglet MEMBRE écrivait
+      // donc sa propre vue par-dessus la page publique du propriétaire, à
+      // chaque hydratation. Le même raisonnement vaut ici mot pour mot ; seule
+      // la garde manquait.
+      //
+      // Trouvé en cherchant la boucle de rétroaction du flux d'événements (elle
+      // faisait boucler les onglets membres aussi), mais c'est un défaut de
+      // DROITS, indépendant du flux et antérieur à lui.
+      if (wedding.role === "member") return;
       const session = getActiveSession();
       const spaceId = getActiveSpaceId();
       const weddingNodeId = getActiveWeddingNodeId();
@@ -357,7 +449,10 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
     });
 
     return () => { unsubPlanning(); unsubWedding(); unsubPermissions(); if (pushTimer) clearTimeout(pushTimer); };
-  }, []);
+    // `wedding.role` est lu dans `pushPublicPageContentIfActive` : sans lui ici,
+    // l'effet fermerait sur le rôle du premier rendu, et un rôle changé en cours
+    // de session laisserait la garde ci-dessus décider sur une valeur périmée.
+  }, [wedding.role]);
 
   return null;
 }

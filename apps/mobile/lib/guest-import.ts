@@ -8,7 +8,7 @@
  */
 
 import { unzipSync, strFromU8 } from "fflate";
-import type { Guest, GuestGroup, Table } from "@fiance/sdk";
+import type { Guest, GuestGroup, Table, InvitationTypeEntity } from "@fiance/sdk";
 
 export interface ParsedSheet {
   headers: string[];
@@ -21,8 +21,23 @@ export interface GuestImportResult {
   groups: GuestGroup[];
   /** Newly created tables only (existing ones are reused by name). */
   tables: Table[];
+  /** Newly created invitation types only (existing ones are reused, by id then by label). */
+  invitationTypes: InvitationTypeEntity[];
   skippedRows: number;
+  /** Rows whose source gave no invitation type — they get UNDETERMINED_INVITATION_TYPE. */
+  withoutInvitationType: number;
+  /** Names appearing more than once in the source: reported, not merged — every row is imported. */
+  duplicateNames: string[];
 }
+
+export const UNDETERMINED_INVITATION_TYPE: InvitationTypeEntity = {
+  id: "IMPORT_UNDETERMINED",
+  label: "À déterminer",
+  isDefault: false,
+  needsSleeping: false,
+  createdAt: null,
+  updatedAt: null,
+};
 
 // ─── Bytes helpers ───────────────────────────────────────────────────────────
 
@@ -183,6 +198,8 @@ type GuestField =
   | "phoneMobile"
   | "phone"
   | "group"
+  | "invitationType"
+  | "children"
   | "rsvp"
   | "table"
   | "addressStreet"
@@ -197,6 +214,16 @@ const HEADER_SYNONYMS: Record<GuestField, string[]> = {
   phoneMobile: ["telephone portable", "portable", "mobile"],
   phone: ["telephone", "phone", "tel"],
   group: ["groupe", "group"],
+  invitationType: [
+    "cadre",
+    "cadres",
+    "cadre d'invitation",
+    "type d'invitation",
+    "type invitation",
+    "invitation",
+    "invitation type",
+  ],
+  children: ["enfant", "enfants", "children", "nb enfants"],
   rsvp: ["confirme", "statut", "rsvp", "reponse", "status"],
   table: ["table"],
   addressStreet: ["adresse", "address"],
@@ -239,7 +266,7 @@ function mapRsvpStatus(raw: string): string {
 
 export function mapRowsToGuests(
   sheet: ParsedSheet,
-  existing: { groups: GuestGroup[]; tables: Table[] },
+  existing: { groups: GuestGroup[]; tables: Table[]; invitationTypes?: InvitationTypeEntity[] },
   opts: { makeId: () => string; now?: string },
 ): GuestImportResult {
   const now = opts.now ?? new Date().toISOString();
@@ -255,6 +282,16 @@ export function mapRowsToGuests(
   const newTables: Table[] = [];
   const guests: Guest[] = [];
   let skippedRows = 0;
+
+  const knownTypes = existing.invitationTypes ?? [];
+  const typeIdsByKey = new Map<string, string>();
+  for (const it of knownTypes) {
+    typeIdsByKey.set(normalizeHeader(it.id), it.id);
+    typeIdsByKey.set(normalizeHeader(it.label), it.id);
+  }
+  const newInvitationTypes: InvitationTypeEntity[] = [];
+  let withoutInvitationType = 0;
+  const nameSeen = new Map<string, number>();
 
   for (const row of sheet.rows) {
     let firstName = cell(row, "firstName");
@@ -294,6 +331,43 @@ export function mapRowsToGuests(
       }
     }
 
+    const rawType = cell(row, "invitationType");
+    let invitationTypeId: string;
+    if (!rawType) {
+      withoutInvitationType++;
+      const undeterminedKey = normalizeHeader(UNDETERMINED_INVITATION_TYPE.id);
+      if (!typeIdsByKey.has(undeterminedKey)) {
+        typeIdsByKey.set(undeterminedKey, UNDETERMINED_INVITATION_TYPE.id);
+        typeIdsByKey.set(normalizeHeader(UNDETERMINED_INVITATION_TYPE.label), UNDETERMINED_INVITATION_TYPE.id);
+        newInvitationTypes.push({ ...UNDETERMINED_INVITATION_TYPE, createdAt: now, updatedAt: now });
+      }
+      invitationTypeId = UNDETERMINED_INVITATION_TYPE.id;
+    } else {
+      const key = normalizeHeader(rawType);
+      const known = typeIdsByKey.get(key);
+      if (known) {
+        invitationTypeId = known;
+      } else {
+        invitationTypeId = opts.makeId();
+        typeIdsByKey.set(key, invitationTypeId);
+        newInvitationTypes.push({
+          id: invitationTypeId,
+          label: rawType,
+          isDefault: false,
+          needsSleeping: false,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+
+    // The column says the person on this row IS a child, not that they bring one:
+    // reading it as a companion count gave every named child a phantom second one.
+    const isChild = cell(row, "children") !== "";
+
+    const nameKey = normalizeHeader(`${firstName} ${lastName}`);
+    nameSeen.set(nameKey, (nameSeen.get(nameKey) ?? 0) + 1);
+
     const address = [cell(row, "addressStreet"), cell(row, "addressZip"), cell(row, "addressCity")]
       .filter(Boolean)
       .join(", ");
@@ -303,10 +377,11 @@ export function mapRowsToGuests(
       firstName,
       lastName,
       side: null,
-      invitationType: "FULL",
+      invitationType: invitationTypeId,
       rsvpStatus: mapRsvpStatus(cell(row, "rsvp")),
       rsvpDate: null,
       isSleeping: null,
+      isChild,
       childrenCount: 0,
       diet: "STANDARD",
       dietNotes: null,
@@ -336,5 +411,81 @@ export function mapRowsToGuests(
     });
   }
 
-  return { guests, groups: newGroups, tables: newTables, skippedRows };
+  const duplicateNames = [...nameSeen.entries()].filter(([, n]) => n > 1).map(([k]) => k);
+
+  return {
+    guests,
+    groups: newGroups,
+    tables: newTables,
+    invitationTypes: newInvitationTypes,
+    skippedRows,
+    withoutInvitationType,
+    duplicateNames,
+  };
+}
+
+// ─── Reconciling an import with what the app already holds ───────────────────
+
+/** A guest export carries no stable id, so the normalized name is the only match key. */
+export function guestMatchKey(g: { firstName: string; lastName: string }): string {
+  return normalizeHeader(`${g.firstName} ${g.lastName}`);
+}
+
+const isEmpty = (v: unknown): boolean => v == null || (typeof v === "string" && v.trim() === "");
+
+/** Fields a re-import may fill in — never the identity, never the timestamps. */
+const MERGEABLE_FIELDS = [
+  "email", "phone", "address", "notes", "groupId", "tableId",
+] as const satisfies readonly (keyof Guest)[];
+
+export interface GuestReconciliation {
+  toAdd: Guest[];
+  toUpdate: { id: string; updates: Partial<Guest> }[];
+  /** Source rows recognised as already present. */
+  matched: number;
+}
+
+/**
+ * Matches are consumed one by one: two existing namesakes absorb two namesake
+ * source rows, instead of both rows landing on the first guest.
+ */
+export function reconcileGuests(existing: Guest[], incoming: Guest[]): GuestReconciliation {
+  const pool = new Map<string, Guest[]>();
+  for (const g of existing) {
+    const key = guestMatchKey(g);
+    const bucket = pool.get(key);
+    if (bucket) bucket.push(g);
+    else pool.set(key, [g]);
+  }
+
+  const toAdd: Guest[] = [];
+  const toUpdate: { id: string; updates: Partial<Guest> }[] = [];
+  let matched = 0;
+
+  for (const candidate of incoming) {
+    const bucket = pool.get(guestMatchKey(candidate));
+    const match = bucket?.shift();
+    if (!match) {
+      toAdd.push(candidate);
+      continue;
+    }
+    matched++;
+
+    const updates: Partial<Guest> = {};
+    for (const field of MERGEABLE_FIELDS) {
+      if (isEmpty(match[field]) && !isEmpty(candidate[field])) {
+        (updates as Record<string, unknown>)[field] = candidate[field];
+      }
+    }
+    // The undetermined type is an absence, not a choice: a real one may replace it.
+    if (
+      match.invitationType === UNDETERMINED_INVITATION_TYPE.id &&
+      candidate.invitationType !== UNDETERMINED_INVITATION_TYPE.id
+    ) {
+      updates.invitationType = candidate.invitationType;
+    }
+    if (Object.keys(updates).length > 0) toUpdate.push({ id: match.id, updates });
+  }
+
+  return { toAdd, toUpdate, matched };
 }

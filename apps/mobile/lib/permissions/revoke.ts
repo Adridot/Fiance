@@ -1,14 +1,29 @@
 /**
- * Collaborator revocation (owner side).
+ * Révocation d'un collaborateur (côté propriétaire).
  *
- * True eviction = keyring rotation (evicted member can no longer decrypt new content) +
- * roster removal (server denies `space:member`, so every collection 403s for future reads/
- * writes). Revoking one subject evicts ONLY that subject — other links/members keep access.
+ * MODIFICATION LOCALE — l'en-tête d'amont affirmait que le retrait du registre
+ * coupe l'accès serveur, « every object collection requires the roster
+ * `space:member` role ». C'est FAUX sur ce déploiement : `spaceDoc` de
+ * `fiance-sync/src/collections.mjs` déclare
+ * `readRoles: ["space:member", "cap:read:objdoc"]`, donc un porteur de cap lit
+ * sans figurer dans `_access` — c'est exactement ainsi que le robot `fiance-db`
+ * travaille. Et `createInMemoryRevocationStore` perd sa liste à chaque
+ * redémarrage du conteneur, tandis que `submitRevocation` n'écrit que dans le
+ * registre local.
  *
- * `submitRevocation` is local: the dk server has no RevocationList endpoint, and it isn't
- * needed here — every object collection requires the roster `space:member` role, which the
- * roster drop removes. We still persist the RevocationList (generation + cumulative entries)
- * so a future server endpoint can consume it.
+ * La rotation du keyring est donc le SEUL levier réel — et une rotation qui ne
+ * rescelle rien ne révoque rien : le lien évincé continue d'ouvrir tout le
+ * contenu déjà écrit. D'où l'ordre ci-dessous, dont l'étape 4 est nouvelle :
+ *
+ *   1. retirer l'assignation + pousser  ← le révoqué, encore dans l'époque
+ *                                         courante, déchiffre son propre retrait
+ *   2. faire tourner le keyring         ← il perd l'époque suivante
+ *   3. resceller tout le contenu        ← il perd le contenu déjà écrit
+ *   4. rendre la main
+ *
+ * Le rescellement ferme l'accès FUTUR ; il ne reprend rien de ce qui a déjà été
+ * lu et gardé. La `RevocationList` reste persistée pour un futur point de
+ * terminaison serveur, mais rien ne s'appuie plus dessus.
  */
 
 import {
@@ -22,15 +37,36 @@ import { readCollection } from "@/lib/kv-storage";
 import { SPACE_INVITE_STORE_KEY } from "@/lib/invite-link";
 import { usePermissionsStore } from "@/store/usePermissionsStore";
 import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
+// MODIFICATION LOCALE — l'étape 3 : une rotation qui ne rescelle rien ne révoque rien.
+import {
+  rescellerEspace,
+  rescellementComplet,
+  type AvancementDuRescellement,
+} from "@/lib/rescellement";
 
 export interface RevokeResult {
-  /** True when the keyring was rotated (full eviction); false when only the roster was dropped. */
+  /**
+   * True quand l'éviction est ACCOMPLIE : keyring tourné ET contenu rescellé.
+   * Une rotation seule ne suffit pas — le révoqué relirait tout l'existant.
+   */
   evicted: boolean;
+  /**
+   * Les collections qui n'ont pas pu être rescellées. Non vide = révocation
+   * INCOMPLÈTE : l'espace est en époques mêlées, sûr pour ceux qui étaient déjà
+   * là, et réparable par `fiance-db reseal`. `evicted` est alors `false`.
+   */
+  aResceller?: string[];
+}
+
+export interface RevokeOptions {
+  /** Appelé pendant le rescellement, pour montrer la progression. */
+  onAvancement?: (avancement: AvancementDuRescellement) => void;
 }
 
 export async function revokeCollaborator(
   subjectUserId: string,
   assignmentId: string,
+  options: RevokeOptions = {},
 ): Promise<RevokeResult> {
   const permStore = usePermissionsStore.getState();
   const regStore = useWeddingRegistryStore.getState();
@@ -79,10 +115,10 @@ export async function revokeCollaborator(
         });
       },
     });
-    return { evicted: true };
   } catch (err) {
-    // No stored invite entry (link minted on another device) — roster drop still cuts server
-    // access, since every object collection requires the roster space:member role.
+    // Aucune entrée d'invitation en magasin (lien minté sur un autre appareil).
+    // Le retrait du registre est alors tout ce qui reste — et il ne coupe PAS
+    // l'accès serveur ici (voir l'en-tête). L'éviction n'est donc pas accomplie.
     console.warn("[revoke] revokeSpaceAccess failed; falling back to removeSpaceMember", err);
     try {
       await removeSpaceMember(session.accountClient, spaceId, subjectUserId, session);
@@ -91,4 +127,17 @@ export async function revokeCollaborator(
     }
     return { evicted: false };
   }
+
+  // 3. RESCELLER — sans quoi les deux étapes précédentes ne retirent rien du
+  //    contenu déjà écrit, que le lien évincé continue de déchiffrer.
+  const rescellement = await rescellerEspace(session, spaceId, { onAvancement: options.onAvancement });
+  if (!rescellementComplet(rescellement)) {
+    console.warn("[revoke] rescellement incomplet, reste :", rescellement.restant);
+    return {
+      evicted: false,
+      aResceller: rescellement.restant.length ? rescellement.restant : ["*"],
+    };
+  }
+
+  return { evicted: true, aResceller: [] };
 }

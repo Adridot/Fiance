@@ -5,7 +5,7 @@ import { Stack, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, LayoutGrid, Trash2, Map as MapIcon, Ban } from "lucide-react-native";
 import * as Crypto from "expo-crypto";
-import { validateSeatingPlan } from "@fiance/sdk";
+import { validateSeatingPlan, formatGuestName } from "@fiance/sdk";
 import { useGuestsStore } from "@/store/useGuestsStore";
 import { useSeatingConstraintsStore } from "@/store/useSeatingConstraintsStore";
 import { DIET_LABELS } from "@/db/types";
@@ -14,6 +14,7 @@ import { useCan } from "@/lib/permissions/usePermissions";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { HeaderAddButton } from "@/components/HeaderAddButton";
+import { theme as GP } from "@/lib/theme";
 
 export default function TableManagementScreen() {
   const { t } = useTranslation("guests");
@@ -125,7 +126,7 @@ export default function TableManagementScreen() {
               onPress={() => router.push("/(tabs)/guests/tables")}
               className="flex-row items-center justify-center gap-2 mb-4 py-2.5 rounded-xl bg-primary-50 dark:bg-primary-950 border border-primary-100 dark:border-primary-900 active:opacity-70"
             >
-              <MapIcon size={16} color="#b96a4a" />
+              <MapIcon size={16} color={GP.clay} />
               <Text className="text-sm font-semibold text-primary-500">{t("openPlanView")}</Text>
             </Pressable>
           )}
@@ -194,7 +195,7 @@ export default function TableManagementScreen() {
                     className="flex-row items-center flex-1"
                   >
                     <View className="w-8 h-8 rounded-lg bg-accent-blush dark:bg-primary-900 items-center justify-center mr-2">
-                      <LayoutGrid size={16} color="#b96a4a" />
+                      <LayoutGrid size={16} color={GP.clay} />
                     </View>
                     {editingTableId === table.id ? (
                       <TextInput
@@ -270,7 +271,8 @@ export default function TableManagementScreen() {
                         </Text>
                       </View>
                       <Text className="text-sm text-ink-soft flex-1">
-                        {g.firstName} {g.lastName}
+                        {/* MODIFICATION LOCALE — nom composé, particule comprise. */}
+                        {formatGuestName(g)}
                       </Text>
                       {conflictedGuestIds.has(g.id) && (
                         <View className="flex-row items-center gap-1 mr-2">

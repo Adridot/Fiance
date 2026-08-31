@@ -6,6 +6,7 @@ import { Sheet } from "@fiance/ui/components";
 import { Sparkles, Infinity as InfinityIcon, UserPlus, Globe, Wallet, BadgeCheck, Bell, FileDown } from "lucide-react-native";
 import { purchasePremium, restorePremium, getPremiumPrice } from "@/lib/revenuecat";
 import { usePermissions } from "@/lib/permissions/usePermissions";
+import { theme as GP } from "@/lib/theme";
 
 interface PaywallSheetProps {
   visible: boolean;
@@ -94,7 +95,7 @@ export function PaywallSheet({ visible, onClose, context }: PaywallSheetProps) {
       <View className="bg-accent-card rounded-t-3xl px-6 pt-6 pb-10">
         <View className="items-center mb-4">
           <View className="w-14 h-14 rounded-2xl bg-primary-50 dark:bg-primary-900 items-center justify-center mb-3">
-            <Sparkles size={28} color="#EC4899" />
+            <Sparkles size={28} color={GP.strawberry} />
           </View>
           {context ? (
             <Text className="text-base font-semibold text-primary-500 text-center mb-1">
@@ -116,7 +117,7 @@ export function PaywallSheet({ visible, onClose, context }: PaywallSheetProps) {
               className={`flex-row items-center px-3.5 py-3 gap-3${i < BENEFITS.length - 1 ? " border-b border-hair" : ""}`}
             >
               <View className="w-7 h-7 rounded-lg bg-primary-50 dark:bg-primary-900 items-center justify-center">
-                <Icon size={14} color="#b96a4a" />
+                <Icon size={14} color={GP.clay} />
               </View>
               <Text className="flex-1 text-xs font-medium text-ink">
                 {t(key)}

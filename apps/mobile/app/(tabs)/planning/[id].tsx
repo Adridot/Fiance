@@ -28,6 +28,7 @@ import { useCanAddMore, FREE_LIMITS } from "@/lib/limits";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import { toast } from "@/lib/toast/sonner";
 import type { Task } from "@/db/schema";
+import { theme as GP } from "@/lib/theme";
 
 const STATUSES: TaskStatus[] = ["TODO", "DONE"];
 const PRIORITIES: Priority[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
@@ -160,8 +161,8 @@ export default function TaskDetailScreen() {
                 titleSize={24}
                 style={{ paddingHorizontal: 0, paddingTop: 0 }}
               />
-              {isDone && <Seal label="✓" sublabel={t("status.DONE")} color="#6e7a4a" size={40} angle={-8} style={{ position: "absolute", top: -8, right: 8 }} />}
-              {isUrgent && <Seal label="!" sublabel={`${dueDays}j`} color="#b96a4a" size={40} angle={-8} style={{ position: "absolute", top: -8, right: 8 }} />}
+              {isDone && <Seal label="✓" sublabel={t("status.DONE")} color={GP.olive} size={40} angle={-8} style={{ position: "absolute", top: -8, right: 8 }} />}
+              {isUrgent && <Seal label="!" sublabel={`${dueDays}j`} color={GP.clay} size={40} angle={-8} style={{ position: "absolute", top: -8, right: 8 }} />}
             </View>
           );
         })()}
@@ -171,7 +172,7 @@ export default function TaskDetailScreen() {
           options={STATUSES.map((s) => ({
             key: s,
             label: t(TASK_STATUS_LABELS[s]),
-            color: "#b96a4a",
+            color: GP.clay,
           }))}
           activeKey={status}
           onSelect={(k) => setStatus(k as TaskStatus)}
