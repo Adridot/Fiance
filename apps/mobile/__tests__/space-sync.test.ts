@@ -243,6 +243,8 @@ vi.mock("@/lib/kv-storage", () => ({
   getStorage: () => null,
 }));
 
+// ─── Tests ────────────────────────────────────────────────────────────────────
+
 // Le KV est une variable de CE FICHIER : il survit volontairement à
 // `vi.resetModules()`, puisqu'il modélise un stockage qui survit au
 // rechargement d'une page. Il doit donc être remis à zéro entre deux TESTS,
@@ -250,8 +252,6 @@ vi.mock("@/lib/kv-storage", () => ({
 beforeEach(() => {
   mockKvStore.clear();
 });
-
-// ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("scheduleSyncPush / _isHydrating timer guard", () => {
   beforeEach(() => {
