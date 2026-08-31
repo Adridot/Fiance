@@ -374,6 +374,111 @@ export function formatGuestGroupSide(
   return labels.none;
 }
 
+// ─── The first name still to be found ────────────────────────────────────────
+//
+// An EMPTY first name is a legitimate state — a gap that shows, counts and gets
+// corrected — where a fabricated one would pass itself off as data. Everything
+// below is COMPUTED on read: a maintained counter would be a second state to
+// keep in agreement with the first.
+
+export type IncompleteGuest = Pick<Guest, "firstName" | "lastName" | "groupId">;
+
+// First names fabricated by an import: a name, a space, a number. « Luc 1 » is
+// a household contact given a disambiguation suffix, « Luc 2 » is their spouse,
+// lent the same name for want of a better one. Neither is a first name.
+const SYNTHETIC_FIRST_NAME = /\s\d+$/;
+
+/**
+ * A guest whose first name is still to be found.
+ *
+ * The rule is SELF-CORRECTING, which is what makes it safe: as soon as a first
+ * name is entered it stops matching, so nothing has to be written down for the
+ * count to be right.
+ */
+export function isFirstNameToComplete(g: Pick<Guest, "firstName">): boolean {
+  const p = (g.firstName ?? "").trim();
+  return p === "" || SYNTHETIC_FIRST_NAME.test(p);
+}
+
+export interface GuestGroupProgress {
+  total: number;
+  missingFirstName: number;
+  /** Guests who answered — accepted or declined, like the global response rate. */
+  answered: number;
+}
+
+/**
+ * Per-category progress, in one pass. A category with no guest is absent from
+ * the map; the display decides what it says about that.
+ */
+export function computeGroupProgress(
+  guests: (IncompleteGuest & Pick<Guest, "rsvpStatus">)[],
+): Map<string, GuestGroupProgress> {
+  const out = new Map<string, GuestGroupProgress>();
+  for (const g of guests) {
+    if (!g.groupId) continue;
+    let p = out.get(g.groupId);
+    if (!p) {
+      p = { total: 0, missingFirstName: 0, answered: 0 };
+      out.set(g.groupId, p);
+    }
+    p.total++;
+    if (isFirstNameToComplete(g)) p.missingFirstName++;
+    if (g.rsvpStatus === "ACCEPTED" || g.rsvpStatus === "DECLINED") p.answered++;
+  }
+  return out;
+}
+
+function byName(a: IncompleteGuest, b: IncompleteGuest): number {
+  return `${a.lastName}${a.firstName}`.localeCompare(`${b.lastName}${b.firstName}`, "fr");
+}
+
+export interface FamilyToComplete<T> {
+  lastName: string;
+  named: T[];
+  missing: T[];
+}
+
+/**
+ * The families of a category with at least one first name to find, with ALL
+ * their members — those already named included.
+ *
+ * That is what makes the correction answerable: « AUGIER D'IVRY, ___ » cannot
+ * be answered, « AUGIER D'IVRY: François, and ___ » can — the blank is his
+ * spouse. Listing the unnamed on their own asks for a first name without
+ * saying whose.
+ */
+export function groupFamiliesToComplete<T extends IncompleteGuest & Pick<Guest, "nameParticle">>(
+  guests: T[],
+  groupId: string,
+): FamilyToComplete<T>[] {
+  const families = new Map<string, T[]>();
+  for (const g of guests) {
+    if (g.groupId !== groupId) continue;
+    const key = formatGuestLastName(g as NamedGuest).toLocaleLowerCase("fr");
+    const bucket = families.get(key);
+    if (bucket) bucket.push(g);
+    else families.set(key, [g]);
+  }
+
+  const out: (FamilyToComplete<T> & { sortKey: string })[] = [];
+  for (const members of families.values()) {
+    const missing = members.filter(isFirstNameToComplete).sort(byName);
+    if (missing.length === 0) continue;
+    out.push({
+      lastName: formatGuestLastName(members[0] as NamedGuest),
+      // The particle stays out of the sort key, as in the guest list:
+      // « de la Presle » files under P, not D.
+      sortKey: (members[0].lastName ?? "").trim(),
+      named: members.filter((g) => !isFirstNameToComplete(g)).sort(byName),
+      missing,
+    });
+  }
+  return out
+    .sort((a, b) => a.sortKey.localeCompare(b.sortKey, "fr", { sensitivity: "base" }))
+    .map(({ sortKey: _sortKey, ...family }) => family);
+}
+
 export interface GuestGroupSideSection {
   side: GuestGroupSide | null;
   groups: GuestGroup[];

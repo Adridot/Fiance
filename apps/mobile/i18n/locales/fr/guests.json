@@ -116,6 +116,7 @@
   "deleteGuestConfirm": "Supprimer cet invité ?",
   "irreversible": "Cette action est irréversible.",
   "firstLastRequired": "Le prénom et le nom sont obligatoires",
+  "lastNameRequired": "Le nom de famille est obligatoire",
   "tables": "Tables",
   "newTable": "Nouvelle table",
   "tableName": "Nom de la table",

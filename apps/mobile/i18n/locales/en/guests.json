@@ -116,6 +116,7 @@
   "deleteGuestConfirm": "Delete this guest?",
   "irreversible": "This action is irreversible.",
   "firstLastRequired": "First name and last name are required",
+  "lastNameRequired": "Last name is required",
   "tables": "Tables",
   "newTable": "New table",
   "tableName": "Table name",
