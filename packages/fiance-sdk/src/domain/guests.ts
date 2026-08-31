@@ -1,5 +1,5 @@
 // NodeNext .js extension required
-import type { Guest, Table, GuestGroup, GuestGroupSide } from './schema.js';
+import type { Guest, Table, GuestGroup, GuestGroupSide, Wedding } from './schema.js';
 
 export type NamedGuest = Pick<Guest, 'firstName' | 'lastName' | 'nameParticle'>;
 
@@ -291,5 +291,30 @@ export function sortGroups(groups: GuestGroup[]): GuestGroup[] {
     // to the other end of the list — « Émile » must neighbour « Emile ».
     return a.name.localeCompare(b.name, "fr", { sensitivity: "base" });
   });
+}
+
+/** Labels the app supplies to compose a side. */
+export interface GuestGroupSideLabels {
+  /** Named template, `{name}` replaced by the partner's first name. */
+  named: string;
+  /** Fallbacks used when the wedding gives no first name for the partner. */
+  partner1: string;
+  partner2: string;
+  both: string;
+  none: string;
+}
+
+export function formatGuestGroupSide(
+  side: GuestGroupSide | null | undefined,
+  wedding: Pick<Wedding, "partner1Name" | "partner2Name"> | null | undefined,
+  labels: GuestGroupSideLabels,
+): string {
+  if (side === "BOTH") return labels.both;
+  if (side === "PARTNER_1" || side === "PARTNER_2") {
+    const name = (side === "PARTNER_1" ? wedding?.partner1Name : wedding?.partner2Name)?.trim();
+    if (name) return labels.named.replace("{name}", name);
+    return side === "PARTNER_1" ? labels.partner1 : labels.partner2;
+  }
+  return labels.none;
 }
 

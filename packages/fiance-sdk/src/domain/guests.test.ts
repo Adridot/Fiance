@@ -3,6 +3,7 @@ import {
   computeCounts,
   countDuplicateGuests,
   sortGroups,
+  formatGuestGroupSide,
   formatGuestName,
   removeGuest,
   removeGuests,
@@ -177,6 +178,39 @@ describe('sortGroups', () => {
     const input = [g('SIMON'), g('AUBREE')];
     sortGroups(input);
     expect(input.map((x) => x.name)).toEqual(['SIMON', 'AUBREE']);
+  });
+});
+
+describe('formatGuestGroupSide', () => {
+  const labels = {
+    named: 'Côté {name}',
+    partner1: 'Premier côté',
+    partner2: 'Second côté',
+    both: 'Les deux côtés',
+    none: 'Sans côté',
+  };
+  const wedding = { partner1Name: 'Adrien', partner2Name: 'Emma' };
+
+  it('borrows its label from the partner first name', () => {
+    expect(formatGuestGroupSide('PARTNER_1', wedding, labels)).toBe('Côté Adrien');
+    expect(formatGuestGroupSide('PARTNER_2', wedding, labels)).toBe('Côté Emma');
+  });
+
+  it('renders a clean label for both sides', () => {
+    expect(formatGuestGroupSide('BOTH', wedding, labels)).toBe('Les deux côtés');
+  });
+
+  it('falls back to a neutral label when the first name is missing, never a hollow template', () => {
+    expect(formatGuestGroupSide('PARTNER_1', { partner1Name: null, partner2Name: 'Emma' }, labels))
+      .toBe('Premier côté');
+    expect(formatGuestGroupSide('PARTNER_2', { partner1Name: 'Adrien', partner2Name: '  ' }, labels))
+      .toBe('Second côté');
+    expect(formatGuestGroupSide('PARTNER_1', null, labels)).toBe('Premier côté');
+  });
+
+  it('renders a label for a sideless category', () => {
+    expect(formatGuestGroupSide(null, wedding, labels)).toBe('Sans côté');
+    expect(formatGuestGroupSide(undefined, wedding, labels)).toBe('Sans côté');
   });
 });
 
