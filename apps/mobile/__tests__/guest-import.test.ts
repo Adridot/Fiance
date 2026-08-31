@@ -123,7 +123,8 @@ describe("mapRowsToGuests", () => {
     expect(paul.phone).toBe("0612345678"); // mobile preferred over landline
     expect(paul.address).toBe("1 rue de la Paix, 75001, Paris");
     expect(paul.email).toBe("paul@example.com");
-    expect(paul.invitationType).toBe("FULL");
+    // These headers carry no invitation-type column, so every row lands undetermined.
+    expect(paul.invitationType).toBe("IMPORT_UNDETERMINED");
 
     const catherine = result.guests[1];
     expect(catherine.rsvpStatus).toBe("PENDING");
@@ -228,6 +229,14 @@ describe("mapRowsToGuests — invitation types", () => {
     return () => `id-${n++}`;
   };
 
+  it("recognises the usual column headers, whatever the accents and case", () => {
+    for (const header of ["Cadre", "CADRE", "Type d'invitation", "invitation", "Cadre d'invitation"]) {
+      const r = mapRowsToGuests(sheetWith(header, ["Vin d'honneur"]), { groups: [], tables: [] }, { makeId: ids() });
+      expect(r.withoutInvitationType, `header "${header}" not recognised`).toBe(0);
+      expect(r.invitationTypes[0].label).toBe("Vin d'honneur");
+    }
+  });
+
   it("reuses an existing type, by id or by label, without duplicating it", () => {
     const existing = [
       { id: "FULL", label: "Journée complète", isDefault: true, needsSleeping: false, createdAt: null, updatedAt: null },
@@ -249,5 +258,17 @@ describe("mapRowsToGuests — invitation types", () => {
     );
     expect(r.invitationTypes).toHaveLength(1);
     expect(new Set(r.guests.map((g) => g.invitationType)).size).toBe(1);
+  });
+
+  it("reports rows without an invitation type instead of forcing FULL on them", () => {
+    const r = mapRowsToGuests(
+      sheetWith("Cadre", ["Cérémonie", "", "  "]),
+      { groups: [], tables: [] },
+      { makeId: ids() },
+    );
+    expect(r.withoutInvitationType).toBe(2);
+    expect(r.guests[1].invitationType).toBe("IMPORT_UNDETERMINED");
+    expect(r.guests[1].invitationType).not.toBe("FULL");
+    expect(r.invitationTypes.some((t) => t.id === "IMPORT_UNDETERMINED")).toBe(true);
   });
 });
