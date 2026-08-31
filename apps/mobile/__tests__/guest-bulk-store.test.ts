@@ -50,6 +50,7 @@ function seed() {
     guests: [guest("a", "b"), guest("b", "a"), guest("c", "d"), guest("d", "c"), guest("e"), guest("f")],
     tables: [],
     groups: [],
+    households: [],
   });
   useCommunicationsStore.setState({
     communications: [

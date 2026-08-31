@@ -9,6 +9,7 @@ import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
 import { ToggleRow } from "@/components/FormSection";
 import type { QuotePricing } from "@/db/schema";
 import { formatMoney } from "@/components/MoneyDisplay";
+import { theme as GP } from "@/lib/theme";
 
 /**
  * Guest count backing an invitation-type id, matching the guest screen. `countAll` (all invited,
@@ -20,6 +21,22 @@ function resolveGuestCount(
   countAll: boolean
 ): number {
   const byType = countAll ? counts.inv_by_type_all : counts.inv_by_type;
+  return byType[typeId] ?? 0;
+}
+
+// MODIFICATION LOCALE — combien d'ENFANTS ce cadre a-t-il cédés au menu enfant.
+//
+// Les compteurs par cadre ne retiennent plus que les adultes : la journée
+// complète passe de 187 à 180. Sans rien dire de plus, cette ligne annonce une
+// baisse d'effectif — c'est-à-dire, aux yeux de qui lit un devis, une perte.
+// Le nombre d'enfants posé à côté fait lire la même chose comme une
+// RÉPARTITION : sept personnes ont changé de ligne, personne n'a disparu.
+function resolveChildCount(
+  typeId: string,
+  counts: ReturnType<typeof computeCounts>,
+  countAll: boolean
+): number {
+  const byType = countAll ? counts.children_by_type_all : counts.children_by_type;
   return byType[typeId] ?? 0;
 }
 
@@ -95,6 +112,7 @@ export function GuestPricingSection({ vendorId }: { vendorId: string }) {
 
       {lines.map((line) => {
         const count = resolveGuestCount(line.pricingKey, counts, countAll);
+        const childCount = resolveChildCount(line.pricingKey, counts, countAll);
         const subtotal = (line.pricePerPerson || 0) * count;
         return (
           <View
@@ -105,6 +123,7 @@ export function GuestPricingSection({ vendorId }: { vendorId: string }) {
               <Text className="text-sm font-medium text-ink">{labelOf(line.pricingKey)}</Text>
               <Text className="text-xs text-mute mt-0.5">
                 {t(countAll ? "guestCountBadge" : "guestCountBadgeConfirmed", { count })}
+                {childCount > 0 ? ` · ${t("childrenMovedToChildMenu", { count: childCount })}` : ""}
                 {subtotal > 0 ? ` · ${formatMoney(subtotal)}` : ""}
               </Text>
             </View>
@@ -173,7 +192,7 @@ export function GuestPricingSection({ vendorId }: { vendorId: string }) {
             onPress={() => setShowPicker(true)}
             className="flex-row items-center justify-center gap-1.5 mt-3 py-2.5 rounded-xl border border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-950 active:opacity-80"
           >
-            <Plus size={15} color="#b96a4a" />
+            <Plus size={15} color={GP.clay} />
             <Text className="text-sm font-semibold text-primary-500">{t("addPricingLine")}</Text>
           </Pressable>
         ))}
