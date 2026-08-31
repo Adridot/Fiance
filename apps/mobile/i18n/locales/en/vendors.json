@@ -107,7 +107,7 @@
   "basePriceLabel": "Rental price (€)",
   "flatFee": "Flat fee (€)",
   "servicesIncluded": "Services included",
-"menuNotes": "Menu notes",
+  "menuNotes": "Menu notes",
   "spaceType": "Space type",
   "photographyStyle": "Photography style",
   "videoStyle": "Video style",
@@ -167,5 +167,7 @@
   "newVendorEyebrow": "New vendor",
   "kindCount_one": "{{count}} vendor",
   "kindCount_other": "{{count}} vendors",
-  "compareEyebrow": "Compare"
+  "compareEyebrow": "Compare",
+  "childrenMovedToChildMenu_one": "+ {{count}} child on the child menu",
+  "childrenMovedToChildMenu_other": "+ {{count}} children on the child menu"
 }

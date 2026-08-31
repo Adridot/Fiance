@@ -91,6 +91,7 @@ export function createBackupDocument(): Record<string, unknown> {
     guests: useGuestsStore.getState().guests,
     tables: useGuestsStore.getState().tables,
     guestGroups: useGuestsStore.getState().groups,
+    households: useGuestsStore.getState().households,
     vendors: useVendorsStore.getState().vendors,
     quotePricings: useVendorsStore.getState().quotePricings,
     tasks: usePlanningStore.getState().tasks,
@@ -216,6 +217,7 @@ export function restoreFromBackup(
     })),
     tables: (backup.tables || []) as any[],
     guestGroups: (backup.guestGroups || []) as any[],
+    households: ((backup as any).households || []) as any[],
     vendors: ((backup.vendors || []) as any[]).map((v: any) => ({
       ...v,
       pppSource: migratePppSource(v.pppSource ?? v.ppp_source ?? null),
@@ -263,6 +265,7 @@ export function restoreFromBackup(
     useGuestsStore.getState().setGroups(restoredData.guestGroups);
     useGuestsStore.getState().setGuests(restoredData.guests);
     useGuestsStore.getState().setTables(restoredData.tables);
+    useGuestsStore.getState().setHouseholds(restoredData.households);
     useVendorsStore.getState().setVendors(restoredData.vendors);
     useVendorsStore.getState().setQuotePricings(restoredData.quotePricings);
     useVendorsStore.getState().setVendorPayments(restoredData.vendorPayments);
