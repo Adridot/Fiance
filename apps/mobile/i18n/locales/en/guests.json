@@ -334,5 +334,6 @@
     "remove": "Delete this household",
     "removeExplain": "Its members stay in the guest list, without a household. The household's address and label are removed.",
     "gone": "This household no longer exists."
-  }
+  },
+  "communicationPartialHousehold": "Sent to part of the household"
 }

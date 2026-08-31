@@ -334,5 +334,6 @@
     "remove": "Supprimer ce foyer",
     "removeExplain": "Ses membres restent dans la liste d'invités, sans foyer. L'adresse et l'intitulé du foyer disparaissent.",
     "gone": "Ce foyer n'existe plus."
-  }
+  },
+  "communicationPartialHousehold": "Envoi fait pour une partie du foyer"
 }
