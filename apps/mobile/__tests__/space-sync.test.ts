@@ -321,7 +321,7 @@ vi.mock("@/store/useSpeechesMusicStore", () => ({ useSpeechesMusicStore: emptySt
 vi.mock("@/store/usePermissionsStore", () => ({ usePermissionsStore: emptyStore }));
 
 vi.mock("@/lib/rsvp-sync", () => ({
-  applyRsvpSubmissionsByGuestId: vi.fn(),
+  applyHouseholdRsvpDocs: vi.fn(),
 }));
 
 // `space-sync.ts` importe ses primitives de sync depuis `@fiance/sdk`, PAS depuis
@@ -1043,7 +1043,7 @@ describe("hydrateFromSpace — wedding singleton unwrap", () => {
 
 // ─── Regression: RSVP inbox apply must be owner-only (guest data-loss on member devices) ──
 //
-// refreshRsvpInbox/pullAndApplyRsvpNodes write the guest store (via applyRsvpSubmissionsByGuestId)
+// refreshRsvpInbox/pullAndApplyRsvpNodes write the guest store (via applyHouseholdRsvpDocs)
 // and, outside the hydrateFromSpace interlock, that write schedules a real push. A member device
 // has no business independently applying public-page RSVP submissions — it receives RSVP state
 // through normal guest-collection sync from the owner. Letting a member run this raced its guest
@@ -1072,7 +1072,16 @@ describe("hydrateFromSpace — RSVP inbox apply is owner-only", () => {
     mockGetNodeAccessImpl = async () => ({
       encryptor: null,
       client: {
-        pull: vi.fn(async () => ({ data: { guestId: "g1", rsvpStatus: "confirmed", submittedAt: 1000 }, hash: "h" })),
+        // MODIFICATION LOCALE — un document de FOYER : une liste de membres.
+        pull: vi.fn(async () => ({
+          data: {
+            version: 2,
+            householdId: "h1",
+            members: [{ guestId: "g1", rsvpStatus: "confirmed", respondedAt: 1000 }],
+            submittedAt: 1000,
+          },
+          hash: "h",
+        })),
         push: vi.fn(),
       },
       isOwnerOpen: false,
@@ -1086,13 +1095,13 @@ describe("hydrateFromSpace — RSVP inbox apply is owner-only", () => {
     mockRegistryRole = "member";
     seedRsvpNode();
 
-    const { applyRsvpSubmissionsByGuestId } = await import("@/lib/rsvp-sync");
-    vi.mocked(applyRsvpSubmissionsByGuestId).mockClear();
+    const { applyHouseholdRsvpDocs } = await import("@/lib/rsvp-sync");
+    vi.mocked(applyHouseholdRsvpDocs).mockClear();
 
     const { hydrateFromSpace } = await import("@/lib/space-sync");
     await hydrateFromSpace({ userId: "u1" } as never, "sp-1", "node-A");
 
-    expect(applyRsvpSubmissionsByGuestId).not.toHaveBeenCalled();
+    expect(applyHouseholdRsvpDocs).not.toHaveBeenCalled();
   });
 
   it("DOES apply RSVP submissions into the guest store on the owner device", async () => {
@@ -1100,14 +1109,16 @@ describe("hydrateFromSpace — RSVP inbox apply is owner-only", () => {
     mockRegistryRole = "owner";
     seedRsvpNode();
 
-    const { applyRsvpSubmissionsByGuestId } = await import("@/lib/rsvp-sync");
-    vi.mocked(applyRsvpSubmissionsByGuestId).mockClear();
+    const { applyHouseholdRsvpDocs } = await import("@/lib/rsvp-sync");
+    vi.mocked(applyHouseholdRsvpDocs).mockClear();
 
     const { hydrateFromSpace } = await import("@/lib/space-sync");
     await hydrateFromSpace({ userId: "u1" } as never, "sp-1", "node-A");
 
-    expect(applyRsvpSubmissionsByGuestId).toHaveBeenCalledWith([
-      expect.objectContaining({ guestId: "g1" }),
+    expect(applyHouseholdRsvpDocs).toHaveBeenCalledWith([
+      expect.objectContaining({
+        members: [expect.objectContaining({ guestId: "g1" })],
+      }),
     ]);
   });
 });
