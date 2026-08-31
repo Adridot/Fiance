@@ -264,5 +264,8 @@
     "deleteConstraint": "Supprimer cette contrainte ?",
     "deleteConstraintMsg": "Cette action est irréversible."
   },
-  "importExternalGuests": "Importer depuis une source externe"
+  "importExternalGuests": "Importer depuis une source externe",
+  "bulkSelectAllFiltered_one": "Sélectionner {{count}} invité",
+  "bulkSelectAllFiltered_other": "Sélectionner les {{count}} invités",
+  "bulkDeselectAllFiltered": "Tout désélectionner"
 }

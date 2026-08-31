@@ -200,6 +200,19 @@ function GuestsView() {
     setSelectedIds(new Set());
   }, []);
 
+  const filteredIds = useMemo(() => filteredGuests.map((g) => g.id), [filteredGuests]);
+  const visibleSelectedCount = useMemo(
+    () => filteredIds.reduce((n, id) => (selectedIds.has(id) ? n + 1 : n), 0),
+    [filteredIds, selectedIds],
+  );
+  const hiddenSelectedCount = Math.max(0, selectedCount - visibleSelectedCount);
+  const allFilteredSelected =
+    filteredIds.length > 0 && visibleSelectedCount === filteredIds.length;
+  const toggleAllFiltered = useCallback(
+    () => toggleManySelection(filteredIds),
+    [toggleManySelection, filteredIds],
+  );
+
   const groupedGuests = useMemo(() => {
     if (groups.length === 0) return null;
     const ungrouped = filteredGuests.filter((g) => !g.groupId);
@@ -372,6 +385,24 @@ function GuestsView() {
             </Pressable>
           );
         })}
+
+        {canEditGuests && filteredIds.length > 0 && (
+          <>
+            <View className="w-px bg-hair my-1" />
+            <Pressable
+              onPress={toggleAllFiltered}
+              className="px-4 py-2 rounded-full border border-hair bg-accent-card"
+            >
+              <Text className="text-sm font-medium text-primary-500">
+                {allFilteredSelected
+                  ? t("bulkDeselectAllFiltered")
+                  : t("bulkSelectAllFiltered", {
+                      count: filteredIds.length - visibleSelectedCount,
+                    })}
+              </Text>
+            </Pressable>
+          </>
+        )}
       </ScrollView>
 
       <View className="px-4 mb-3">

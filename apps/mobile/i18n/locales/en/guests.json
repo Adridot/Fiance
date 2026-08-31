@@ -264,5 +264,8 @@
     "deleteConstraint": "Delete this constraint?",
     "deleteConstraintMsg": "This action cannot be undone."
   },
-  "importExternalGuests": "Import from an external source"
+  "importExternalGuests": "Import from an external source",
+  "bulkSelectAllFiltered_one": "Select {{count}} guest",
+  "bulkSelectAllFiltered_other": "Select all {{count}} guests",
+  "bulkDeselectAllFiltered": "Deselect all"
 }
