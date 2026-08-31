@@ -22,6 +22,7 @@ Les fichiers d'i18n font exception : ils sont partagés par plusieurs sujets et
 découpés par hunk, chaque hunk étant attribué d'après un marqueur textuel.
 """
 import collections
+import os
 import subprocess
 import sys
 
@@ -703,16 +704,47 @@ PARTAGES = {
 }
 
 
+# ─── D'où la série est DÉRIVÉE ────────────────────────────────────────────────
+#
+# Depuis la reconstruction de l'histoire, la source n'est plus l'arbre de
+# travail mais l'INTERVALLE `upstream/master..didot/master`. Trois conséquences,
+# toutes voulues :
+#
+#   1. La génération ne dépend plus de l'état de l'arbre. Elle produisait des
+#      patches VIDES sur un arbre propre, sans que le filet ne bronche — c'est
+#      ce qui l'a fait tomber en panne trois fois en trois semaines.
+#   2. Un fichier neuf jamais suivi par git ne peut plus échapper à la série :
+#      il est dans un commit ou il n'est pas dans l'arbre. Le filet ne pouvait
+#      pas le voir — il lisait `git status --porcelain` en ne retenant que `M`,
+#      `A`, `AM`, `MM`, et un fichier non suivi porte `??`.
+#   3. `deploy/` lui-même est exclu : il est versionné sur la branche locale, il
+#      n'a rien à faire dans une série que l'on applique à un arbre amont.
+BASE = os.environ.get("PATCH_BASE", "upstream/master")
+TETE = os.environ.get("PATCH_HEAD", "didot/master")
+INTERVALLE = f"{BASE}..{TETE}"
+
+
 def git(*args):
     return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout
 
 
+def diff(*chemins):
+    """L'écart de la série, pour ces chemins : l'histoire, jamais l'arbre."""
+    return git("diff", INTERVALLE, "--", *chemins)
+
+
+def fichiers_de_l_intervalle():
+    """Les fichiers que l'histoire touche, `deploy/` exclu."""
+    noms = git("diff", "--name-only", INTERVALLE).splitlines()
+    return {n for n in noms if n and not n.startswith("deploy/")}
+
+
 def decouper_par_hunk(chemin, regles):
     """Rend {patch: [diff, …]} pour un fichier partagé par plusieurs sujets."""
-    diff = git("diff", "--", chemin)
-    if not diff.strip():
+    diff_texte = diff(chemin)
+    if not diff_texte.strip():
         return {}
-    lignes = diff.splitlines(keepends=True)
+    lignes = diff_texte.splitlines(keepends=True)
     entete, i = [], 0
     while i < len(lignes) and not lignes[i].startswith("@@"):
         entete.append(lignes[i])
@@ -759,7 +791,7 @@ def main():
     attendus = set()
     for nom, (_nature, fichiers) in GROUPES.items():
         morceaux = []
-        d = git("diff", "--", *fichiers)
+        d = diff(*fichiers)
         if d.strip():
             morceaux.append(d)
         morceaux.extend(extra.get(nom, []))
@@ -769,13 +801,12 @@ def main():
         attendus.update(fichiers)
         print(f"  {nom}.patch  ({len(contenu.splitlines())} lignes)")
 
-    # Filet : une modification locale non attribuée disparaîtrait des patches et
-    # serait perdue au prochain rebase, sans le moindre signal.
-    modifies = {l[3:] for l in git("status", "--porcelain").splitlines()
-                if l[:2].strip() in ("M", "A", "AM", "MM")}
-    orphelins = sorted(modifies - attendus - set(PARTAGES))
+    # Filet : une modification non attribuée disparaîtrait des patches et serait
+    # perdue au prochain rebase, sans le moindre signal. Il porte désormais sur
+    # ce que l'HISTOIRE touche, ce qui le rend indépendant de l'état de l'arbre.
+    orphelins = sorted(fichiers_de_l_intervalle() - attendus - set(PARTAGES))
     if orphelins:
-        sys.exit("\nfichiers modifiés mais dans aucun patch :\n  " + "\n  ".join(orphelins))
+        sys.exit("\nfichiers de l'histoire dans aucun patch :\n  " + "\n  ".join(orphelins))
 
 
 if __name__ == "__main__":
