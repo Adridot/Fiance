@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   computeCounts,
   countDuplicateGuests,
+  sortGroups,
   formatGuestName,
   removeGuest,
   removeGuests,
@@ -9,6 +10,7 @@ import {
   rsvpStatusUpdate,
   guestNameMatches,
 } from './guests.js';
+import type { GuestGroup, GuestGroupSide } from './schema.js';
 
 // Minimal guest factory — computeCounts only reads rsvpStatus + invitationType here.
 const g = (rsvpStatus: string, invitationType: string) =>
@@ -123,6 +125,58 @@ describe('countDuplicateGuests', () => {
 
   it('is 0 with no guests', () => {
     expect(countDuplicateGuests([])).toBe(0);
+  });
+});
+
+describe('sortGroups', () => {
+  const g = (
+    name: string,
+    side?: GuestGroupSide,
+    sortOrder?: number,
+  ): GuestGroup => ({ id: name, name, side, sortOrder, createdAt: null, updatedAt: null });
+
+  it('orders sides: partner 1, partner 2, both', () => {
+    expect(
+      sortGroups([g('COMMUNS', 'BOTH', 1), g('SIMON', 'PARTNER_2', 1), g('DIDOT', 'PARTNER_1', 1)])
+        .map((x) => x.name),
+    ).toEqual(['DIDOT', 'SIMON', 'COMMUNS']);
+  });
+
+  it('follows the declared rank within a side, not alphabetical order', () => {
+    expect(
+      sortGroups([g('Amis parents Didot', 'PARTNER_1', 3), g('Didot', 'PARTNER_1', 1), g('Fontaines', 'PARTNER_1', 2)])
+        .map((x) => x.name),
+    ).toEqual(['Didot', 'Fontaines', 'Amis parents Didot']);
+  });
+
+  it('puts a rankless category at the end of its side', () => {
+    expect(
+      sortGroups([g('AUBREE', 'PARTNER_1'), g('SIMON', 'PARTNER_1', 2), g('MEVEL', 'PARTNER_1', 1)])
+        .map((x) => x.name),
+    ).toEqual(['MEVEL', 'SIMON', 'AUBREE']);
+  });
+
+  it('puts a sideless category after all the others', () => {
+    expect(
+      sortGroups([g('AUBREE'), g('COMMUNS', 'BOTH', 1), g('DIDOT', 'PARTNER_1', 1)])
+        .map((x) => x.name),
+    ).toEqual(['DIDOT', 'COMMUNS', 'AUBREE']);
+  });
+
+  it('breaks a same-side same-rank tie on the name', () => {
+    expect(sortGroups([g('SIMON'), g('AUBREE'), g('MEVEL')]).map((x) => x.name))
+      .toEqual(['AUBREE', 'MEVEL', 'SIMON']);
+  });
+
+  it('ignores accents and case — « Émile » sits next to « Emile »', () => {
+    expect(sortGroups([g('Émile'), g('Duval'), g('emile')]).map((x) => x.name))
+      .toEqual(['Duval', 'Émile', 'emile']);
+  });
+
+  it('does not mutate the array it is given', () => {
+    const input = [g('SIMON'), g('AUBREE')];
+    sortGroups(input);
+    expect(input.map((x) => x.name)).toEqual(['SIMON', 'AUBREE']);
   });
 });
 

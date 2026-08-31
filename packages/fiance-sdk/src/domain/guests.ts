@@ -1,5 +1,5 @@
 // NodeNext .js extension required
-import type { Guest, Table, GuestGroup } from './schema.js';
+import type { Guest, Table, GuestGroup, GuestGroupSide } from './schema.js';
 
 export type NamedGuest = Pick<Guest, 'firstName' | 'lastName' | 'nameParticle'>;
 
@@ -258,5 +258,38 @@ export function guestNameMatches(g: NamedGuest, query: string): boolean {
     (g.lastName ?? "").toLowerCase().includes(q) ||
     formatGuestName(g).toLowerCase().includes(q)
   );
+}
+
+// ─── Category side and order ─────────────────────────────────────────────────
+//
+// Array order is NOT insertion order once a device hydrates from the Space:
+// groups come back out of an `Object.entries()` over an id-keyed document, so
+// the order is a serialisation accident that differs from device to device.
+// Sorting explicitly is what makes the order a contract.
+
+const SIDE_RANK: Record<GuestGroupSide, number> = {
+  PARTNER_1: 0,
+  PARTNER_2: 1,
+  BOTH: 2,
+};
+
+function sideRank(side: GuestGroupSide | null | undefined): number {
+  return side ? SIDE_RANK[side] : 3;
+}
+
+/** Sorts categories: side, then declared rank, then name. */
+export function sortGroups(groups: GuestGroup[]): GuestGroup[] {
+  return [...groups].sort((a, b) => {
+    const bySide = sideRank(a.side) - sideRank(b.side);
+    if (bySide !== 0) return bySide;
+    // Compared rather than subtracted: Infinity - Infinity is NaN, which would
+    // silently stop two rankless categories from being ordered by name.
+    const ra = a.sortOrder ?? Infinity;
+    const rb = b.sortOrder ?? Infinity;
+    if (ra !== rb) return ra < rb ? -1 : 1;
+    // `sensitivity: "base"` so an accent or a capital does not exile a category
+    // to the other end of the list — « Émile » must neighbour « Emile ».
+    return a.name.localeCompare(b.name, "fr", { sensitivity: "base" });
+  });
 }
 
