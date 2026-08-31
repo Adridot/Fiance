@@ -5,7 +5,7 @@ import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { Users, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react-native";
 import { useGuestsStore, computeCounts } from "@/store/useGuestsStore";
-import { countDuplicateGuests } from "@fiance/sdk";
+import { countDuplicateGuests, rsvpStatusUpdate } from "@fiance/sdk";
 import { HomeBanner } from "@/components/HomeBanner";
 import { theme as GP } from "@/lib/theme";
 import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
@@ -18,8 +18,10 @@ import {
 import type { RsvpStatus } from "@/db/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { FAB } from "@/components/FAB";
+import { GuestBulkBar } from "@/components/GuestBulkBar";
 import { useIsWideScreen } from "@/lib/useIsWideScreen";
 import { useCan } from "@/lib/permissions/usePermissions";
+import { usePointerRegime } from "@/lib/usePointerRegime";
 import { EmptyState } from "@/components/EmptyState";
 import { SearchBar } from "@/components/SearchBar";
 import { Avatar } from "@/components/Avatar";
@@ -107,6 +109,7 @@ function GuestsView() {
   const { t } = useTranslation("guests");
   const router = useRouter();
   const isWide = useIsWideScreen();
+  const pointer = usePointerRegime();
   const canEditGuests = useCan("guests");
   const guests = useGuestsStore((s) => s.guests);
   const groups = useGuestsStore((s) => s.groups);
@@ -211,6 +214,43 @@ function GuestsView() {
   const toggleAllFiltered = useCallback(
     () => toggleManySelection(filteredIds),
     [toggleManySelection, filteredIds],
+  );
+
+  const bulkRemoveGuests = useGuestsStore((s) => s.removeGuests);
+  const bulkUpdateGuests = useGuestsStore((s) => s.updateGuests);
+
+  const handleBulkInvitationType = useCallback(
+    (typeId: string) => {
+      const ids = effectiveSelection;
+      if (ids.length === 0) return;
+      bulkUpdateGuests(ids, () => ({ invitationType: typeId }));
+      toast.success(t("bulkInvitationTypeAssigned", { count: ids.length }));
+    },
+    [effectiveSelection, bulkUpdateGuests, t],
+  );
+
+  const handleBulkRsvp = useCallback(
+    (status: string) => {
+      const ids = effectiveSelection;
+      if (ids.length === 0) return;
+      const now = new Date().toISOString();
+      bulkUpdateGuests(ids, (g) => rsvpStatusUpdate(g, status, now));
+      toast.success(t("bulkRsvpAssigned", { count: ids.length }));
+    },
+    [effectiveSelection, bulkUpdateGuests, t],
+  );
+
+  const handleBulkDelete = useCallback(() => {
+    const ids = effectiveSelection;
+    if (ids.length === 0) return;
+    bulkRemoveGuests(ids);
+    clearSelection();
+    toast.success(t("bulkDeleted", { count: ids.length }));
+  }, [effectiveSelection, bulkRemoveGuests, clearSelection, t]);
+
+  const bulkInvitationTypes = useMemo(
+    () => invitationTypes.map((it) => ({ id: it.id, label: it.label })),
+    [invitationTypes],
   );
 
   const groupedGuests = useMemo(() => {
@@ -444,7 +484,22 @@ function GuestsView() {
         />
       )}
 
-      {isWide && canEditGuests && <FAB onPress={handleAddGuest} locked={!canAddGuest} />}
+      {isWide && canEditGuests && selectedCount === 0 && (
+        <FAB onPress={handleAddGuest} locked={!canAddGuest} />
+      )}
+
+      {canEditGuests && (
+        <GuestBulkBar
+          count={selectedCount}
+          hiddenCount={hiddenSelectedCount}
+          invitationTypes={bulkInvitationTypes}
+          pointer={pointer}
+          onClear={clearSelection}
+          onAssignInvitationType={handleBulkInvitationType}
+          onAssignRsvp={handleBulkRsvp}
+          onDelete={handleBulkDelete}
+        />
+      )}
     </View>
   );
 }
