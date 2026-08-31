@@ -20,6 +20,7 @@ import {
   nextFirstNameToComplete,
   selectRange,
   adjacentGuestId,
+  newGuestDraft,
 } from './guests.js';
 import type { GuestGroup, GuestGroupSide } from './schema.js';
 
@@ -802,6 +803,87 @@ describe('adjacentGuestId', () => {
 
   it('rend null pour un invité absent de la liste visible', () => {
     expect(adjacentGuestId(items, 'zz', 'next')).toBeNull();
+  });
+});
+
+describe('newGuestDraft — le gabarit de création', () => {
+  const base = {
+    id: 'g1',
+    now: '2026-06-01T10:00:00.000Z',
+    firstName: 'Léa',
+    lastName: 'fleith',
+    groupId: 'grp-1',
+    invitationType: 'FULL',
+    rsvpStatus: 'PENDING',
+    isChild: false,
+  };
+
+  it('pose les défauts de création, horodatage compris', () => {
+    const draft = newGuestDraft(base);
+    expect(draft).toMatchObject({
+      id: 'g1',
+      diet: 'STANDARD',
+      transportMode: 'car',
+      noTableNeeded: false,
+      thankYouSent: false,
+      parkingNeeded: false,
+      isChild: false,
+      groupId: 'grp-1',
+      invitationType: 'FULL',
+      householdId: null,
+      createdAt: base.now,
+      updatedAt: base.now,
+    });
+  });
+
+  it('ne laisse aucun champ du schéma indéfini', () => {
+    const draft = newGuestDraft(base);
+    const undefinedFields = Object.entries(draft)
+      .filter(([, v]) => v === undefined)
+      .map(([k]) => k);
+    expect(undefinedFields).toEqual([]);
+    // Les champs que la fiche n'écrit pas à la création existent tout de même.
+    expect(draft).toHaveProperty('rsvpToken', null);
+    expect(draft).toHaveProperty('side', null);
+    expect(draft).toHaveProperty('childrenCount', null);
+  });
+
+  it('normalise le patronyme en capitales et garde la particule telle que tapée', () => {
+    const draft = newGuestDraft({ ...base, lastName: '  fleith ', nameParticle: ' de la ' });
+    expect(draft.lastName).toBe('FLEITH');
+    expect(draft.nameParticle).toBe('de la');
+  });
+
+  it('une particule vide est nulle, pas une chaîne vide', () => {
+    expect(newGuestDraft({ ...base, nameParticle: '   ' }).nameParticle).toBeNull();
+    expect(newGuestDraft(base).nameParticle).toBeNull();
+  });
+
+  it('horodate la réponse pour un état non-PENDING, et la laisse nulle sinon', () => {
+    expect(newGuestDraft({ ...base, rsvpStatus: 'ACCEPTED' })).toMatchObject({
+      rsvpStatus: 'ACCEPTED',
+      rsvpDate: base.now,
+    });
+    expect(newGuestDraft(base)).toMatchObject({ rsvpStatus: 'PENDING', rsvpDate: null });
+  });
+
+  it('reprend le foyer fourni', () => {
+    expect(newGuestDraft({ ...base, householdId: 'foyer-1' }).householdId).toBe('foyer-1');
+  });
+
+  it('sans prénom, l\'invité créé est « à compléter » et compte pour sa catégorie', () => {
+    const draft = newGuestDraft({ ...base, firstName: '' });
+    expect(isFirstNameToComplete(draft)).toBe(true);
+    const témoin = [
+      { firstName: 'Anne', lastName: 'FLEITH', groupId: 'grp-1', rsvpStatus: 'PENDING' },
+      { firstName: '', lastName: 'ROUX', groupId: 'grp-2', rsvpStatus: 'PENDING' },
+    ];
+    const avant = computeGroupProgress(témoin);
+    const après = computeGroupProgress([...témoin, draft]);
+    expect(avant.get('grp-1')).toMatchObject({ total: 1, missingFirstName: 0 });
+    expect(après.get('grp-1')).toMatchObject({ total: 2, missingFirstName: 1 });
+    // La catégorie voisine ne bouge pas.
+    expect(après.get('grp-2')).toEqual(avant.get('grp-2'));
   });
 });
 
