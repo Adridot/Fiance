@@ -67,6 +67,7 @@ import { StarfishHttpError } from '@drakkar.software/starfish-client';
 import { useWeddingStore } from '@/store/useWeddingStore';
 import { useWeddingRegistryStore } from '@/store/useWeddingRegistryStore';
 import { useSyncAccessStore } from '@/store/useSyncAccessStore';
+import { useSyncPendingStore } from '@/store/useSyncPendingStore';
 import { useGuestsStore } from '@/store/useGuestsStore';
 import { useVendorsStore } from '@/store/useVendorsStore';
 import { usePlanningStore } from '@/store/usePlanningStore';
@@ -89,6 +90,9 @@ import { usePermissionsStore } from '@/store/usePermissionsStore';
 import { getActiveSession, getActiveSpaceId, getActiveWeddingNodeId } from '@/lib/starfish';
 import { applyRsvpSubmissionsByGuestId, type RsvpSubmission } from '@/lib/rsvp-sync';
 import { withIndexLock } from '@/lib/index-lock';
+// The local KV is the only state in this file that survives a page unload
+// (see "the push request survives the unload" below).
+import { readCollection, writeCollection } from '@/lib/kv-storage';
 
 // ---------------------------------------------------------------------------
 // Debounced push scheduler
@@ -111,6 +115,40 @@ let _pushing = false;
  *  store from a pre-submission server doc and drop/tombstone a guest an in-flight RSVP
  *  apply is about to write — mirrors the _pushing guard's rationale above. */
 let _rsvpRefreshing = false;
+
+// ─── Write durability ────────────────────────────────────────────────────────
+//
+// Two guards in this file discard a push request while a hydration is running
+// (scheduleSyncPush, and the re-check in its timer). The intent is right — do
+// not let a push overwrite what was just read — but neither RESUMED the
+// discarded request, and hydrateFromSpace then replaces the stores. A change
+// made during a hydration was first denied its push, then erased. No error, no
+// trace: the push was never even attempted.
+//
+// The window needs no second tab and no second device. The SSE stream triggers
+// refreshFromSpaceIfIdle() on ANY space change, including the echo of our own
+// push: a successful push opens the window that swallows the next one.
+//
+// Two pieces fix it, and they do not add up — one conditions the other:
+//
+//   1. THE EPOCH. Every mutation goes through scheduleSyncPush (notifySync() →
+//      registerPull('*'), 121 callers), so incrementing it here dates every
+//      local change without instrumenting thirty stores. hydrateFromSpace
+//      captures the epoch at its start and re-reads it before applying: if it
+//      moved, the read state is DISCARDED. Discard rather than merge, because a
+//      local change has no rev until the push document is built, and an
+//      arbitration invented next to mergeCollectionDoc would be a second rule
+//      for a rare case. The price of a discard is one re-read.
+//   2. THE RESUME. The discarded request is retained and replayed at the end of
+//      the hydration. On its own it would fix NOTHING: the stores would already
+//      have been replaced.
+
+/** Incremented by EVERY scheduleSyncPush call, i.e. by every mutation. */
+let _localEditEpoch = 0;
+/** A push request was discarded during a hydration and is awaiting replay. */
+let _pushDeferred = false;
+/** Whether the last hydrate actually applied what it read (false when abandoned). */
+let _lastHydrateApplied = false;
 
 /**
  * Dirty-push tracking for the wedding singleton node: node id → stableStringify() of the
@@ -166,26 +204,171 @@ const MANAGED_TYPES = new Set<string>(
   Object.values(FIANCE_TYPES).filter((t) => t !== FIANCE_TYPES.publicPage && t !== FIANCE_TYPES.rsvp),
 );
 
+// ─── The push request survives a page unload ─────────────────────────────────
+//
+// Everything protecting an edit in this file is MODULE state: the epoch, the
+// deferred request, the debounce timer, the push references. A page reload
+// resets all of it. The push being debounced at 2 s, an edit followed by an
+// immediate reload is neither sent nor protected: the next startup's hydration
+// applies the older server state and the edit disappears with no signal.
+//
+// Hooking a flush to pagehide is NOT enough: a push is a network round trip and
+// nothing guarantees it completes while the page is going away. So the pending
+// request is recorded in the KV — the only state that survives a reload. The
+// next startup reads it and pushes before letting anything overwrite the data.
+//
+// The key is bare: writeCollection prefixes it with the active wedding, so the
+// marker is partitioned per wedding automatically.
+
+const PENDING_PUSH_KEY = 'sync.pendingPush';
+
+/** Records that a local change has not reached the server yet. */
+function markPendingPush(): void {
+  // Between weddings the KV is closed and the write only lands in its memory
+  // cache, without error. Nothing to recover: the next mutation sets the marker
+  // in the right namespace.
+  try { writeCollection(PENDING_PUSH_KEY, true); } catch { /* KV unavailable */ }
+}
+
+/** Clears the marker: everything that had to go out has arrived. */
+function clearPendingPush(): void {
+  try { writeCollection(PENDING_PUSH_KEY, false); } catch { /* KV indisponible */ }
+}
+
+/** True if a local change was waiting to be pushed when the page stopped. Read
+ *  at startup. A missing marker — first run after deploy, or an older version —
+ *  returns false: the device behaves
+ *  alors exactement comme avant. */
+export function hadPendingPushAtStartup(): boolean {
+  try { return readCollection<boolean>(PENDING_PUSH_KEY) === true; } catch { return false; }
+}
+
+/**
+ * Sends immediately the push the debounce was holding back.
+ *
+ * An OPPORTUNISTIC SHORTCUT, never a guarantee, and worth being clear about: a
+ * push is a network round trip, and nothing ensures it completes while the page
+ * is going away. What this flush buys is turning the common case (the user
+ * reloads) into a round trip that succeeded, rather than one recovered at the
+ * next startup. The GUARANTEE is the durable marker and replayPendingPush.
+ *
+ * Does not hold the page: returns nothing to await, and does not block.
+ */
+export function flushPendingPush(): void {
+  if (!_pushTimer) return;
+  clearTimeout(_pushTimer);
+  _pushTimer = null;
+  void runPush();
+}
+
+/**
+ * Replays, at startup, the push the page unload interrupted.
+ *
+ * Call BEFORE any hydration: the change is still in the persisted stores, but
+ * the hydration applies the older server state and would erase it.
+ *
+ * The logic lives here rather than in the component that calls it, for two
+ * reasons: it is sync policy, and this is the only place where it is testable
+ * without mounting the whole React tree.
+ *
+ * Never rejects: a failed recovery leaves the marker in place (it is only
+ * cleared on success), so the next startup retries, and the ordinary retry
+ * covers the interval.
+ */
+export async function replayPendingPush(
+  session: Session,
+  spaceId: string,
+  weddingNodeId: string,
+): Promise<boolean> {
+  if (!hadPendingPushAtStartup()) return false;
+  try {
+    return await pushSpaceSnapshot(session, spaceId, weddingNodeId);
+  } catch (err) {
+    console.warn('[space-sync] pending push replay failed:', err);
+    return false;
+  }
+}
+
+
+
 /** Called from registerPull('*') in providers.tsx after initSync(). Debounced 2s. */
 export function scheduleSyncPush(): void {
-  if (_isHydrating) return;
+  // Before any guard: this is the choke point every mutation goes through, so
+  // the one place to date a local change once. Incrementing AFTER the return
+  // below would leave invisible exactly the change we are protecting.
+  _localEditEpoch++;
+  // Before the guards, for the same reason as the epoch: three exit paths
+  // discard a request below, and none may make it forgotten.
+  markPendingPush();
+  if (_isHydrating) { _pushDeferred = true; return; }
   if (_pushTimer) clearTimeout(_pushTimer);
-  _pushTimer = setTimeout(async () => {
+  _pushTimer = setTimeout(() => {
     _pushTimer = null;
-    if (_isHydrating) return; // re-check: hydration may have started after this timer was queued
-    const session = getActiveSession();
-    const spaceId = getActiveSpaceId();
-    const weddingNodeId = getActiveWeddingNodeId();
-    if (!session || !spaceId || !weddingNodeId) return;
-    _pushing = true;
-    try {
-      await pushSpaceSnapshot(session, spaceId, weddingNodeId);
-    } catch (err) {
-      console.warn('[space-sync] push failed:', err);
-    } finally {
-      _pushing = false;
-    }
+    void runPush();
   }, 2000);
+}
+
+// ─── Retry ───────────────────────────────────────────────────────────────────
+//
+// A failed push was never retried: _lastPushedCollectionJson was not updated so
+// the collection stayed dirty, but nothing left again before the NEXT MUTATION.
+// An edit made just before the network dropped waited, indefinitely, for
+// something else to be typed.
+const PUSH_RETRY_BASE_MS = 5_000;
+const PUSH_RETRY_MAX_MS = 5 * 60_000;
+/** Consecutive failures before SAYING so. Below this, a network hiccup caught
+ *  on the next attempt shows nothing: a banner that blinks on every hiccup
+ *  teaches people to ignore it. */
+const PUSH_RETRY_ATTEMPTS_BEFORE_SIGNAL = 3;
+
+let _pushRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let _pushRetryAttempt = 0;
+/** A push of the last snapshot was refused for lack of write permission. */
+let _lastPushWriteDenied = false;
+
+/** Runs the push. Shared by the debounce timer and the retry. */
+async function runPush(): Promise<void> {
+  // re-check: hydration may have started after this timer was queued
+  if (_isHydrating) { _pushDeferred = true; return; }
+  const session = getActiveSession();
+  const spaceId = getActiveSpaceId();
+  const weddingNodeId = getActiveWeddingNodeId();
+  if (!session || !spaceId || !weddingNodeId) return;
+  _pushing = true;
+  let allPushed = false;
+  try {
+    allPushed = await pushSpaceSnapshot(session, spaceId, weddingNodeId);
+  } catch (err) {
+    console.warn('[space-sync] push failed:', err);
+  } finally {
+    _pushing = false;
+  }
+  if (allPushed) { pushSucceeded(); return; }
+  // Hitting a wall more often does not get you through it.
+  if (_lastPushWriteDenied) return;
+  schedulePushRetry();
+}
+
+function pushSucceeded(): void {
+  _pushRetryAttempt = 0;
+  if (_pushRetryTimer) { clearTimeout(_pushRetryTimer); _pushRetryTimer = null; }
+  useSyncPendingStore.getState().setUnsavedChanges(false);
+}
+
+function schedulePushRetry(): void {
+  _pushRetryAttempt++;
+  if (_pushRetryAttempt >= PUSH_RETRY_ATTEMPTS_BEFORE_SIGNAL) {
+    useSyncPendingStore.getState().setUnsavedChanges(true);
+  }
+  const delay = Math.min(
+    PUSH_RETRY_BASE_MS * 2 ** (_pushRetryAttempt - 1),
+    PUSH_RETRY_MAX_MS,
+  );
+  if (_pushRetryTimer) clearTimeout(_pushRetryTimer);
+  _pushRetryTimer = setTimeout(() => {
+    _pushRetryTimer = null;
+    void runPush();
+  }, delay);
 }
 
 /**
@@ -196,6 +379,14 @@ export function scheduleSyncPush(): void {
 export function suppressSyncPush(): void {
   if (_pushTimer) { clearTimeout(_pushTimer); _pushTimer = null; }
   _isHydrating = true;
+  // Suppression is a DELIBERATE discard: it must leave nothing to replay. The
+  // import that uses it pushes explicitly afterwards.
+  _pushDeferred = false;
+  // The durable marker follows the in-memory request: a deliberate discard must
+  // leave nothing to replay at the next startup.
+  clearPendingPush();
+  if (_pushRetryTimer) { clearTimeout(_pushRetryTimer); _pushRetryTimer = null; }
+  _pushRetryAttempt = 0;
 }
 
 /** Re-enable push scheduling after a legacy import. */
@@ -212,6 +403,16 @@ export function resetDirtyPushBaseline(): void {
   _collectionState.clear();
   _collectionEntityJson.clear();
   _lastHydrateSawLegacy = false;
+  // The retry backlog belongs to the wedding being left. Letting it run would
+  // retry a snapshot that no longer applies, and leave the banner lit on a
+  // wedding with nothing outstanding.
+  if (_pushRetryTimer) { clearTimeout(_pushRetryTimer); _pushRetryTimer = null; }
+  _pushRetryAttempt = 0;
+  _pushDeferred = false;
+  _lastPushWriteDenied = false;
+  // The backlog belongs to the wedding being left, and so does the marker.
+  clearPendingPush();
+  useSyncPendingStore.getState().setUnsavedChanges(false);
 }
 
 // ---------------------------------------------------------------------------
@@ -409,6 +610,10 @@ async function pushCollectionDoc(
     // useSyncAccessStore.ts for how this flag is consumed (ReadOnlyBanner + usePermissions).
     if (err instanceof StarfishHttpError && err.status === 403) {
       useSyncAccessStore.getState().setWriteDenied(true);
+      // A write-permission refusal is not solved by retrying, and is already
+      // surfaced by useSyncAccessStore's banner. Recording it here stops the
+      // retry looping against a wall.
+      _lastPushWriteDenied = true;
     }
     console.warn(`[space-sync] pushCollectionDoc ${node.id}:`, err);
     return false;
@@ -419,14 +624,14 @@ export async function pushSpaceSnapshot(
   session: Session,
   spaceId: string,
   weddingNodeId: string,
-): Promise<void> {
+): Promise<boolean> {
   const now = Date.now();
   // Content is one doc per collection (+ the wedding singleton). No per-entity content docs.
   const weddingBuilt = buildWeddingNode(weddingNodeId, now);
   const { nodes: collectionNodes, built } = buildCollectionDocs(weddingNodeId, now);
   const weddingNode = weddingBuilt?.node ?? null;
   const allNodes = [...(weddingNode ? [weddingNode] : []), ...collectionNodes];
-  if (!allNodes.length) return; // truly empty state — nothing to sync
+  if (!allNodes.length) return true; // truly empty state — nothing to sync
 
   const localById = new Map(allNodes.map((n) => [n.id, n]));
 
@@ -449,24 +654,46 @@ export async function pushSpaceSnapshot(
     (b) => stableStringify(b.doc) !== _lastPushedCollectionJson.get(b.node.id),
   );
 
-  await Promise.allSettled([
+  const pushResults = await Promise.allSettled([
     ...(weddingDirty && weddingBuilt
       ? [pushCollectionDoc(
           session, spaceId, weddingBuilt.node, weddingBuilt.doc, now,
           (cur, doc, now) => mergeSingletonDoc(cur, doc, weddingNodeId, { now }),
         ).then((ok) => {
           if (ok) _lastPushedJson.set(weddingBuilt.node.id, stableStringify(weddingBuilt.content));
+          return ok;
         })]
       : []),
     ...dirtyCollections.map((b) =>
       pushCollectionDoc(session, spaceId, b.node, b.doc, now).then((ok) => {
-        if (!ok) return;
+        if (!ok) return false;
         _lastPushedCollectionJson.set(b.node.id, stableStringify(b.doc));
         _collectionState.set(b.type, b.nextState);
         for (const [id, j] of b.entityJson) _collectionEntityJson.set(id, j);
+        return true;
       }),
     ),
   ]);
+
+  // Report what did NOT go through.
+  //
+  // pushCollectionDoc swallows its failure into a console.warn and returns
+  // false, and allSettled absorbed the rest: a half-lost push ended exactly like
+  // a successful one. The caller had no way to retry and nothing could report
+  // it. The boolean below is what makes the retry, and its banner, possible.
+  //
+  // An empty array — nothing dirty to push — counts as success: that is exactly
+  // the case where everything due has arrived.
+  const allPushed = pushResults.every(
+    (r) => r.status === 'fulfilled' && r.value !== false,
+  );
+
+  // The marker is cleared HERE and not in pushSucceeded: five paths push while
+  // bypassing the debounce timer (the import, the invite link, resync,
+  // revocation, startup migration). Clearing higher up
+  // would leave the marker set after those pushes, and the next startup would
+  // push again for nothing.
+  if (allPushed) clearPendingPush();
 
   // Collections whose current doc is now durably on the server (just pushed, or already clean
   // from a prior push). ONLY these may have their legacy per-entity nodes pruned below.
@@ -499,6 +726,8 @@ export async function pushSpaceSnapshot(
       return merged;
     }),
   );
+
+  return allPushed;
 }
 
 // ---------------------------------------------------------------------------
@@ -595,6 +824,10 @@ export async function hydrateFromSpace(
   weddingNodeId: string,
 ): Promise<number> {
   _isHydrating = true;
+  // Epoch captured on entry. Any local mutation between here and the apply will
+  // make it diverge, and the read state will be discarded.
+  const epochAtEntry = _localEditEpoch;
+  _lastHydrateApplied = false;
   try {
     const nodes = await readObjectTree(session, spaceId);
     if (!nodes.length) {
@@ -831,9 +1064,20 @@ export async function hydrateFromSpace(
       _lastPushedCollectionJson.set(b.node.id, stableStringify(b.doc));
     }
 
+    _lastHydrateApplied = true;
     return nodes.length;
   } finally {
     _isHydrating = false;
+    // The resume. A request discarded during this hydration is replayed now,
+    // never dropped. The flag is a boolean: five held changes give one push,
+    // which the 2 s timer would have coalesced anyway.
+    //
+    // Order matters: _isHydrating must already be false, or scheduleSyncPush
+    // would simply raise the flag again and we would go in circles.
+    if (_pushDeferred) {
+      _pushDeferred = false;
+      scheduleSyncPush();
+    }
   }
 }
 
@@ -847,13 +1091,27 @@ export async function hydrateFromSpace(
  * (which a hydrate already pulls) can skip that redundant pull when this returns true.
  */
 export async function refreshFromSpaceIfIdle(): Promise<boolean> {
-  if (_isHydrating || _pushTimer || _pushing || _rsvpRefreshing) return false;
+  // A pending retry counts for exactly the same reason as _pushTimer: it carries
+  // a change this device has not managed to flush, and a hydration would erase
+  // it.
+  //
+  // But it only blocks while there is still hope of flushing it. Past the signal
+  // threshold the user has been told their changes are not saved, which is the
+  // contract's second branch: reach the server, OR be reported. Blocking beyond
+  // that would leave the device permanently blind to other people's changes on a
+  // durable non-403 failure — trading a silent loss for a silent blindness.
+  const retryStillProtects =
+    _pushRetryTimer !== null && _pushRetryAttempt < PUSH_RETRY_ATTEMPTS_BEFORE_SIGNAL;
+  if (_isHydrating || _pushTimer || retryStillProtects || _pushing || _rsvpRefreshing) return false;
   const session = getActiveSession();
   const spaceId = getActiveSpaceId();
   const weddingNodeId = getActiveWeddingNodeId();
   if (!session || !spaceId || !weddingNodeId) return false;
   return hydrateFromSpace(session, spaceId, weddingNodeId)
-    .then(() => true)
+    // Report what was APPLIED, not what was read. A discarded hydration (a
+    // concurrent local change) applied nothing, so pulled nothing RSVP-side: the
+    // caller must be able to fall back to refreshRsvpInbox.
+    .then(() => _lastHydrateApplied)
     .catch((err) => {
       console.warn('[space-sync] refreshFromSpaceIfIdle failed:', err);
       return false;

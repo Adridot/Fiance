@@ -19,6 +19,7 @@
   "syncStatusPending": "Unsaved changes",
   "syncStatusOffline": "Offline — will back up on reconnect",
   "syncStatusReadOnly": "View-only access — your changes won't be saved",
+  "syncStatusUnsaved": "Unsaved changes — they could not be sent to the server",
   "syncStatusError": "Backup error",
   "tapToEnable": "Tap to enable backup",
   "shareInviteLink": "Share an invite link",

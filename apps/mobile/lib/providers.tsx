@@ -21,7 +21,7 @@ import {
   getActiveWeddingNodeId,
 } from "@/lib/starfish";
 import { registerPull } from "@fiance/sdk";
-import { hydrateFromSpace, scheduleSyncPush, pushSpaceSnapshot, refreshRsvpInbox, refreshFromSpaceIfIdle, discoverOwnerWeddingRoot, hydrateSawLegacyNodes, resetDirtyPushBaseline } from "@/lib/space-sync";
+import { hydrateFromSpace, scheduleSyncPush, pushSpaceSnapshot, refreshRsvpInbox, refreshFromSpaceIfIdle, discoverOwnerWeddingRoot, hydrateSawLegacyNodes, resetDirtyPushBaseline, replayPendingPush, flushPendingPush } from "@/lib/space-sync";
 import { ensureSpaceProvisioned } from "@/lib/space-provision";
 import { resolveServerUrl, resolveSessionConfig, resolveOwnerUserId, normalizeSyncBase } from "@/lib/server";
 import { ensurePublicPageNode, pushPublicPageContent, publicPageNodeId } from "@/lib/public-page";
@@ -171,6 +171,33 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
       const weddingNodeId = getActiveWeddingNodeId();
       if (!session || !spaceId || !weddingNodeId) return;
 
+      // The order of these two is the point, not a detail.
+      //
+      // 1. WIRE THE SCHEDULER FIRST. registerPull("*") used to be called lower
+      //    down, AFTER the startup hydration. Between boot and that point
+      //    notifySync() found no listener: the epoch was not incremented, so the
+      //    guard that DISCARDS a read overwriting a local change protected
+      //    nothing — for the whole, long, initial hydration. An edit made in
+      //    front of the splash screen was silently overwritten. Moving it up
+      //    costs nothing: scheduleSyncPush only arms a timer.
+      unregisterPush = registerPull("*", () => { scheduleSyncPush(); });
+
+      // 2. REPLAY WHAT WAS WAITING. The push is debounced at 2 s; if the page
+      //    left before the deadline the change never reached the server. It is
+      //    still in the persisted stores — what was lost with the module state
+      //    is the INTENTION to push it. The durable marker recovers it, and we
+      //    push BEFORE the hydration below can overwrite local data with older
+      //    server state.
+      //
+      //    Before the SSE stream too: an event could trigger a concurrent
+      //    hydration during this replay.
+      //
+      //    The marker is cleared only on success: a failed replay is retried at
+      //    the next startup, and the ordinary retry covers the interval.
+      if (!cancelled) {
+        await replayPendingPush(session, spaceId, weddingNodeId);
+      }
+
       // Real-time push: subscribe to server-sent events for this space so a peer's
       // change triggers a pull without waiting for foreground/backgrounding. Opened
       // before the hydrate/push awaits below (it needs only session/spaceId, already
@@ -228,8 +255,8 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
         }
       }
 
-      // B3: wire dispatchDocChange('*') → debounced server push.
-      unregisterPush = registerPull("*", () => { scheduleSyncPush(); });
+      // (the dispatchDocChange('*') wiring was moved above the hydration —
+      //  see the note at the top of this effect)
 
       // B5: ensure the publicPage node exists in the space.
       // Retried with backoff: pull errors and transient 409s are common on first
@@ -272,7 +299,31 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
     })().catch((err) => console.warn("[providers] sync init failed:", err));
 
     // Re-pull entitlements on foreground.
+    // pagehide, which AppState does NOT cover.
+    //
+    // react-native-web only listens to visibilitychange: neither pagehide nor
+    // unload nor freeze reaches AppState. But pagehide is the event that goes
+    // with a reload or a tab close — exactly the gesture that lost the edit.
+    //
+    // Double-guarded like the other window listeners in this project
+    // (public-page.ts, rsvp-sync.ts): the hook is set on mount, so it is also
+    // evaluated under Expo's static web render, where window may be missing.
+    // Not beforeunload: unreliable on mobile, and using it to hold the page
+    // would be hostile.
+    let retirerPagehide: (() => void) | null = null;
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const atStart = () => { flushPendingPush(); };
+      window.addEventListener("pagehide", atStart);
+      retirerPagehide = () => window.removeEventListener("pagehide", atStart);
+    }
+
     const foregroundSub = AppState.addEventListener("change", (state) => {
+      // Leaving, not just coming back. react-native-web maps AppState to
+      // visibilitychange alone, so hidden yields "background". This half of the
+      // flush needs no new listener — just a branch before the return below,
+      // which discarded anything that was not "active". On native it is the
+      // move to background, which deserves the same treatment.
+      if (state === "background") { flushPendingPush(); return; }
       if (state !== "active" || !resolvedUserId) return;
       pullEntitlements(null, resolvedUserId)
         .then((features) => {
@@ -310,6 +361,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
     return () => {
       cancelled = true;
       foregroundSub.remove();
+      retirerPagehide?.();
       unregisterPush?.();
       unsubSse?.();
     };

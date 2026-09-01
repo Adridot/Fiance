@@ -144,6 +144,11 @@ const mockGetActiveWeddingNodeId = vi.fn(() => "wedding-node-1");
 // below always installs, so tests can assert what hydrateFromSpace fed setWedding.
 let mockSetWedding: Mock = vi.fn();
 
+// Same reason as mockSetWedding above, for the guest store: the durability tests need to
+// assert whether hydrateFromSpace applied the pulled guests to the store at all, which a
+// fresh-per-getState() spy cannot answer.
+let mockSetGuests: Mock = vi.fn();
+
 vi.mock("@/lib/starfish", () => ({
   getActiveSession: () => mockGetActiveSession(),
   getActiveSpaceId: () => mockGetActiveSpaceId(),
@@ -195,7 +200,9 @@ vi.mock("@/store/useWeddingRegistryStore", () => ({
   },
 }));
 vi.mock("@/store/useGuestsStore", () => ({
-  useGuestsStore: { getState: () => ({ ...emptyStore.getState(), guests: mockGuestsData }) },
+  useGuestsStore: {
+    getState: () => ({ ...emptyStore.getState(), guests: mockGuestsData, setGuests: mockSetGuests }),
+  },
 }));
 vi.mock("@/store/useVendorsStore", () => ({ useVendorsStore: emptyStore }));
 vi.mock("@/store/usePlanningStore", () => ({ usePlanningStore: emptyStore }));
@@ -220,7 +227,31 @@ vi.mock("@/lib/rsvp-sync", () => ({
   applyRsvpSubmissionsByGuestId: vi.fn(),
 }));
 
+// The local KV, where the pending-push marker is stored. The real module pulls
+// in react-native and expo-sqlite, neither of which exists under vitest's node
+// environment — hence this fake, over an inspectable Map.
+//
+// It deliberately SURVIVES vi.resetModules(): it belongs to this test file, not
+// to the module. That is exactly what we want to model — the KV survives a page
+// reload, module state does not.
+const mockKvStore = new Map<string, unknown>();
+vi.mock("@/lib/kv-storage", () => ({
+  readCollection: (key: string) => (mockKvStore.has(key) ? mockKvStore.get(key) : null),
+  writeCollection: (key: string, data: unknown) => { mockKvStore.set(key, data); },
+  // KV closed: hydration persistence does not run here, it has its own
+  // propre fichier (`hydratation-instantane.test.ts`).
+  getStorage: () => null,
+}));
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
+
+// The KV belongs to THIS FILE: it deliberately survives vi.resetModules(),
+// since it models storage that survives a page reload. So it must be reset
+// between TESTS, or the durable pending-push tracking leaks from one to the
+// next.
+beforeEach(() => {
+  mockKvStore.clear();
+});
 
 describe("scheduleSyncPush / _isHydrating timer guard", () => {
   beforeEach(() => {
@@ -371,9 +402,24 @@ describe("_pushing guard — no concurrent hydrate while a push awaits the netwo
   });
 
   it("a second concurrent scheduleSyncPush push still resolves _pushing to false even if the network push fails", async () => {
+    // The intent of this test is unchanged: a failure must not WEDGE sync
+    // forever. What changed is when it resumes. A failure now schedules a retry,
+    // and that retry protects the unflushed change from a hydration that would
+    // erase it — exactly what _pushTimer already does above. The protection
+    // stops at the signal threshold: once the user has been told their changes
+    // are not saved, the device starts reading again, otherwise a durable
+    // failure would blind it forever.
     mockClientPull = vi.fn(async () => ({ data: null, hash: null }));
     let rejectPush!: (err: Error) => void;
-    mockClientPush = vi.fn(() => new Promise<{ hash: string }>((_res, rej) => { rejectPush = rej; }));
+    let firstPush = true;
+    mockClientPush = vi.fn(() => {
+      if (firstPush) {
+        firstPush = false;
+        return new Promise<{ hash: string }>((_res, rej) => { rejectPush = rej; });
+      }
+      // Retries fail immediately: the outage persists.
+      return Promise.reject(new Error("network down"));
+    });
     mockHandlePush = makeHandlePush(mockClientPull, mockClientPush);
     mockGetNodeAccessImpl = async () => ({
       encryptor: null,
@@ -396,7 +442,16 @@ describe("_pushing guard — no concurrent hydrate while a push awaits the netwo
     rejectPush(new Error("network down"));
     await vi.advanceTimersByTimeAsync(0);
 
-    // _pushing must be released even on failure — otherwise sync would wedge permanently.
+    // _pushing IS released — but the retry still protects the change.
+    await refreshFromSpaceIfIdle();
+    expect(readTreeCalls).toBe(0);
+
+    // The outage persists: attempts run out, the failure is reported…
+    await vi.advanceTimersByTimeAsync(60_000);
+    const { useSyncPendingStore } = await import("@/store/useSyncPendingStore");
+    expect(useSyncPendingStore.getState().unsavedChanges).toBe(true);
+
+    // …and reading resumes: nothing is wedged forever.
     await refreshFromSpaceIfIdle();
     expect(readTreeCalls).toBe(1);
   });
