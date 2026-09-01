@@ -39,33 +39,16 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   // hash-wasm (Argon2id in starfish-identities) requires a WebAssembly global —
   // absent on Hermes ("WebAssembly is not supported in this environment"). On native
   // (iOS/Android) redirect to a shim that delegates to react-native-quick-crypto's
-  // native Argon2id binding (OpenSSL, ~150 ms vs ~15–45 s pure JS).
+  // native Argon2id binding (OpenSSL, ~150 ms vs ~15-45 s pure JS).
   // A package exports map can't remap a third-party specifier imported deep inside
   // a dependency, so the alias must live here.
   //
-  // MODIFICATION LOCALE — LE WEB NE PASSE PLUS PAR UN SHIM.
-  //
-  // Le détournement valait pour TOUTES les plateformes, et le web tombait donc
-  // sur `lib/hash-wasm-shim.ts` — l'Argon2id de `@noble/hashes`, en JavaScript
-  // pur. Or le motif du détournement est l'absence de `WebAssembly` sur
-  // Hermes : un navigateur en a depuis toujours. Le web payait un repli posé
-  // pour une contrainte qui ne le concerne pas, et que le CLAUDE.md de ce
-  // dépôt décrit lui-même comme la voie lente écartée pour le natif.
-  //
-  // Ce que cela coûtait, mesuré aux paramètres de production
-  // (m=47104 KiB, t=3, p=1, dkLen=32) :
-  //
-  //     hash-wasm (WebAssembly)   283 ms
-  //     @noble/hashes (JS pur)  2 904 ms      10,3x
-  //
-  // Au démarrage, cette seule dérivation tenait le fil principal 3 187 ms —
-  // la liste des invités était peinte à 700 ms puis l'interface restait morte
-  // trois secondes. C'est la cause, et non le poids du bundle.
-  //
-  // LES DEUX PRODUISENT LE MÊME CONDENSAT (vérifié aux paramètres ci-dessus).
-  // Aucune identité n'est recalculée, aucun `userId` ne change, rien de ce qui
-  // est stocké ou synchronisé ne bouge : c'est la même fonction, autrement
-  // implémentée. `lib/hash-wasm-shim.ts` reste en place, sans appelant.
+  // Web is NOT redirected: a browser has had WebAssembly all along, so it was paying
+  // a fallback meant for a constraint it does not have. Measured at production
+  // parameters (m=47104 KiB, t=3, p=1, dkLen=32): hash-wasm 283 ms vs @noble/hashes
+  // 2904 ms. At startup that single derivation held the main thread for 3187 ms.
+  // Both produce the same digest, so no identity is recomputed and nothing stored or
+  // synced changes. lib/hash-wasm-shim.ts stays in the tree, now without a caller.
   if (moduleName === 'hash-wasm') {
     const isNative = platform === 'ios' || platform === 'android'
     if (!isNative) return resolve(context, moduleName, platform)

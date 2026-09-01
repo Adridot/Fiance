@@ -8,10 +8,6 @@
  */
 
 import { deriveSession, getSyncNamespace, DEFAULT_SYNC_NAMESPACE, readSpaceAccess, type Session } from "@fiance/sdk";
-// MODIFICATION LOCALE — marques de temps du démarrage. `deriveSession` fait un
-// Argon2id et est appelée plusieurs fois par démarrage : savoir laquelle coûte,
-// et combien, est la question ouverte de ce changement.
-import { chronométrer } from "@/lib/demarrage-marques";
 import { normalizePhrase } from "@/lib/identity";
 import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
 
@@ -89,11 +85,11 @@ export async function deriveUserId(
   serverUrl?: string,
 ): Promise<string> {
   const baseUrl = serverUrl ? normalizeSyncBase(serverUrl) : "http://localhost";
-  const session = await chronométrer("deriveSession (deriveUserId)", () => deriveSession(
+  const session = await deriveSession(
     normalizePhrase(seedPhrase).split(" "),
     { baseUrl, namespace: syncNamespace() },
     { sharedNamespace: syncNamespace(), autoProfile: false },
-  ));
+  );
   return session.userId;
 }
 
@@ -107,11 +103,11 @@ export async function resolveSessionConfig(
   const seedPhrase = entry?.seedPhrase;
   const serverUrl = resolveServerUrl(entry);
   if (!seedPhrase || !serverUrl) return null;
-  const session = await chronométrer("deriveSession (resolveSessionConfig)", () => deriveSession(
+  const session = await deriveSession(
     normalizePhrase(seedPhrase).split(" "),
     makeClientOpts(serverUrl),
     { sharedNamespace: syncNamespace(), autoProfile: false },
-  ));
+  );
   return { serverUrl, session, userId: session.userId };
 }
 
@@ -163,11 +159,11 @@ export async function resolveServerConfig(
   const seedPhrase = entry?.seedPhrase;
   const serverUrl = resolveServerUrl(entry);
   if (!seedPhrase || !serverUrl) return null;
-  const session = await chronométrer("deriveSession (resolveServerConfig)", () => deriveSession(
+  const session = await deriveSession(
     normalizePhrase(seedPhrase).split(" "),
     makeClientOpts(serverUrl),
     { sharedNamespace: syncNamespace(), autoProfile: false },
-  ));
+  );
   return {
     serverUrl,
     userId: session.userId,

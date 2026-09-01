@@ -7,8 +7,6 @@ import { getRandomBytes } from "expo-crypto";
 import { entropyToMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english";
 import { createResilientFetch } from "@drakkar.software/starfish-client/fetch";
-// MODIFICATION LOCALE — marques de temps du démarrage.
-import { chronométrer } from "@/lib/demarrage-marques";
 import {
   isValidSeed as _isValidSeed,
   deriveSession as _deriveSession,
@@ -86,12 +84,11 @@ export async function deriveSessionFromPhrase(
   // owner's content/account/index clients. Collaborator node-push clients are rebuilt
   // without this fetch.
   const { fetch: resilientFetch } = createResilientFetch();
-  // MODIFICATION LOCALE — marque de temps du démarrage (Argon2id).
-  const session = await chronométrer("deriveSession (deriveSessionFromPhrase)", () => _deriveSession(
+  const session = await _deriveSession(
     words,
     { baseUrl: normalizeSyncBase(serverUrl), namespace: syncNamespace(), fetch: resilientFetch },
     { sharedNamespace: syncNamespace(), autoProfile: false },
-  ));
+  );
   return { session, userId: session.userId };
 }
 

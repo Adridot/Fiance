@@ -13,20 +13,6 @@ export default function Root({ children }: PropsWithChildren) {
       <head>
         <meta charSet="utf-8" />
 
-        {/*
-          MODIFICATION LOCALE — première marque de temps du démarrage.
-
-          Elle doit être posée AVANT le bundle, sinon elle daterait ce qu'elle
-          prétend mesurer. D'où un script en clair, tout en haut du prérendu :
-          il s'exécute pendant l'analyse du HTML, donc bien avant que le
-          premier module applicatif ne s'évalue. `lib/demarrage-marques.ts`
-          rejoint ensuite ce même registre — il ne le remplace pas.
-        */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){var g=window;g.__fianceMarques=g.__fianceMarques||{entrées:[]};g.__fianceMarques.entrées.push({nom:"HTML analysé",t:performance.now()})})()`,
-          }}
-        />
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
         <meta
           name="viewport"
@@ -134,7 +120,7 @@ export default function Root({ children }: PropsWithChildren) {
         <link rel="apple-touch-icon" href="/assets/icon.png" />
 
         {/*
-          MODIFICATION LOCALE — l'indicateur de chargement, en HTML et CSS seuls.
+          Loading indicator, in plain HTML and CSS.
 
           Il doit apparaître AVANT le code de l'application : un indicateur
           rendu par React arriverait en même temps que ce qu'il annonce. Il vit
@@ -186,7 +172,7 @@ html[data-app-montee] #chargement{display:none}
       </head>
       <body>
         {children}
-        {/* MODIFICATION LOCALE — voir la feuille de style en tête. */}
+        {/* See the stylesheet at the top of this file. */}
         <div id="chargement">
           <div className="anneau" />
           <div>Chargement…</div>

@@ -1,5 +1,5 @@
 /**
- * MODIFICATION LOCALE — l'indicateur de chargement du prérendu cède la place.
+ * The prerendered loading indicator stands down.
  *
  * L'indicateur lui-même est écrit en HTML et CSS dans `app/+html.tsx` : il doit
  * apparaître AVANT le bundle, sinon il arriverait en même temps que ce qu'il
