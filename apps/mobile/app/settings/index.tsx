@@ -133,6 +133,10 @@ export default function SettingsScreen() {
   const memberCount = usePermissionsStore((s) => s.assignments.length);
   const canInviteMember = useCanAddMore("members", memberCount);
 
+  // Alert.alert is a no-op on react-native-web, so this offer was never shown
+  // there — and its "migrate now" branch could never run.
+  const [showMigrationOffer, setShowMigrationOffer] = useState(false);
+
   const handleToggleSync = useCallback(async () => {
     console.log("[sync] handleToggleSync called", { id: activeEntry?.id, syncEnabled, hasSeed: !!activeEntry?.seedPhrase, serverUrl: activeEntry?.serverUrl });
     if (!activeEntry?.id) return;
@@ -177,9 +181,6 @@ export default function SettingsScreen() {
     if (wedding) setShowMigrationOffer(true);
   }, [syncEnabled, activeEntry, wedding, router, t]);
 
-  // Alert.alert is a no-op on react-native-web, so this offer was never shown
-  // there — and its "migrate now" branch could never run.
-  const [showMigrationOffer, setShowMigrationOffer] = useState(false);
   const [showInviteQR, setShowInviteQR] = useState(false);
 
   const handleInvite = useCallback(() => {
