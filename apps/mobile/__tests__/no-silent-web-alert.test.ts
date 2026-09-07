@@ -12,7 +12,16 @@ import { join } from "path";
  * This test keeps Alert.alert from creeping back in.
  */
 
-const ROOTS = ["app", "components", "lib", "store"];
+// Repo-relative: @fiance/ui ships React Native components too, so it can grow
+// the same bug even though it has none today.
+const ROOTS = [
+  "apps/mobile/app",
+  "apps/mobile/components",
+  "apps/mobile/lib",
+  "apps/mobile/store",
+  "packages/fiance-ui/src",
+  "packages/fiance-sdk/src",
+];
 const EXT = /\.(ts|tsx)$/;
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -26,7 +35,7 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 it("no source file calls Alert.alert — it is a silent no-op on web", () => {
-  const base = join(__dirname, "..");
+  const base = join(__dirname, "..", "..", "..");
   const offenders: string[] = [];
   for (const root of ROOTS) {
     for (const file of walk(join(base, root))) {
