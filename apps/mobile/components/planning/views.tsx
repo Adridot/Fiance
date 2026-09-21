@@ -41,7 +41,7 @@ import { useIsWideScreen } from "@/lib/useIsWideScreen";
 import { useShowPaywall } from "@/components/PaywallProvider";
 import { QuotaBadge } from "@/components/QuotaBadge";
 import { useCanAddMore, FREE_LIMITS } from "@/lib/limits";
-import { ConfirmSheet } from "@fiance/ui/components";
+import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { toast } from "@/lib/toast/sonner";
 
 type ViewMode = "timeline" | "kanban";
