@@ -437,19 +437,22 @@ index b688a0f..63169dc 100644
            <PlanView
              tables={tables}
 diff --git a/apps/mobile/app/(tabs)/home/index.tsx b/apps/mobile/app/(tabs)/home/index.tsx
-index 73aab69..daa914c 100644
+index 73aab69..5c22974 100644
 --- a/apps/mobile/app/(tabs)/home/index.tsx
 +++ b/apps/mobile/app/(tabs)/home/index.tsx
-@@ -2,7 +2,7 @@ import React, { useCallback, useEffect } from "react";
+@@ -2,16 +2,19 @@ import React, { useCallback, useEffect } from "react";
  import { View, Text, ScrollView, Pressable } from "react-native-css/components";
  import { Platform, StatusBar as RNStatusBar } from "react-native";
  import { useRouter } from "expo-router";
 -import { Settings, MapPin, AlertTriangle, Briefcase, Sparkles, ChevronRight, Download, LayoutGrid, Clock, Circle, Eye } from "lucide-react-native";
-+import { Settings, MapPin, AlertTriangle, Briefcase, Sparkles, ChevronRight, Download, LayoutGrid, Clock, Circle, Eye, CloudOff } from "lucide-react-native";
++import { UserRound, Settings, MapPin, AlertTriangle, Briefcase, Sparkles, ChevronRight, Download, LayoutGrid, Clock, Circle, Eye, CloudOff } from "lucide-react-native";
  import { useTranslation } from "react-i18next";
  import { useSafeAreaInsets } from "react-native-safe-area-context";
  import { differenceInDays, format } from "date-fns";
-@@ -12,6 +12,8 @@ import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
+ import { getDateLocale, safeFormat } from "@/i18n/dateFnsLocale";
+ import { useWeddingStore } from "@/store/useWeddingStore";
+ import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
++import { useCompteStore } from "@/store/useCompteStore";
  import { isAgendaEventUpcoming } from "@/lib/agenda-upcoming";
  import { needsNamespaceResync } from "@/lib/space-resync";
  import { useIsReadOnlyMember } from "@/lib/permissions/useIsReadOnlyMember";
@@ -458,7 +461,27 @@ index 73aab69..daa914c 100644
  import { useWeddingEventsStore } from "@/store/useWeddingEventsStore";
  import { useVendorsStore } from "@/store/useVendorsStore";
  import { useGuestsStore, computeCounts } from "@/store/useGuestsStore";
-@@ -52,6 +54,11 @@ function DashboardScreen() {
+@@ -34,6 +37,9 @@ import { PageHeader } from "@/components/PageHeader";
+ import { useIsWideScreen } from "@/lib/useIsWideScreen";
+ import { getPrimaryEvent } from "@fiance/sdk";
+ 
++/** Congédié pour la session seulement : le module vit tant que l'appli reste ouverte. */
++let bandeauDeCompteCongedie = false;
++
+ export default function HomeScreen() {
+   return <DashboardScreen />;
+ }
+@@ -48,10 +54,21 @@ function DashboardScreen() {
+   const registry = useWeddingRegistryStore((s) => s.registry);
+   const activeEntry = registry?.weddings.find((w) => w.id === registry.activeWeddingId);
+   const showResyncBanner = needsNamespaceResync(activeEntry);
++  const compteCharge = useCompteStore((s) => s.charge);
++  const aUnCompte = useCompteStore((s) => s.compte !== null);
++  const coffreDeplace = useCompteStore((s) => s.coffre === "deplace");
++  const [compteCongedie, setCompteCongedie] = React.useState(bandeauDeCompteCongedie);
++  const estMembre = activeEntry?.role === "member";
++  const showCompteBanner = compteCharge && !aUnCompte && !(estMembre && compteCongedie);
+   // Desktop web shows this as a persistent top bar instead (ReadOnlyBanner,
    // mounted in app/_layout.tsx) — a fixed overlay is awkward on a small screen.
    const isReadOnlyMember = useIsReadOnlyMember();
    const showReadOnlyBanner = !isWide && isReadOnlyMember;
@@ -470,7 +493,7 @@ index 73aab69..daa914c 100644
    const weddingEvents = useWeddingEventsStore((s) => s.weddingEvents);
    const primaryEvent = React.useMemo(() => getPrimaryEvent(weddingEvents), [weddingEvents]);
    const vendors = useVendorsStore((s) => s.vendors);
-@@ -297,6 +304,16 @@ function DashboardScreen() {
+@@ -297,6 +314,43 @@ function DashboardScreen() {
            />
          )}
  
@@ -484,10 +507,37 @@ index 73aab69..daa914c 100644
 +          />
 +        )}
 +
++        {compteCharge && aUnCompte && coffreDeplace && (
++          <HomeBanner
++            icon={<UserRound size={20} color={GP.strawberryInk} />}
++            iconBg={GP.strawberrySoft}
++            title={t("settings:compte.banniereDeplace")}
++            onPress={() => router.push("/settings/compte" as any)}
++            showChevron
++          />
++        )}
++
++        {showCompteBanner && (
++          <HomeBanner
++            icon={<UserRound size={20} color={GP.clay} />}
++            title={t("settings:compte.banniere")}
++            onPress={() => router.push("/settings/compte" as any)}
++            onDismiss={
++              estMembre
++                ? () => {
++                    bandeauDeCompteCongedie = true;
++                    setCompteCongedie(true);
++                  }
++                : undefined
++            }
++            showChevron
++          />
++        )}
++
          {/* PWA install banner — Chromium browsers */}
          {canInstall && (
            <HomeBanner
-@@ -331,8 +348,8 @@ function DashboardScreen() {
+@@ -331,8 +385,8 @@ function DashboardScreen() {
          {/* Sync-namespace resync banner — space provisioned under a retired namespace */}
          {showResyncBanner && (
            <HomeBanner
@@ -882,10 +932,10 @@ index 7e2c85e..073c3fa 100644
                  <Square size={20} color="#D1D5DB" />
                )}
 diff --git a/apps/mobile/app/(tabs)/vendors/[type]/index.tsx b/apps/mobile/app/(tabs)/vendors/[type]/index.tsx
-index bf36213..505d118 100644
+index bf36213..130374b 100644
 --- a/apps/mobile/app/(tabs)/vendors/[type]/index.tsx
 +++ b/apps/mobile/app/(tabs)/vendors/[type]/index.tsx
-@@ -17,6 +17,7 @@ import { Display } from "@/components/Display";
+@@ -17,14 +17,15 @@ import { Display } from "@/components/Display";
  import { useShowPaywall } from "@/components/PaywallProvider";
  import { useCanAddMore, useHasFeature, FREE_LIMITS } from "@/lib/limits";
  import { toast } from "@/lib/toast/sonner";
@@ -893,6 +943,17 @@ index bf36213..505d118 100644
  
  export default function VendorTypeListScreen() {
    const { t } = useTranslation("vendors");
+   const { type } = useLocalSearchParams<{ type: string }>();
+   const router = useRouter();
+-  const vendors = useVendorsStore((s) =>
+-    s.vendors.filter((v) => v.type === type)
+-  );
++  // A selector must return a stable reference: filtering inside it loops (React #185).
++  const allVendors = useVendorsStore((s) => s.vendors);
++  const vendors = useMemo(() => allVendors.filter((v) => v.type === type), [allVendors, type]);
+   const totalVendorCount = useVendorsStore((s) => s.vendors.length);
+   const quotePricings = useVendorsStore((s) => s.quotePricings);
+   const guests = useGuestsStore((s) => s.guests);
 @@ -87,7 +88,7 @@ export default function VendorTypeListScreen() {
                className="mb-3 flex-row items-center gap-1.5"
              >
@@ -933,10 +994,10 @@ index cd638cc..bdf8ef3 100644
              <HeaderAddButton
                accessibilityLabel={t("newVendor")}
 diff --git a/apps/mobile/app/(tabs)/vendors/compare.tsx b/apps/mobile/app/(tabs)/vendors/compare.tsx
-index 4499832..37b9ca1 100644
+index 4499832..0726481 100644
 --- a/apps/mobile/app/(tabs)/vendors/compare.tsx
 +++ b/apps/mobile/app/(tabs)/vendors/compare.tsx
-@@ -13,6 +13,7 @@ import { formatMoney } from "@/components/MoneyDisplay";
+@@ -13,12 +13,13 @@ import { formatMoney } from "@/components/MoneyDisplay";
  import { ProgressBar } from "@/components/ProgressBar";
  import { Display } from "@/components/Display";
  import { Label } from "@/components/Label";
@@ -944,6 +1005,15 @@ index 4499832..37b9ca1 100644
  
  export default function CompareScreen() {
    const { t } = useTranslation("vendors");
+-  const vendors = useVendorsStore((s) =>
+-    s.vendors.filter((v) => v.type === "CATERER")
+-  );
++  // A selector must return a stable reference: filtering inside it loops (React #185).
++  const allVendors = useVendorsStore((s) => s.vendors);
++  const vendors = useMemo(() => allVendors.filter((v) => v.type === "CATERER"), [allVendors]);
+   const quotePricings = useVendorsStore((s) => s.quotePricings);
+   const guests = useGuestsStore((s) => s.guests);
+   const counts = useMemo(() => computeCounts(guests), [guests]);
 @@ -88,7 +89,7 @@ export default function CompareScreen() {
                    {c.vendor.name}
                  </Text>
@@ -1191,140 +1261,103 @@ index fde6583..449c401 100644
                  className="text-[11px] text-primary-400 ml-1"
                  numberOfLines={1}
 diff --git a/apps/mobile/app/join.tsx b/apps/mobile/app/join.tsx
-index bbfe6ed..7b3b997 100644
+index bbfe6ed..d685ace 100644
 --- a/apps/mobile/app/join.tsx
 +++ b/apps/mobile/app/join.tsx
-@@ -1,6 +1,6 @@
+@@ -1,16 +1,20 @@
  import { useState, useCallback, useEffect, useMemo } from "react";
- import { Seo } from "@/components/Seo";
+-import { Seo } from "@/components/Seo";
 -import { View, Text, Pressable, ActivityIndicator } from "react-native-css/components";
-+import { View, Text, Pressable, ActivityIndicator, TextInput } from "react-native-css/components";
++import { View, ActivityIndicator } from "react-native-css/components";
  import { useRouter } from "expo-router";
- import { useTranslation } from "react-i18next";
+-import { useTranslation } from "react-i18next";
  import * as Linking from "expo-linking";
-@@ -11,11 +11,27 @@ import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
+-import { Heart, PlusCircle, ArrowLeft, AlertCircle } from "lucide-react-native";
+-import { Display } from "@/components/Display";
+-import { PageHeader } from "@/components/PageHeader";
+-import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
  import { parseSpaceInviteUrl } from "@/lib/identity";
- import { joinWeddingByToken } from "@/lib/join-space";
- import type { SpaceInviteLinkToken } from "@fiance/sdk";
+-import { joinWeddingByToken } from "@/lib/join-space";
+-import type { SpaceInviteLinkToken } from "@fiance/sdk";
 +import { theme as GP } from "@/lib/theme";
-+// MODIFICATION LOCALE — la forme courte du lien, et l'état « lecture impossible ».
 +import { InvitationNonReconnue } from "@/components/InvitationNonReconnue";
-+import { InvitationDejaAcceptee } from "@/components/InvitationDejaAcceptee";
++import { ParcoursDInvitation } from "@/components/invitation/ParcoursDInvitation";
 +import {
 +  resoudreLInvitation,
 +  resoudreLeCode,
 +  type CauseDEchec,
++  type ResolutionDInvitation,
 +} from "@/lib/resolution-d-invitation";
-+import { normalizeSyncBase, resolveServerUrl } from "@/lib/server";
-+import { useAccesChiffreStore } from "@/store/useAccesChiffreStore";
++import { baseDeSync } from "@/lib/base-de-sync";
++
++type Reussite = Extract<ResolutionDInvitation, { jeton: unknown }>;
  
  // Captured at module-load time — before Expo Router mounts and rewrites web
  // history (replaceState strips the fragment). null on native (no window).
- const bootHref = typeof window !== "undefined" ? window.location.href : null;
- 
-+/** La base de sync, pour aller chercher un dépôt avant d'avoir la moindre identité. */
-+function baseDeSync(): string {
-+  return normalizeSyncBase(resolveServerUrl() ?? "https://mariage.didot.io/sync");
-+}
-+
- export default function JoinScreen() {
-   // undefined = still resolving; null = resolved but no URL; string = resolved URL
-   const [url, setUrl] = useState<string | null | undefined>(undefined);
-@@ -28,12 +44,43 @@ export default function JoinScreen() {
+@@ -28,213 +32,54 @@ export default function JoinScreen() {
      return () => sub.remove();
    }, []);
  
 -  // Token lives in the URL fragment (#)
 -  const token = useMemo<SpaceInviteLinkToken | null>(
+-    () => (url ? parseSpaceInviteUrl(url) : null),
+-    [url],
+-  );
 +  // Le format LONG porte le jeton en clair dans le fragment : il se lit sans réseau.
-+  const tokenLong = useMemo<SpaceInviteLinkToken | null>(
-     () => (url ? parseSpaceInviteUrl(url) : null),
-     [url],
-   );
++  const tokenLong = useMemo(() => (url ? parseSpaceInviteUrl(url) : null), [url]);
  
+-  const registry = useWeddingRegistryStore((s) => s.registry);
+-  const switchWedding = useWeddingRegistryStore((s) => s.switchWedding);
+-  const [confirmed, setConfirmed] = useState(false);
 +  // La forme COURTE demande un aller-retour : le fragment ne porte que la clé.
-+  const [tokenCourt, setTokenCourt] = useState<SpaceInviteLinkToken | null>(null);
++  const [resolutionCourte, setResolutionCourte] = useState<Reussite | null>(null);
 +  const [cause, setCause] = useState<CauseDEchec | null>(null);
 +  const [resolutionEnCours, setResolutionEnCours] = useState(false);
-+
-+  const appliquer = useCallback((r: Awaited<ReturnType<typeof resoudreLInvitation>>) => {
-+    if ("jeton" in r) setTokenCourt(r.jeton);
-+    else setCause(r.cause);
-+  }, []);
-+
-+  const saisirLeCode = useCallback(async (code: string, cle: string) => {
-+    setResolutionEnCours(true);
-+    setCause(null);
-+    appliquer(await resoudreLeCode(baseDeSync(), code, cle));
-+    setResolutionEnCours(false);
-+  }, [appliquer]);
-+
-+  useEffect(() => {
-+    if (!url || tokenLong) return;
-+    let vivant = true;
-+    setResolutionEnCours(true);
-+    resoudreLInvitation(baseDeSync(), url, null).then((r) => {
-+      if (!vivant) return;
-+      appliquer(r);
-+      setResolutionEnCours(false);
-+    });
-+    return () => { vivant = false; };
-+  }, [url, tokenLong, appliquer]);
-+
-+  const token = tokenLong ?? tokenCourt;
-+
-   const registry = useWeddingRegistryStore((s) => s.registry);
-   const switchWedding = useWeddingRegistryStore((s) => s.switchWedding);
-   const [confirmed, setConfirmed] = useState(false);
-@@ -44,26 +91,38 @@ export default function JoinScreen() {
-     router.replace("/home" as any);
-   }, [router]);
+   const router = useRouter();
  
-+  // MODIFICATION LOCALE — bascule vers un espace déjà rejoint, sur demande.
-+  const rejoindreLEspaceConnu = useCallback(async (sid: string) => {
-+    const existant = registry?.weddings.find((w) => w.spaceId === sid);
-+    if (existant) await switchWedding(existant.id);
-+    router.replace("/home" as any);
-+  }, [registry, switchWedding, router]);
-+
-   // Still resolving the initial URL — avoid flashing the error screen
+-  const joinAndNavigate = useCallback(async (t: SpaceInviteLinkToken) => {
+-    await joinWeddingByToken(t);
+-    router.replace("/home" as any);
+-  }, [router]);
+-
+-  // Still resolving the initial URL — avoid flashing the error screen
 -  if (url === undefined) {
-+  if (url === undefined || resolutionEnCours) {
-     return (
-       <View className="flex-1 bg-accent-paper items-center justify-center">
+-    return (
+-      <View className="flex-1 bg-accent-paper items-center justify-center">
 -        <ActivityIndicator size="large" color="#b96a4a" />
-+        <ActivityIndicator size="large" color={GP.clay} />
-       </View>
-     );
-   }
- 
+-      </View>
+-    );
+-  }
+-
 -  // No valid invite token → show error
-+  // Aucune invitation reconnue : on DIT pourquoi, et on offre le second chemin.
-   if (!token) {
+-  if (!token) {
 -    return <InvalidInvite />;
-+    return <InvitationNonReconnue cause={cause ?? "invalide"} onCode={saisirLeCode} />;
-   }
- 
-   const alreadyJoined = registry?.weddings.some((w) => w.spaceId === token.spaceId);
-   const hasWeddings = registry != null && registry.weddings.length > 0;
- 
+-  }
+-
+-  const alreadyJoined = registry?.weddings.some((w) => w.spaceId === token.spaceId);
+-  const hasWeddings = registry != null && registry.weddings.length > 0;
+-
 -  // Already joined this space — switch to it and go home
-+  // MODIFICATION LOCALE — on le DIT, on ne redirige plus en silence.
-   if (alreadyJoined) {
+-  if (alreadyJoined) {
 -    return <AlreadyJoinedRedirect spaceId={token.spaceId} />;
-+    return (
-+      <InvitationDejaAcceptee
-+        weddingName={token.spaceName}
-+        onContinuer={() => { void rejoindreLEspaceConnu(token.spaceId); }}
-+      />
-+    );
-   }
- 
-   // Always show the confirmation screen before joining — lets the user review
-@@ -82,23 +141,6 @@ export default function JoinScreen() {
-   return <AutoJoin token={token} onJoin={joinAndNavigate} />;
- }
- 
+-  }
+-
+-  // Always show the confirmation screen before joining — lets the user review
+-  // the wedding name and decide. First-time users see a simpler prompt;
+-  // users with existing weddings see the conflict warning too.
+-  if (!confirmed) {
+-    return (
+-      <ConfirmJoin
+-        weddingName={token.spaceName}
+-        hasOtherWeddings={hasWeddings}
+-        onConfirm={() => setConfirmed(true)}
+-      />
+-    );
+-  }
+-
+-  return <AutoJoin token={token} onJoin={joinAndNavigate} />;
+-}
+-
 -function AlreadyJoinedRedirect({ spaceId }: { spaceId: string }) {
 -  const router = useRouter();
 -  const registry = useWeddingRegistryStore((s) => s.registry);
@@ -1341,44 +1374,61 @@ index bbfe6ed..7b3b997 100644
 -
 -  return null;
 -}
--
- function AutoJoin({
-   token,
-   onJoin,
-@@ -108,6 +150,10 @@ function AutoJoin({
- }) {
-   const { t } = useTranslation("common");
-   const [error, setError] = useState<string | null>(null);
-+  // MODIFICATION LOCALE — une invitation n'aboutit pas quand elle rattache à un
-+  // espace dont le contenu reste illisible : on le dit ici plutôt que de
-+  // conduire la personne vers un mariage qui paraît vide.
-+  const illisible = useAccesChiffreStore((s) => Object.keys(s.illisibles).length > 0);
++  const appliquer = useCallback((r: ResolutionDInvitation) => {
++    if ("jeton" in r) setResolutionCourte(r);
++    else setCause(r.cause);
++  }, []);
  
-   // eslint-disable-next-line react-hooks/exhaustive-deps
+-function AutoJoin({
+-  token,
+-  onJoin,
+-}: {
+-  token: SpaceInviteLinkToken;
+-  onJoin: (token: SpaceInviteLinkToken) => Promise<void>;
+-}) {
+-  const { t } = useTranslation("common");
+-  const [error, setError] = useState<string | null>(null);
++  const saisirLeCode = useCallback(async (code: string, cle: string) => {
++    setResolutionEnCours(true);
++    setCause(null);
++    appliquer(await resoudreLeCode(baseDeSync(), code, cle));
++    setResolutionEnCours(false);
++  }, [appliquer]);
+ 
+-  // eslint-disable-next-line react-hooks/exhaustive-deps
    useEffect(() => {
-@@ -116,16 +162,16 @@ function AutoJoin({
+-    onJoin(token).catch((err: unknown) => {
+-      setError(err instanceof Error ? err.message : String(err));
++    if (!url || tokenLong) return;
++    let vivant = true;
++    setResolutionEnCours(true);
++    resoudreLInvitation(baseDeSync(), url, null).then((r) => {
++      if (!vivant) return;
++      appliquer(r);
++      setResolutionEnCours(false);
      });
-   }, []);
+-  }, []);
++    return () => { vivant = false; };
++  }, [url, tokenLong, appliquer]);
  
 -  if (error) {
-+  if (illisible) {
++  // Still resolving the initial URL — avoid flashing the error screen
++  if (url === undefined || resolutionEnCours) {
      return (
-       <View className="flex-1 bg-accent-paper justify-center px-6">
-         <View className="items-center mb-10">
+-      <View className="flex-1 bg-accent-paper justify-center px-6">
+-        <View className="items-center mb-10">
 -          <AlertCircle size={36} color="#EF4444" />
-+          <AlertCircle size={36} color={GP.mustard} />
-         </View>
-         <PageHeader
+-        </View>
+-        <PageHeader
 -          eyebrow={t("join.eyebrow")}
 -          title={t("onboarding.inviteFailed")}
 -          tagline={error}
-+          eyebrow={t("join.inviteEyebrow")}
-+          title={t("join.invitationIncomplete")}
-+          tagline={t("join.espaceRejointIllisible")}
-           titleSize={24}
-           style={{ paddingHorizontal: 0, paddingTop: 0 }}
-         />
-@@ -133,42 +179,26 @@ function AutoJoin({
+-          titleSize={24}
+-          style={{ paddingHorizontal: 0, paddingTop: 0 }}
+-        />
++      <View className="flex-1 bg-accent-paper items-center justify-center">
++        <ActivityIndicator size="large" color={GP.clay} />
+       </View>
      );
    }
  
@@ -1388,7 +1438,8 @@ index bbfe6ed..7b3b997 100644
 -    </View>
 -  );
 -}
--
++  const resolution: Reussite | null = tokenLong ? { jeton: tokenLong } : resolutionCourte;
+ 
 -function InvalidInvite() {
 -  const { t } = useTranslation("common");
 -  const router = useRouter();
@@ -1398,20 +1449,15 @@ index bbfe6ed..7b3b997 100644
 -      <Seo title="Fiancé" description="" noindex />
 -      <View className="items-center mb-10">
 -        <View className="w-20 h-20 rounded-full bg-red-50 dark:bg-red-900 items-center justify-center mb-5">
-+  if (error) {
-+    return (
-+      <View className="flex-1 bg-accent-paper justify-center px-6">
-+        <View className="items-center mb-10">
-           <AlertCircle size={36} color="#EF4444" />
-         </View>
-         <PageHeader
-           eyebrow={t("join.eyebrow")}
-           title={t("onboarding.inviteFailed")}
-+          tagline={error}
-           titleSize={24}
-           style={{ paddingHorizontal: 0, paddingTop: 0 }}
-         />
-       </View>
+-          <AlertCircle size={36} color="#EF4444" />
+-        </View>
+-        <PageHeader
+-          eyebrow={t("join.eyebrow")}
+-          title={t("onboarding.inviteFailed")}
+-          titleSize={24}
+-          style={{ paddingHorizontal: 0, paddingTop: 0 }}
+-        />
+-      </View>
 -      <Pressable
 -        onPress={() => router.replace("/" as any)}
 -        className="bg-accent-card rounded-2xl py-4 items-center border border-hair active:opacity-80"
@@ -1423,33 +1469,80 @@ index bbfe6ed..7b3b997 100644
 -          </Text>
 -        </View>
 -      </Pressable>
-+    );
-+  }
-+
-+  return (
-+    <View className="flex-1 bg-accent-paper items-center justify-center">
-+      <ActivityIndicator size="large" color={GP.clay} />
-     </View>
-   );
- }
-@@ -190,7 +220,7 @@ function ConfirmJoin({
-       <Seo title="Fiancé" description="" noindex />
-       <View className="items-center mb-10">
-         <View className="w-20 h-20 rounded-full bg-primary-50 dark:bg-primary-900 items-center justify-center mb-5">
+-    </View>
+-  );
+-}
+-
+-function ConfirmJoin({
+-  weddingName,
+-  hasOtherWeddings,
+-  onConfirm,
+-}: {
+-  weddingName?: string;
+-  hasOtherWeddings: boolean;
+-  onConfirm: () => void;
+-}) {
+-  const { t } = useTranslation("common");
+-  const router = useRouter();
+-
+-  return (
+-    <View className="flex-1 bg-accent-paper justify-center px-6">
+-      <Seo title="Fiancé" description="" noindex />
+-      <View className="items-center mb-10">
+-        <View className="w-20 h-20 rounded-full bg-primary-50 dark:bg-primary-900 items-center justify-center mb-5">
 -          <Heart size={36} color="#b96a4a" />
-+          <Heart size={36} color={GP.clay} />
-         </View>
-         <PageHeader
-           eyebrow={t("join.inviteEyebrow")}
-@@ -229,7 +259,7 @@ function ConfirmJoin({
-         className="bg-accent-card rounded-2xl py-4 items-center border border-hair active:opacity-80"
-       >
-         <View className="flex-row items-center">
+-        </View>
+-        <PageHeader
+-          eyebrow={t("join.inviteEyebrow")}
+-          title={t("join.joinThisWedding")}
+-          tagline={weddingName}
+-          titleSize={26}
+-          style={{ paddingHorizontal: 0, paddingTop: 0 }}
+-        />
+-        {hasOtherWeddings && (
+-          <Text className="text-base text-mute mt-2 text-center">
+-            {t("join.alreadyHaveWedding")}{"\n"}
+-            {t("join.confirmJoin", { name: weddingName ? ` (${weddingName})` : "" })}
+-          </Text>
+-        )}
+-        {!hasOtherWeddings && (
+-          <Text className="text-base text-mute mt-2 text-center">
+-            {t("join.joinThisWeddingFirst")}
+-          </Text>
+-        )}
+-      </View>
+-
+-      <Pressable
+-        onPress={onConfirm}
+-        className="bg-primary-500 rounded-2xl py-4 items-center mb-3 active:bg-primary-600"
+-      >
+-        <View className="flex-row items-center">
+-          <PlusCircle size={20} color="#fff" />
+-          <Text className="text-white font-semibold text-base ml-2">
+-            {t("join.yesJoin")}
+-          </Text>
+-        </View>
+-      </Pressable>
++  // Aucune invitation reconnue : on DIT pourquoi, et on offre le second chemin.
++  if (!resolution) {
++    return <InvitationNonReconnue cause={cause ?? "invalide"} onCode={saisirLeCode} />;
++  }
+ 
+-      <Pressable
+-        onPress={() => router.replace("/" as any)}
+-        className="bg-accent-card rounded-2xl py-4 items-center border border-hair active:opacity-80"
+-      >
+-        <View className="flex-row items-center">
 -          <ArrowLeft size={20} color="#b96a4a" />
-+          <ArrowLeft size={20} color={GP.clay} />
-           <Text className="text-ink font-semibold text-base ml-2">
-             {t("join.noGoBack")}
-           </Text>
+-          <Text className="text-ink font-semibold text-base ml-2">
+-            {t("join.noGoBack")}
+-          </Text>
+-        </View>
+-      </Pressable>
+-    </View>
+-  );
++  return <ParcoursDInvitation resolution={resolution} onRetour={() => router.replace("/" as any)} />;
+ }
 diff --git a/apps/mobile/app/settings/documents.tsx b/apps/mobile/app/settings/documents.tsx
 index 4b4b1c5..fcdb720 100644
 --- a/apps/mobile/app/settings/documents.tsx
@@ -1715,7 +1808,7 @@ index 55b8c4a..a3a97da 100644
        onPress={() => router.push({ pathname: "/(tabs)/planning/day-of-item", params: { id: item.id } })}
      >
 diff --git a/apps/mobile/app/wedding/[id].tsx b/apps/mobile/app/wedding/[id].tsx
-index 2be6c12..ee50905 100644
+index 2be6c12..ef2c211 100644
 --- a/apps/mobile/app/wedding/[id].tsx
 +++ b/apps/mobile/app/wedding/[id].tsx
 @@ -8,7 +8,9 @@ import { Clock, MapPin, HelpCircle, Calendar, Globe, CheckCircle2, Gift, Externa
@@ -1729,15 +1822,24 @@ index 2be6c12..ee50905 100644
  import { resolveServerUrl } from "@/lib/server";
  import {
    decodeNodeInviteLink,
-@@ -40,6 +42,7 @@ import { Sprig } from "@/components/Sprig";
+@@ -40,6 +42,8 @@ import { Sprig } from "@/components/Sprig";
  import { ScriptButton } from "@/components/ScriptButton";
  import { Seo } from "@/components/Seo";
  import { BASE_URL } from "@/lib/seo-urls";
 +import { theme as GP } from "@/lib/theme";
++import { useApresHydratation } from "@/lib/useApresHydratation";
  
  function weddingSeoTitle(page: PublicWeddingPage, t: (key: string, opts?: Record<string, string>) => string): string {
    const names = [page.about.partner1Name, page.about.partner2Name].filter(Boolean).join(" & ");
-@@ -77,12 +80,21 @@ export default function WeddingPublicPage() {
+@@ -70,6 +74,7 @@ function LangSwitch() {
+ export default function WeddingPublicPage() {
+   const { t } = useTranslation(["wedding-page", "seo"]);
+   const { id } = useLocalSearchParams<{ id: string }>();
++  const apresHydratation = useApresHydratation();
+   const [page, setPage] = useState<PublicWeddingPage | null>(null);
+   const [loading, setLoading] = useState(true);
+   const [error, setError] = useState(false);
+@@ -77,12 +82,21 @@ export default function WeddingPublicPage() {
    // v3 RSVP state — populated when `id` is a combined guest link.
    const [isGuestLink, setIsGuestLink] = useState(false);
    const [rsvpToken, setRsvpToken] = useState<NodeInviteLinkToken | null>(null);
@@ -1765,7 +1867,7 @@ index 2be6c12..ee50905 100644
    const [submitting, setSubmitting] = useState(false);
    const [submitted, setSubmitted] = useState(false);
    const [submitError, setSubmitError] = useState(false);
-@@ -117,8 +129,8 @@ export default function WeddingPublicPage() {
+@@ -117,8 +131,8 @@ export default function WeddingPublicPage() {
              // Read rsvp node to get seed data (guest name, companion info) — best-effort, a
              // failure here must not undo the page content that already loaded above.
              try {
@@ -1776,16 +1878,18 @@ index 2be6c12..ee50905 100644
              } catch { /* rsvp seed is optional, page still renders */ }
              setRsvpToken(combined.rsvp);
            } else if (pageToken) {
-@@ -186,7 +198,7 @@ export default function WeddingPublicPage() {
+@@ -186,8 +200,8 @@ export default function WeddingPublicPage() {
            style={{ width: 64, height: 64, borderRadius: 16 }}
            resizeMode="contain"
          />
 -        <ActivityIndicator size="small" color="#b96a4a" className="mt-4" />
+-        <Text className="text-sm text-mute mt-2">{t("loading")}</Text>
 +        <ActivityIndicator size="small" color={GP.clay} className="mt-4" />
-         <Text className="text-sm text-mute mt-2">{t("loading")}</Text>
++        <Text className="text-sm text-mute mt-2">{apresHydratation ? t("loading") : null}</Text>
        </View>
      );
-@@ -246,13 +258,13 @@ export default function WeddingPublicPage() {
+   }
+@@ -246,13 +260,13 @@ export default function WeddingPublicPage() {
              <View className="items-center mt-5" style={{ overflow: "visible" }}>
                <View style={{ flexDirection: "row", alignItems: "flex-start", marginBottom: 4 }}>
                  <View style={{ transform: [{ rotate: "-18deg" }], marginRight: 8, marginTop: 4, opacity: 0.7 }}>
@@ -1802,7 +1906,7 @@ index 2be6c12..ee50905 100644
                  </View>
                </View>
                <Display as="h1" size={36} italic style={{ textAlign: "center" }}>
-@@ -263,7 +275,7 @@ export default function WeddingPublicPage() {
+@@ -263,7 +277,7 @@ export default function WeddingPublicPage() {
  
            {formattedDate && (
              <View className="flex-row items-center gap-2 mt-4 bg-white/70 px-4 py-2 rounded-full">
@@ -1811,7 +1915,7 @@ index 2be6c12..ee50905 100644
                <Text className="text-sm font-medium text-accent-gold capitalize">
                  {formattedDate}
                </Text>
-@@ -297,11 +309,11 @@ export default function WeddingPublicPage() {
+@@ -297,11 +311,11 @@ export default function WeddingPublicPage() {
          {events.length > 0 && (
            <View className="mt-2 pb-4 px-5">
              <View className="flex-row items-center gap-2 mb-4">
@@ -1825,7 +1929,7 @@ index 2be6c12..ee50905 100644
                  <Text className="text-base font-semibold text-ink">{e.title}</Text>
                  <Text className="text-xs text-mute mt-0.5">
                    {safeFormat(new Date(e.date), "EEEE d MMMM", { locale: getDateLocale() })}
-@@ -309,7 +321,7 @@ export default function WeddingPublicPage() {
+@@ -309,7 +323,7 @@ export default function WeddingPublicPage() {
                  </Text>
                  {e.venueName && (
                    <View className="flex-row items-center gap-1.5 mt-2">
@@ -1834,7 +1938,7 @@ index 2be6c12..ee50905 100644
                      <Text className="text-xs text-accent-gold font-medium">
                        {e.venueName}{e.address ? ` — ${e.address}` : ""}
                      </Text>
-@@ -324,7 +336,7 @@ export default function WeddingPublicPage() {
+@@ -324,7 +338,7 @@ export default function WeddingPublicPage() {
          {timeline.length > 0 && (
            <View className="mt-2 pb-4">
              <View className="flex-row items-center gap-2 px-5 mb-4">
@@ -1843,7 +1947,7 @@ index 2be6c12..ee50905 100644
                <Display size={20} italic style={{ flex: 1 }}>
                  {t("timeline")}
                </Display>
-@@ -332,7 +344,7 @@ export default function WeddingPublicPage() {
+@@ -332,7 +346,7 @@ export default function WeddingPublicPage() {
                  onPress={handlePrintSchedule}
                  className="flex-row items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/60 active:opacity-70"
                >
@@ -1852,7 +1956,7 @@ index 2be6c12..ee50905 100644
                  <Text className="text-xs font-medium text-accent-gold">
                    {t("printSchedule")}
                  </Text>
-@@ -352,13 +364,13 @@ export default function WeddingPublicPage() {
+@@ -352,13 +366,13 @@ export default function WeddingPublicPage() {
                      <TimelineItem
                        key={item.id}
                        left={
@@ -1868,7 +1972,7 @@ index 2be6c12..ee50905 100644
                          <Text className="text-base font-semibold text-ink">
                            {item.title}
                          </Text>
-@@ -369,7 +381,7 @@ export default function WeddingPublicPage() {
+@@ -369,7 +383,7 @@ export default function WeddingPublicPage() {
                          )}
                          {item.location && (
                            <View className="flex-row items-center gap-1.5 mt-2">
@@ -1877,7 +1981,7 @@ index 2be6c12..ee50905 100644
                              <Text className="text-xs text-accent-gold font-medium">{item.location}</Text>
                            </View>
                          )}
-@@ -384,7 +396,7 @@ export default function WeddingPublicPage() {
+@@ -384,7 +398,7 @@ export default function WeddingPublicPage() {
  
          {timeline.length === 0 && (
            <View className="items-center justify-center py-16 px-6">
@@ -1886,7 +1990,7 @@ index 2be6c12..ee50905 100644
              <Text className="text-sm text-mute text-center mt-3">{t("noTimeline")}</Text>
            </View>
          )}
-@@ -400,7 +412,7 @@ export default function WeddingPublicPage() {
+@@ -400,7 +414,7 @@ export default function WeddingPublicPage() {
              </View>
  
              <View className="flex-row items-center gap-2 px-1 mb-4">
@@ -1895,7 +1999,7 @@ index 2be6c12..ee50905 100644
                <Display size={20} italic>
                  {t("faq")}
                </Display>
-@@ -410,7 +422,7 @@ export default function WeddingPublicPage() {
+@@ -410,7 +424,7 @@ export default function WeddingPublicPage() {
                <View
                  key={index}
                  className="bg-accent-card rounded-2xl p-4 mb-3 shadow-sm"
@@ -1904,7 +2008,7 @@ index 2be6c12..ee50905 100644
                >
                  <Text className="text-base font-semibold text-ink">
                    {item.question}
-@@ -433,7 +445,7 @@ export default function WeddingPublicPage() {
+@@ -433,7 +447,7 @@ export default function WeddingPublicPage() {
              </View>
  
              <View className="flex-row items-center gap-2 px-1 mb-4">
@@ -1913,7 +2017,7 @@ index 2be6c12..ee50905 100644
                <Display size={20} italic>
                  {t("giftRegistry")}
                </Display>
-@@ -444,7 +456,7 @@ export default function WeddingPublicPage() {
+@@ -444,7 +458,7 @@ export default function WeddingPublicPage() {
                  key={gift.id}
                  onPress={gift.url ? () => Linking.openURL(gift.url!) : undefined}
                  className="bg-accent-card rounded-2xl p-4 mb-3 shadow-sm"
@@ -1922,7 +2026,7 @@ index 2be6c12..ee50905 100644
                >
                  <View className="flex-row items-start justify-between">
                    <View className="flex-1">
-@@ -458,7 +470,7 @@ export default function WeddingPublicPage() {
+@@ -458,7 +472,7 @@ export default function WeddingPublicPage() {
                    </View>
                    {gift.url && (
                      <View className="ml-3 mt-0.5">
@@ -1931,7 +2035,7 @@ index 2be6c12..ee50905 100644
                      </View>
                    )}
                  </View>
-@@ -477,163 +489,153 @@ export default function WeddingPublicPage() {
+@@ -477,163 +491,153 @@ export default function WeddingPublicPage() {
              </View>
  
              <View className="flex-row items-center gap-2 px-1 mb-4">

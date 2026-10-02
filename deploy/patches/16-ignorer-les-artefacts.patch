@@ -1,8 +1,8 @@
 diff --git a/.gitignore b/.gitignore
-index 2c56282..ad06f0c 100644
+index 2c56282..c02cce1 100644
 --- a/.gitignore
 +++ b/.gitignore
-@@ -33,3 +33,11 @@ ios/
+@@ -33,3 +33,13 @@ ios/
  
  *.xlsx
  *.crash
@@ -13,4 +13,6 @@ index 2c56282..ad06f0c 100644
 +rebuild.log
 +.pnpm-store/
 +apps/mobile/dist.old/
++apps/mobile/dist.new/
++apps/mobile/dist.e2e/
 +.smoke.mjs
