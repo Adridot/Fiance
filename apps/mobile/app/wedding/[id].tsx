@@ -43,6 +43,7 @@ import { ScriptButton } from "@/components/ScriptButton";
 import { Seo } from "@/components/Seo";
 import { BASE_URL } from "@/lib/seo-urls";
 import { theme as GP } from "@/lib/theme";
+import { useApresHydratation } from "@/lib/useApresHydratation";
 
 function weddingSeoTitle(page: PublicWeddingPage, t: (key: string, opts?: Record<string, string>) => string): string {
   const names = [page.about.partner1Name, page.about.partner2Name].filter(Boolean).join(" & ");
@@ -73,6 +74,7 @@ function LangSwitch() {
 export default function WeddingPublicPage() {
   const { t } = useTranslation(["wedding-page", "seo"]);
   const { id } = useLocalSearchParams<{ id: string }>();
+  const apresHydratation = useApresHydratation();
   const [page, setPage] = useState<PublicWeddingPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -199,7 +201,7 @@ export default function WeddingPublicPage() {
           resizeMode="contain"
         />
         <ActivityIndicator size="small" color={GP.clay} className="mt-4" />
-        <Text className="text-sm text-mute mt-2">{t("loading")}</Text>
+        <Text className="text-sm text-mute mt-2">{apresHydratation ? t("loading") : null}</Text>
       </View>
     );
   }
