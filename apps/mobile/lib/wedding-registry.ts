@@ -73,6 +73,8 @@ export interface WeddingRegistryEntry {
    * (owner's) premium entitlement — see `resolveOwnerUserId` in lib/server.ts.
    */
   ownerId?: string;
+  /** Tant qu'il est posé, rien n'est poussé vers l'espace : la première hydratation n'a pas eu lieu. Jamais dans le coffre. */
+  premiereHydratationAttendue?: boolean;
 }
 
 export interface WeddingRegistry {
@@ -149,14 +151,21 @@ export async function setActiveWeddingEntry(id: string): Promise<void> {
   }
 }
 
-export async function updateWeddingEntry(
+/** Sérialisée : deux lectures-modifications-écritures concurrentes se recouvriraient, et un marqueur levé reviendrait. */
+let _écritures: Promise<unknown> = Promise.resolve();
+
+export function updateWeddingEntry(
   id: string,
-  updates: Partial<Pick<WeddingRegistryEntry, "label" | "seedPhrase" | "serverUrl" | "syncDisabled" | "spaceId" | "role" | "weddingNodeId" | "syncNamespace" | "roleId" | "permissions" | "inviteSubjectId" | "revocationGeneration" | "revokedEntries" | "ownerId">>
+  updates: Partial<Pick<WeddingRegistryEntry, "label" | "seedPhrase" | "serverUrl" | "syncDisabled" | "spaceId" | "role" | "weddingNodeId" | "syncNamespace" | "roleId" | "permissions" | "inviteSubjectId" | "revocationGeneration" | "revokedEntries" | "ownerId" | "premiereHydratationAttendue">>
 ): Promise<void> {
-  const registry = await loadRegistry();
-  const entry = registry.weddings.find((w) => w.id === id);
-  if (entry) {
-    Object.assign(entry, updates);
-    await saveRegistry(registry);
-  }
+  const suite = _écritures.then(async () => {
+    const registry = await loadRegistry();
+    const entry = registry.weddings.find((w) => w.id === id);
+    if (entry) {
+      Object.assign(entry, updates);
+      await saveRegistry(registry);
+    }
+  });
+  _écritures = suite.catch(() => undefined);
+  return suite;
 }

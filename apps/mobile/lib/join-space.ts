@@ -14,6 +14,7 @@ import { generatePassphrase, deriveSessionFromPhrase } from "@/lib/identity";
 import { resolveServerUrl } from "@/lib/server";
 import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
 import { resolveActiveMemberPermissions } from "@/lib/permissions/resolve";
+import { planifierLeCoffre } from "@/lib/compte-session";
 
 /**
  * Join a wedding from a space-invite link token.
@@ -25,7 +26,10 @@ import { resolveActiveMemberPermissions } from "@/lib/permissions/resolve";
  *   wedding entry with `role: "member"` so provisioning never tries to
  *   re-provision the space as owner.
  */
-export async function joinWeddingByToken(token: SpaceInviteLinkToken): Promise<void> {
+export async function joinWeddingByToken(
+  token: SpaceInviteLinkToken,
+  options: { nomDuMariage?: string } = {},
+): Promise<void> {
   const store = useWeddingRegistryStore.getState();
   const registry = store.registry;
 
@@ -60,12 +64,14 @@ export async function joinWeddingByToken(token: SpaceInviteLinkToken): Promise<v
   // Create the local wedding entry. spaceId is persisted atomically so
   // ensureSpaceProvisioned fast-paths and never runs owner setup.
   const entry = await store.createWedding(
-    token.spaceName,
+    options.nomDuMariage?.trim() || token.spaceName,
     seed,
     serverUrl,
     token.spaceId,
     "member",
   );
+  // Un membre aux magasins vides ne doit rien pousser avant d'avoir lu l'espace.
+  await store.updateWedding(entry.id, { premiereHydratationAttendue: true });
 
   // Remember the invite's ephemeral subject id so we can resolve (and later
   // re-resolve) the role the owner assigned to this link, keyed by that id.
@@ -76,4 +82,5 @@ export async function joinWeddingByToken(token: SpaceInviteLinkToken): Promise<v
     // permission assignments sync in (they may not be present yet).
     await resolveActiveMemberPermissions().catch(() => {});
   }
+  planifierLeCoffre();
 }

@@ -495,13 +495,74 @@ export async function rejouerPousséeEnAttente(
   spaceId: string,
   weddingNodeId: string,
 ): Promise<boolean> {
-  if (!pousséeEnAttenteAuDémarrage()) return false;
+  if (!pousséeEnAttenteAuDémarrage() || premièreHydratationAttendue()) return false;
   try {
     return await pushSpaceSnapshot(session, spaceId, weddingNodeId);
   } catch (err) {
     console.warn('[space-sync] rattrapage de la poussée en attente échoué:', err);
     return false;
   }
+}
+
+/** Vrai tant que le mariage actif n'a pas été hydraté une première fois : rien ne doit partir vers l'espace. */
+export function premièreHydratationAttendue(): boolean {
+  const r = useWeddingRegistryStore.getState().registry;
+  return r?.weddings.find((w) => w.id === r.activeWeddingId)?.premiereHydratationAttendue === true;
+}
+
+/** Appelée seulement quand une hydratation vient d'être appliquée. Rejouée si un état périmé ressuscite le marqueur. */
+async function leverLaGardeDePremièreHydratation(): Promise<void> {
+  for (let essai = 0; essai < 3 && premièreHydratationAttendue(); essai++) {
+    const { registry, updateWedding } = useWeddingRegistryStore.getState();
+    const actif = registry?.weddings.find((w) => w.id === registry.activeWeddingId);
+    if (!actif) return;
+    await updateWedding(actif.id, { premiereHydratationAttendue: undefined }).catch((err) => {
+      console.warn('[space-sync] marqueur de première hydratation non levé:', err);
+    });
+  }
+}
+
+/**
+ * Déconnexion : pousse ce qui attendait et dit si tout est parti. Attend aussi la fin
+ * d'une hydratation en cours, que l'écho SSE de cette poussée provoque.
+ */
+export async function pousserAvantDeQuitter(): Promise<boolean> {
+  if (_pushTimer) { clearTimeout(_pushTimer); _pushTimer = null; }
+  if (_pushRetryTimer) { clearTimeout(_pushRetryTimer); _pushRetryTimer = null; }
+  await attendreLaFinDeLHydratation();
+  if (premièreHydratationAttendue()) return true;
+  if (!pousséeEnAttenteAuDémarrage() && !_pushDeferred) return true;
+  const session = getActiveSession();
+  const spaceId = getActiveSpaceId();
+  const weddingNodeId = getActiveWeddingNodeId();
+  if (!session || !spaceId || !weddingNodeId) return false;
+  try {
+    return await pushSpaceSnapshot(session, spaceId, weddingNodeId);
+  } catch (err) {
+    console.warn('[space-sync] poussée avant déconnexion échouée:', err);
+    return false;
+  }
+}
+
+/** Rend la main quand plus aucune hydratation ni poussée n'est en vol (15 s au plus). */
+export async function attendreLaFinDeLHydratation(): Promise<void> {
+  for (let i = 0; i < 300 && (_isHydrating || _pushing); i++) {
+    await new Promise<void>((r) => setTimeout(r, 50));
+  }
+}
+
+/** L'époque des modifications locales, à relever avant un rattrapage et à passer à `hydrateFromSpace`. */
+export function époqueLocale(): number {
+  return _localEditEpoch;
+}
+
+/** Modification faite sans planificateur branché (avant ou entre deux activations) : `rejouerPousséeEnAttente` la poussera. */
+export function noterModificationLocale(): void {
+  _localEditEpoch++;
+  const r = useWeddingRegistryStore.getState().registry;
+  const actif = r?.weddings.find((w) => w.id === r.activeWeddingId);
+  // Sans synchronisation voulue il n'y a rien à rattraper : un marqueur resterait posé pour toujours.
+  if (actif?.seedPhrase && !actif.syncDisabled) noterPousséeEnAttente();
 }
 
 /** Called from registerPull('*') in providers.tsx after initSync(). Debounced 2s. */
@@ -514,7 +575,7 @@ export function scheduleSyncPush(): void {
   // Avant les gardes, pour la même raison que l'époque : trois chemins de sortie
   // écartent une demande plus bas, et aucun ne doit pouvoir la faire oublier.
   noterPousséeEnAttente();
-  if (_isHydrating) { _pushDeferred = true; return; }
+  if (_isHydrating || premièreHydratationAttendue()) { _pushDeferred = true; return; }
   if (_pushTimer) clearTimeout(_pushTimer);
   _pushTimer = setTimeout(() => {
     _pushTimer = null;
@@ -543,7 +604,7 @@ let _lastPushWriteDenied = false;
 /** Exécute la poussée. Partagée par le minuteur d'anti-rebond et par le réessai. */
 async function exécuterPoussée(): Promise<void> {
   // re-check: hydration may have started after this timer was queued
-  if (_isHydrating) { _pushDeferred = true; return; }
+  if (_isHydrating || premièreHydratationAttendue()) { _pushDeferred = true; return; }
   const session = getActiveSession();
   const spaceId = getActiveSpaceId();
   const weddingNodeId = getActiveWeddingNodeId();
@@ -611,7 +672,7 @@ export function restoreSyncPush(): void {
 /** Clears the dirty-push baselines and collection state. hydrateFromSpace already reseeds
  *  these correctly in production (cold boot / wedding switch); exported so tests can isolate
  *  consecutive pushSpaceSnapshot calls from each other's state. */
-export function resetDirtyPushBaseline(): void {
+export function resetDirtyPushBaseline(options: { garderLArriéré?: boolean } = {}): void {
   _lastPushedJson.clear();
   _lastPushedCollectionJson.clear();
   _collectionState.clear();
@@ -631,8 +692,9 @@ export function resetDirtyPushBaseline(): void {
   _pushRetryAttempt = 0;
   _pushDeferred = false;
   _lastPushWriteDenied = false;
-  // L'arriéré appartient au mariage qu'on quitte, la note durable aussi.
-  effacerPousséeEnAttente();
+  // L'arriéré appartient au mariage qu'on quitte, la note durable aussi — sauf pour une
+  // ré-activation du MÊME mariage : la note est alors la seule trace d'une saisie à rejouer.
+  if (!options.garderLArriéré) effacerPousséeEnAttente();
   useSyncPendingStore.getState().setUnsavedChanges(false);
 }
 
@@ -1218,11 +1280,13 @@ export async function hydrateFromSpace(
   session: Session,
   spaceId: string,
   weddingNodeId: string,
+  options: { depuisÉpoque?: number } = {},
 ): Promise<number> {
   _isHydrating = true;
   // MODIFICATION LOCALE — l'époque retenue à l'entrée. Toute mutation locale
   // survenue d'ici à l'application la fera diverger, et l'état lu sera jeté.
-  const époqueÀLEntrée = _localEditEpoch;
+  // `depuisÉpoque` : le démarrage la relève avant son rattrapage, qui attend le réseau.
+  const époqueÀLEntrée = options.depuisÉpoque ?? _localEditEpoch;
   _lastHydrateApplied = false;
   try {
     const nodes = await readObjectTree(session, spaceId);
@@ -1230,6 +1294,7 @@ export async function hydrateFromSpace(
       console.warn(
         `[space-sync] hydrateFromSpace: empty object index for ${spaceId} — owner published no content, or space-access credential unrestored`,
       );
+      if (premièreHydratationAttendue()) await leverLaGardeDePremièreHydratation();
       return 0;
     }
 
@@ -1585,6 +1650,7 @@ export async function hydrateFromSpace(
     persisterDernièresPoussées();
 
     _lastHydrateApplied = true;
+    if (premièreHydratationAttendue()) await leverLaGardeDePremièreHydratation();
     return nodes.length;
   } finally {
     _isHydrating = false;
