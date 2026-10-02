@@ -16,9 +16,9 @@ import { Label } from "@/components/Label";
 
 export default function CompareScreen() {
   const { t } = useTranslation("vendors");
-  const vendors = useVendorsStore((s) =>
-    s.vendors.filter((v) => v.type === "CATERER")
-  );
+  // A selector must return a stable reference: filtering inside it loops (React #185).
+  const allVendors = useVendorsStore((s) => s.vendors);
+  const vendors = useMemo(() => allVendors.filter((v) => v.type === "CATERER"), [allVendors]);
   const quotePricings = useVendorsStore((s) => s.quotePricings);
   const guests = useGuestsStore((s) => s.guests);
   const counts = useMemo(() => computeCounts(guests), [guests]);
