@@ -36,6 +36,8 @@ vi.mock("@/lib/space-sync", () => ({
 
 vi.mock("@/lib/kv-storage", () => ({ readCollection: () => null }));
 vi.mock("@/lib/invite-link", () => ({ SPACE_INVITE_STORE_KEY: "invites" }));
+const mockPlanifierLeCoffre = vi.fn();
+vi.mock("@/lib/compte-session", () => ({ planifierLeCoffre: () => mockPlanifierLeCoffre() }));
 
 vi.mock("@/lib/rescellement", async () => {
   const reel = await vi.importActual<typeof import("@/lib/rescellement")>("@/lib/rescellement");
@@ -61,6 +63,7 @@ vi.mock("@/store/useWeddingRegistryStore", () => ({
 describe("revokeCollaborator", () => {
   beforeEach(() => {
     journal.length = 0;
+    mockPlanifierLeCoffre.mockClear();
     mockRotationLeve = false;
     mockRescellement = { epoque: 2, rescellees: ["guest"], dejaAJour: [], restant: [] };
   });
@@ -105,5 +108,15 @@ describe("revokeCollaborator", () => {
 
     expect(journal).toEqual(["retrait-assignation", "poussee", "rotation", "retrait-registre"]);
     expect(r.evicted).toBe(false);
+  });
+
+  it("replanifie le coffre à la fin, que la révocation aboutisse ou non", async () => {
+    const { revokeCollaborator } = await import("@/lib/permissions/revoke");
+    await revokeCollaborator("sujet", "a1");
+    expect(mockPlanifierLeCoffre).toHaveBeenCalledTimes(1);
+
+    mockRotationLeve = true;
+    await revokeCollaborator("sujet", "a1");
+    expect(mockPlanifierLeCoffre).toHaveBeenCalledTimes(2);
   });
 });

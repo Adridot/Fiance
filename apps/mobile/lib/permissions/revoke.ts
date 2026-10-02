@@ -33,6 +33,7 @@ import {
 } from "@fiance/sdk";
 import { getActiveSession, getActiveSpaceId } from "@/lib/starfish";
 import { pushSpaceSnapshot } from "@/lib/space-sync";
+import { planifierLeCoffre } from "@/lib/compte-session";
 import { readCollection } from "@/lib/kv-storage";
 import { SPACE_INVITE_STORE_KEY } from "@/lib/invite-link";
 import { usePermissionsStore } from "@/store/usePermissionsStore";
@@ -67,6 +68,18 @@ export async function revokeCollaborator(
   subjectUserId: string,
   assignmentId: string,
   options: RevokeOptions = {},
+): Promise<RevokeResult> {
+  try {
+    return await revoquer(subjectUserId, assignmentId, options);
+  } finally {
+    planifierLeCoffre();
+  }
+}
+
+async function revoquer(
+  subjectUserId: string,
+  assignmentId: string,
+  options: RevokeOptions,
 ): Promise<RevokeResult> {
   const permStore = usePermissionsStore.getState();
   const regStore = useWeddingRegistryStore.getState();

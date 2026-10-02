@@ -10,8 +10,11 @@ import {
   InvitationCourteError,
   LONGUEUR_DU_CODE,
   chiffrerLeJeton,
+  consommer,
   construireLeLienCourt,
   dechiffrerLeDepot,
+  deballerLInvitation,
+  emballerLInvitation,
   decoderBase64Url,
   deposer,
   encoderBase64Url,
@@ -43,11 +46,11 @@ beforeEach(() => {
       // Le vrai serveur est en CAS, et il lit `baseHash` — JAMAIS `hash`. Un
       // faux qui accepterait les deux noms masquerait un retrait qui échoue en
       // production : `"baseHash" in corps` est donc une assertion, pas un détail.
-      const existant = depots[code] as { ct?: string } | undefined;
+      const existant = depots[code] as object | undefined;
       if (!("baseHash" in corps)) {
         return { ok: false, status: 400, json: async () => ({ error: "baseHash attendu" }) };
       }
-      if (existant?.ct && corps.baseHash !== "h") {
+      if (existant && Object.keys(existant).length && corps.baseHash !== "h") {
         return { ok: false, status: 409, json: async () => ({ error: "hash_mismatch", currentHash: "h" }) };
       }
       depots[code] = corps.data;
@@ -160,7 +163,7 @@ describe("le dépôt sur le serveur", () => {
     expect(détenu).not.toContain(cle);
     expect(détenu).not.toContain(JETON.slice(0, 40));
 
-    expect(await ouvrirLInvitationCourte(BASE, { code, cle })).toBe(JETON);
+    expect(await ouvrirLInvitationCourte(BASE, { code, cle })).toEqual({ jeton: JETON });
   });
 
   it("la clé ne part JAMAIS au serveur, ni en adresse ni en corps", async () => {
@@ -199,6 +202,112 @@ describe("le dépôt sur le serveur", () => {
   it("une panne du serveur est classée réseau, jamais « absent »", async () => {
     vi.stubGlobal("fetch", async () => { throw new Error("fetch failed"); });
     await expect(recuperer(BASE, tirerUnCode())).rejects.toMatchObject({ cas: "reseau" });
+  });
+});
+
+describe("l'enveloppe du dépôt", () => {
+  it("le clair est le JSON { j, m, p }", () => {
+    const clair = emballerLInvitation({ jeton: "tok", nomDuMariage: "Adrien & Emma", nomDeLaPersonne: "Léa" });
+    expect(JSON.parse(clair)).toEqual({ j: "tok", m: "Adrien & Emma", p: "Léa" });
+  });
+
+  it("fait l'aller-retour par le serveur, noms compris", async () => {
+    const code = tirerUnCode();
+    const { depot, cle } = await chiffrerLeJeton(
+      emballerLInvitation({ jeton: JETON, nomDuMariage: "Adrien & Emma", nomDeLaPersonne: "Léa" }),
+    );
+    await deposer(BASE, code, depot);
+    expect(await ouvrirLInvitationCourte(BASE, { code, cle })).toEqual({
+      jeton: JETON,
+      nomDuMariage: "Adrien & Emma",
+      nomDeLaPersonne: "Léa",
+    });
+  });
+
+  it("un jeton NU, déposé avant l'enveloppe, s'ouvre toujours", async () => {
+    const code = tirerUnCode();
+    const { depot, cle } = await chiffrerLeJeton(JETON);
+    await deposer(BASE, code, depot);
+    expect(await ouvrirLInvitationCourte(BASE, { code, cle })).toEqual({ jeton: JETON });
+  });
+
+  it("un clair JSON qui n'est pas l'enveloppe reste un jeton nu", () => {
+    expect(deballerLInvitation("123")).toEqual({ jeton: "123" });
+    expect(deballerLInvitation('{"x":1}')).toEqual({ jeton: '{"x":1}' });
+  });
+
+  it("des noms absents ou vides ne sont pas rendus", () => {
+    expect(deballerLInvitation(emballerLInvitation({ jeton: "tok", nomDuMariage: "" }))).toEqual({ jeton: "tok" });
+  });
+});
+
+describe("le lien à usage unique", () => {
+  async function depose() {
+    const code = tirerUnCode();
+    const { depot, cle } = await chiffrerLeJeton(emballerLInvitation({ jeton: JETON }));
+    await deposer(BASE, code, depot);
+    return { code, cle };
+  }
+
+  it("consommer pousse { utilise: true } en CAS, avec baseHash", async () => {
+    const { code } = await depose();
+    await consommer(BASE, code);
+    expect(depots[code]).toEqual({ utilise: true });
+    // Une lecture du hash courant, puis une seule écriture : aucun 409 à essuyer.
+    expect(requetes.filter((r) => JSON.stringify(r.corps) === '{"utilise":true}')).toHaveLength(1);
+  });
+
+  it("lit le hash courant avant d'écrire, pour consommer comme pour retirer", async () => {
+    for (const agir of [consommer, retirer]) {
+      const { code } = await depose();
+      requetes.length = 0;
+      await agir(BASE, code);
+      expect(requetes.map((r) => (r.corps === undefined ? "lecture" : "écriture"))).toEqual(["lecture", "écriture"]);
+    }
+  });
+
+  it("le réessai sur 409 reste le filet quand le document a bougé entre la lecture et l'écriture", async () => {
+    const { code } = await depose();
+    const reel = globalThis.fetch;
+    let lectures = 0;
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      // La première lecture rend un hash périmé.
+      if (init?.method !== "POST" && lectures++ === 0) return { ok: true, status: 200, json: async () => ({ hash: "perime" }) };
+      return reel(url, init);
+    });
+    await consommer(BASE, code);
+    expect(depots[code]).toEqual({ utilise: true });
+  });
+
+  it("un dépôt consommé se lit « utilisé », pas « absent »", async () => {
+    const { code } = await depose();
+    await consommer(BASE, code);
+    await expect(recuperer(BASE, code)).rejects.toMatchObject({ cas: "depot-utilise" });
+  });
+
+  it("ouvrir un lien consommé rend « utilisé », même avec la bonne clé", async () => {
+    const { code, cle } = await depose();
+    await consommer(BASE, code);
+    await expect(ouvrirLInvitationCourte(BASE, { code, cle })).rejects.toMatchObject({ cas: "depot-utilise" });
+  });
+
+  it("consommer deux fois est sans effet de plus", async () => {
+    const { code } = await depose();
+    await consommer(BASE, code);
+    await consommer(BASE, code);
+    await expect(recuperer(BASE, code)).rejects.toMatchObject({ cas: "depot-utilise" });
+  });
+
+  it("un dépôt retiré après consommation se lit absent", async () => {
+    const { code } = await depose();
+    await consommer(BASE, code);
+    await retirer(BASE, code);
+    await expect(recuperer(BASE, code)).rejects.toMatchObject({ cas: "depot-absent" });
+  });
+
+  it("un conflit sans hash courant est signalé, pas avalé", async () => {
+    vi.stubGlobal("fetch", async () => ({ ok: false, status: 409, json: async () => ({ error: "hash_mismatch" }) }));
+    await expect(consommer(BASE, tirerUnCode())).rejects.toMatchObject({ cas: "reseau" });
   });
 });
 

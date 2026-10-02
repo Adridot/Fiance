@@ -8,12 +8,13 @@ import { Seo } from "@/components/Seo";
 import { PageHeader } from "@/components/PageHeader";
 import { theme as GP } from "@/lib/theme";
 import { normaliserLeCode } from "@/lib/invitation-courte";
+import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
 import type { CauseDEchec } from "@/lib/resolution-d-invitation";
 
 /**
  * MODIFICATION LOCALE — l'écran `InvalidInvite` muet, remplacé.
  *
- * Il dit désormais LAQUELLE des trois causes s'applique, et offre un second
+ * Il dit désormais LAQUELLE des causes s'applique, et offre un second
  * chemin qui ne dépend pas de l'intégrité de l'adresse : saisir ou coller le
  * code. Il ne redirige JAMAIS de lui-même : la personne doit toujours pouvoir
  * lire ce qu'il est advenu de son invitation.
@@ -35,12 +36,17 @@ export function InvitationNonReconnue({
     incomplete: ["join.invitationIncomplete", "join.invitationIncompleteDetail"],
     expiree: ["join.invitationExpiree", "join.invitationExpireeDetail"],
     invalide: ["join.invitationInvalide", "join.invitationInvalideDetail"],
+    utilisee: ["join.invitationUtilisee", "join.invitationUtiliseeDetail"],
   };
-  const [titre, detail] = titres[cause];
+  // Le dépôt est marqué utilisé : on ne sait plus quel espace il ouvrait, mais un registre plein suffit à reconnaître la personne.
+  const dejaConnecte = useWeddingRegistryStore((s) => (s.registry?.weddings.length ?? 0) > 0);
+  const relitSonLien = cause === "utilisee" && dejaConnecte;
+  const [titre, detailParDefaut] = titres[cause];
+  const detail = relitSonLien ? "join.invitationDejaConnecte" : detailParDefaut;
 
-  // Une invitation expirée ne se rattrape pas par un code : il faut en demander
-  // une neuve. Le repli n'a de sens que pour une adresse abîmée.
-  const offrirLeRepli = cause !== "expiree";
+  // Ni expirée ni utilisée ne se rattrape par un code : il faut une invitation
+  // neuve, ou se connecter. Le repli n'a de sens que pour une adresse abîmée.
+  const offrirLeRepli = cause !== "expiree" && cause !== "utilisee";
 
   const valider = () => {
     const codeNormalisé = normaliserLeCode(code);
@@ -94,6 +100,17 @@ export function InvitationNonReconnue({
             <Text className="text-white font-semibold text-base">{t("join.codeValider")}</Text>
           </Pressable>
         </View>
+      )}
+
+      {cause === "utilisee" && (
+        <Pressable
+          onPress={() => router.replace((relitSonLien ? "/home" : "/onboarding?mode=connexion") as any)}
+          className="bg-primary-500 rounded-2xl py-4 items-center mb-3 active:bg-primary-600"
+        >
+          <Text className="text-white font-semibold text-base">
+            {t(relitSonLien ? "join.invitationAllerAuMariage" : "join.invitationSeConnecter")}
+          </Text>
+        </Pressable>
       )}
 
       <Pressable

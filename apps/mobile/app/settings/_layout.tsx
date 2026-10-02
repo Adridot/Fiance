@@ -35,6 +35,7 @@ export default function SettingsLayout() {
             ),
           }}
         />
+        <Stack.Screen name="compte" options={{ title: t("compte.titre") }} />
         <Stack.Screen name="public-page" options={{ title: t("publicPageTitle") }} />
         <Stack.Screen name="roles" options={{ title: t("rolesTitle") }} />
         <Stack.Screen name="event-photos" options={{ title: t("eventPhotosTitle") }} />

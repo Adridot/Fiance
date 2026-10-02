@@ -59,6 +59,9 @@ import { configureOnBoot, SyncInitializer, NotificationInitializer, WeddingPremi
 import { DatabaseProvider, useDatabaseSwitching } from "@/db/provider";
 import { installerLesAlertesWeb } from "@/lib/alerte-web";
 import { tolererLesEcartsDHydratation } from "@/lib/erreurs-d-hydratation";
+import { installerLeSuiviDuCoffre, verifierLeCoffre } from "@/lib/compte-session";
+import { useCompteStore } from "@/store/useCompteStore";
+import { useParcoursDAccueilStore } from "@/store/useParcoursDAccueilStore";
 import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { ReadOnlyBanner } from "@/components/ReadOnlyBanner";
@@ -66,6 +69,7 @@ import { ReadOnlyBanner } from "@/components/ReadOnlyBanner";
 import { BandeauLectureImpossible } from "@/components/BandeauLectureImpossible";
 // MODIFICATION LOCALE — le jumeau du bandeau de lecture seule.
 import { UnsavedChangesBanner } from "@/components/UnsavedChangesBanner";
+import { RecuperationDesDonnees } from "@/components/RecuperationDesDonnees";
 import { PaywallProvider } from "@/components/PaywallProvider";
 import { useFeatureTrialsStore } from "@/store/useFeatureTrialsStore";
 import { ObserveRoot, useObserve } from "expo-observe";
@@ -78,6 +82,7 @@ import { masquerIndicateurDeChargement } from "@/lib/indicateur-de-chargement";
 tolererLesEcartsDHydratation();
 configureOnBoot();
 installerLesAlertesWeb();
+installerLeSuiviDuCoffre();
 
 
 // Hosts every per-wedding side-effect initializer (sync, notifications, RevenueCat,
@@ -127,6 +132,7 @@ function AppContent() {
   const isLoaded = useWeddingRegistryStore((s) => s.isLoaded);
   const segments = useSegments();
   const router = useRouter();
+  const parcoursEnCours = useParcoursDAccueilStore((s) => s.enCours);
   // (marketing) routes are web-only; on native they should fall through to the app
   const isPublicPage = segments[0] === "wedding" || (Platform.OS === "web" && segments[0] === "(marketing)");
 
@@ -151,11 +157,11 @@ function AppContent() {
   // after (tabs)/_layout re-renders and mounts DatabaseProvider, guaranteeing the
   // DB context is available before home.tsx renders.
   useEffect(() => {
-    if (!isLoaded || isPublicPage || segments[0] !== "onboarding") return;
+    if (!isLoaded || isPublicPage || segments[0] !== "onboarding" || parcoursEnCours) return;
     if (registry?.weddings.length) {
       router.replace("/home" as any);
     }
-  }, [isLoaded, isPublicPage, registry?.weddings.length, segments]);
+  }, [isLoaded, isPublicPage, registry?.weddings.length, segments, parcoursEnCours]);
 
   // Public wedding page — always reachable, no auth required
   if (isPublicPage) {
@@ -191,6 +197,7 @@ function AppContent() {
         {activeWedding && <BandeauLectureImpossible />}
         {activeWedding && <ReadOnlyBanner />}
         {activeWedding && <UnsavedChangesBanner />}
+        {activeWedding && <RecuperationDesDonnees />}
         <View style={{ flex: 1 }}>
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="onboarding" />
@@ -281,6 +288,7 @@ function RootLayout() {
 
   useEffect(() => {
     loadRegistry();
+    void useCompteStore.getState().charger().then(verifierLeCoffre);
     initAnalytics().catch(console.error);
     loadFeatureTrials();
     Promise.all([loadLanguage(), loadNotifications(), loadColorScheme(), isLockEnabled()]).then(

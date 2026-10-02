@@ -8,11 +8,13 @@ import {
   chiffrerLeJeton,
   construireLeLienCourt,
   deposer,
+  emballerLInvitation,
   retirer,
   tirerUnCode,
 } from "@/lib/invitation-courte";
 import { ensureSpaceProvisioned } from "@/lib/space-provision";
 import { pushSpaceSnapshot } from "@/lib/space-sync";
+import { planifierLeCoffre } from "@/lib/compte-session";
 import { usePermissionsStore } from "@/store/usePermissionsStore";
 import { readCollection, writeCollection } from "@/lib/kv-storage";
 import { isPremium } from "@/lib/premium";
@@ -31,6 +33,9 @@ export const SPACE_INVITE_STORE_KEY = "spaceInviteStore";
  * role mints a read-only member cap). The role assignment is recorded against the
  * invite's ephemeral subject id and pushed so the joining member can resolve its
  * per-feature permissions (Phase 1). Throws a human-readable message on failure.
+ *
+ * Rend toujours le lien COURT : si le dépôt échoue, l'erreur remonte, sans repli
+ * sur le format long (illisible une fois partagé, sans nom, non consommable).
  */
 export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: string, name?: string): Promise<string> {
   // Defensive backstop — the primary gate is the paywall prompt in settings/index.tsx's
@@ -70,6 +75,25 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
   const collaboratorName = name?.trim() || undefined;
   const { token, link, inviteUserId } = await createSpaceInviteLink(cfg.session, spaceId, collaboratorName ?? entry.label, canWrite, origin);
 
+  // Le dépôt AVANT l'affectation et la poussée : s'il échoue, aucune affectation
+  // orpheline n'est laissée par la tentative.
+  const fragment = link.includes("#") ? link.slice(link.indexOf("#") + 1) : link;
+  let court: string;
+  try {
+    const { depot, cle } = await chiffrerLeJeton(
+      emballerLInvitation({ jeton: fragment, nomDuMariage: entry.label, nomDeLaPersonne: collaboratorName }),
+    );
+    const code = tirerUnCode();
+    await deposer(normalizeSyncBase(cfg.serverUrl), code, depot);
+    court = construireLeLienCourt(origin, code, cle);
+    enregistrerLeCodeDuLien(entry.id, code);
+  } catch (err) {
+    console.warn("[invite] dépôt du lien court impossible", err);
+    throw new Error(
+      `Le lien n'a pas pu être déposé sur le serveur (${err instanceof Error ? err.message : String(err)}).`,
+    );
+  }
+
   // Persist the (in-memory) invite store so this link's revocation handle survives an app
   // restart — revokeSpaceAccess needs getSpaceInviteEntry(spaceId, inviteUserId) to resolve.
   try { writeCollection(SPACE_INVITE_STORE_KEY, serializeSpaceInviteStore()); } catch (err) {
@@ -94,6 +118,7 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
   // Publish the snapshot (incl. the new assignment) so the invite never points a
   // member at a contentless space and their role resolves on first hydrate.
   await pushSpaceSnapshot(cfg.session, spaceId, entry.weddingNodeId ?? entry.id);
+  planifierLeCoffre();
 
   // Diagnostics for the "member joins but sees no data" (objdoc 403) bug: a link invitee
   // only earns space:member if its ephemeral subUserId is in the server _access roster.
@@ -119,20 +144,7 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
     console.warn("[invite] roster diagnostics failed", err);
   }
 
-  // MODIFICATION LOCALE — la forme courte. Le format long est conservé en repli :
-  // un dépôt injoignable ne doit pas empêcher d'inviter quelqu'un.
-  const fragment = link.includes("#") ? link.slice(link.indexOf("#") + 1) : link;
-  try {
-    const { depot, cle } = await chiffrerLeJeton(fragment);
-    const code = tirerUnCode();
-    await deposer(normalizeSyncBase(cfg.serverUrl), code, depot);
-    const court = construireLeLienCourt(origin, code, cle);
-    enregistrerLeCodeDuLien(entry.id, code);
-    return court;
-  } catch (err) {
-    console.warn("[invite] dépôt du lien court impossible, repli sur le format long", err);
-    return link;
-  }
+  return court;
 }
 
 /** Les codes de dépôt émis pour ce mariage, pour pouvoir les retirer plus tard. */
@@ -172,5 +184,6 @@ export async function retirerLeDepot(entry: WeddingRegistryEntry, code: string):
       ...connus,
       [entry.id]: (connus[entry.id] ?? []).filter((c) => c !== code),
     });
+    planifierLeCoffre();
   } catch { /* la mémoire des codes est un confort, pas une garantie */ }
 }

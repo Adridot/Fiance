@@ -1,56 +1,62 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Seo } from "@/components/Seo";
-import { View, Text, TextInput, Pressable, ScrollView, KeyboardAvoidingView, Image } from "react-native-css/components";
-import { Alert, Platform, ActivityIndicator } from "react-native";
-import * as Linking from "expo-linking";
+import { View, Text, TextInput, Image } from "react-native-css/components";
+import { useLocalSearchParams } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { PlusCircle, Link, ArrowLeft, CheckCircle2, ScanLine } from "lucide-react-native";
-import { generatePassphrase, parseSpaceInviteUrl } from "@/lib/identity";
-import { joinWeddingByToken } from "@/lib/join-space";
+import { Link, LogIn, ScanLine } from "lucide-react-native";
+import { generatePassphrase } from "@/lib/identity";
 import { useWeddingRegistryStore, SingleWeddingInstanceError } from "@/store/useWeddingRegistryStore";
-import type { SpaceInviteLinkToken } from "@fiance/sdk";
 import { QRScannerScreen } from "@/components/QRScannerScreen";
 import { analytics } from "@/lib/analytics";
 import { Display } from "@/components/Display";
 import { Script } from "@/components/Script";
 import { PageHeader } from "@/components/PageHeader";
 import { DateRow } from "@/components/FormSection";
+import { Bouton } from "@/components/compte/Bouton";
+import { CadreDEcran } from "@/components/compte/CadreDEcran";
+import { FormulaireDeConnexion } from "@/components/compte/FormulaireDeConnexion";
+import { useEnvoi } from "@/components/compte/useEnvoi";
+import { ParcoursDInvitation } from "@/components/invitation/ParcoursDInvitation";
 import { setPendingWeddingSeed, consumePendingWeddingSeed } from "@/lib/pending-wedding-seed";
+import { ecranInitialDeLAccueil } from "@/lib/accueil";
+import { baseDeSync } from "@/lib/base-de-sync";
+import { cleDuMessageDInvitation } from "@/lib/messages-de-compte";
+import { resoudreUneSaisie, type CauseDEchec, type ResolutionDInvitation } from "@/lib/resolution-d-invitation";
 import { theme as GP } from "@/lib/theme";
 
-type Mode = "choose" | "create" | "join";
+type Ecran = "accueil" | "connexion" | "invitation" | "creation";
+type Reussite = Extract<ResolutionDInvitation, { jeton: unknown }>;
 
 export default function OnboardingScreen() {
   const { t: tSettings } = useTranslation("settings");
-  const [mode, setMode] = useState<Mode>("choose");
-  const [inviteToken, setInviteToken] = useState<SpaceInviteLinkToken | null>(null);
+  const { mode } = useLocalSearchParams<{ mode?: string | string[] }>();
+  const [ecran, setEcran] = useState<Ecran>(ecranInitialDeLAccueil(mode));
+  const [resolution, setResolution] = useState<Reussite | null>(null);
   const createWedding = useWeddingRegistryStore((s) => s.createWedding);
+  const retour = () => setEcran("accueil");
 
-  // Handle invite deep links
-  useEffect(() => {
-    function handleUrl({ url }: { url: string }) {
-      const token = parseSpaceInviteUrl(url);
-      if (!token) return;
-      setInviteToken(token);
-      setMode("join");
-    }
-
-    Linking.getInitialURL().then((url) => {
-      if (url) handleUrl({ url });
-    });
-
-    const sub = Linking.addEventListener("url", handleUrl);
-    return () => sub.remove();
-  }, []);
-
-  if (mode === "choose") {
-    return <ChooseMode onSelect={setMode} />;
+  if (resolution) {
+    return (
+      <ParcoursDInvitation
+        resolution={resolution}
+        onRetour={() => {
+          setResolution(null);
+          retour();
+        }}
+      />
+    );
   }
 
-  if (mode === "create") {
+  if (ecran === "connexion") return <EcranDeConnexion onRetour={retour} />;
+
+  if (ecran === "invitation") {
+    return <EcranDInvitation onRetour={retour} onResolue={setResolution} onConnexion={() => setEcran("connexion")} />;
+  }
+
+  if (ecran === "creation") {
     return (
       <CreateWeddingForm
-        onBack={() => setMode("choose")}
+        onBack={retour}
         onCreate={async ({ partner1Name, partner2Name, weddingDate }) => {
           const label = [partner1Name, partner2Name].filter(Boolean).join(" & ") || "Mon mariage";
           setPendingWeddingSeed({ partner1Name, partner2Name, weddingDate });
@@ -59,10 +65,7 @@ export default function OnboardingScreen() {
             await createWedding(label, passphrase);
           } catch (e) {
             consumePendingWeddingSeed(); // discard the stale seed on failure
-            // MODIFICATION LOCALE — instance à mariage unique. Cet écran reste
-            // atteignable par URL directe même quand un mariage existe ; le
-            // verrou du store le bloque, mais son message est un code technique.
-            // CreateWeddingForm affiche e.message tel quel, d'où la traduction ici.
+            // Cet écran reste atteignable par URL directe : le verrou du store lève un code technique.
             if (e instanceof SingleWeddingInstanceError) {
               throw new Error(tSettings("singleWeddingInstanceHint"));
             }
@@ -75,20 +78,10 @@ export default function OnboardingScreen() {
     );
   }
 
-  return (
-    <JoinWeddingForm
-      onBack={() => setMode("choose")}
-      inviteToken={inviteToken}
-      onJoin={async (token) => {
-        await joinWeddingByToken(token);
-        analytics.capture("wedding_created", { method: "invite" });
-        // Navigation to /home is handled by _layout.tsx after DatabaseProvider mounts
-      }}
-    />
-  );
+  return <ChooseMode onSelect={setEcran} />;
 }
 
-function ChooseMode({ onSelect }: { onSelect: (m: Mode) => void }) {
+function ChooseMode({ onSelect }: { onSelect: (e: Ecran) => void }) {
   const { t } = useTranslation("common");
   return (
     <View className="flex-1 bg-accent-paper justify-center items-center">
@@ -108,30 +101,139 @@ function ChooseMode({ onSelect }: { onSelect: (m: Mode) => void }) {
           </Script>
         </View>
 
-        <Pressable
-          onPress={() => onSelect("create")}
-          className="bg-primary-500 rounded-2xl py-4 items-center mb-3 active:bg-primary-600"
-        >
-          <View className="flex-row items-center">
-            <PlusCircle size={20} color="#fff" />
-            <Text className="text-white font-semibold text-base ml-2">
-              {t("onboarding.createWedding")}
-            </Text>
-          </View>
-        </Pressable>
-
-        <Pressable
-          onPress={() => onSelect("join")}
-          className="bg-accent-card rounded-2xl py-4 items-center border border-hair active:opacity-80"
-        >
-          <View className="flex-row items-center">
-            <Link size={20} color={GP.clay} />
-            <Text className="text-ink font-semibold text-base ml-2">
-              {t("onboarding.joinWedding")}
-            </Text>
-          </View>
-        </Pressable>
+        <View style={{ gap: 12 }}>
+          <Bouton
+            libelle={t("onboarding.seConnecter")}
+            icone={<LogIn size={20} color="#fff" />}
+            onPress={() => onSelect("connexion")}
+          />
+          <Bouton
+            libelle={t("onboarding.jAiUneInvitation")}
+            variante="secondaire"
+            icone={<Link size={20} color={GP.clay} />}
+            onPress={() => onSelect("invitation")}
+          />
+        </View>
+        <View className="mt-4">
+          <Bouton libelle={t("onboarding.creerUnNouveauMariage")} variante="lien" onPress={() => onSelect("creation")} />
+        </View>
       </View>
+    </View>
+  );
+}
+
+function EcranDeConnexion({ onRetour }: { onRetour: () => void }) {
+  const { t } = useTranslation("common");
+  return (
+    <CadreDEcran onRetour={onRetour}>
+      <PageHeader
+        eyebrow={t("onboarding.connexionEyebrow")}
+        title={t("onboarding.connexionTitre")}
+        tagline={t("onboarding.connexionTagline")}
+        titleSize={28}
+        style={{ paddingHorizontal: 0, paddingTop: 0, marginBottom: 24 }}
+      />
+      <FormulaireDeConnexion />
+    </CadreDEcran>
+  );
+}
+
+function EcranDInvitation({
+  onRetour,
+  onResolue,
+  onConnexion,
+}: {
+  onRetour: () => void;
+  onResolue: (r: Reussite) => void;
+  onConnexion: () => void;
+}) {
+  const { t } = useTranslation("common");
+  const [saisie, setSaisie] = useState("");
+  const [erreur, setErreur] = useState<{ cle: string; cause?: CauseDEchec } | null>(null);
+  const [scan, setScan] = useState(false);
+  const { enCours, lancer } = useEnvoi();
+
+  const resoudre = (texte: string) => {
+    if (!texte.trim()) {
+      setErreur({ cle: "onboarding.invitation.vide" });
+      return;
+    }
+    setErreur(null);
+    void lancer(
+      async () => {
+        const r = await resoudreUneSaisie(baseDeSync(), texte);
+        if ("jeton" in r) onResolue(r);
+        else setErreur({ cle: cleDuMessageDInvitation(r.cause), cause: r.cause });
+      },
+      () => setErreur({ cle: cleDuMessageDInvitation("invalide"), cause: "invalide" }),
+    );
+  };
+
+  return (
+    <View className="flex-1 bg-accent-paper">
+      <CadreDEcran onRetour={onRetour}>
+        <PageHeader
+          eyebrow={t("onboarding.joinEyebrow")}
+          title={t("onboarding.joinTitle")}
+          tagline={t("onboarding.joinTagline")}
+          titleSize={28}
+          style={{ paddingHorizontal: 0, paddingTop: 0, marginBottom: 24 }}
+        />
+        <Text className="text-sm font-medium text-mute mb-1.5 ml-1">{t("onboarding.invitation.champ")}</Text>
+        <TextInput
+          accessibilityLabel={t("onboarding.invitation.champ")}
+          className="bg-accent-card rounded-xl px-4 py-3.5 text-base text-ink border border-hair"
+          style={{ minHeight: 48 }}
+          placeholder={t("onboarding.invitation.placeholder")}
+          placeholderTextColor="#C0C0C8"
+          value={saisie}
+          onChangeText={(v) => {
+            setSaisie(v);
+            setErreur(null);
+          }}
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={!enCours}
+          onSubmitEditing={() => resoudre(saisie)}
+          returnKeyType="go"
+          testID="invitation-saisie"
+        />
+        {erreur && (
+          <View className="mt-1.5">
+            <Text accessibilityRole="alert" className="text-sm ml-1" style={{ color: GP.strawberryInk }}>
+              {t(erreur.cle)}
+            </Text>
+            {erreur.cause === "utilisee" && (
+              <Bouton libelle={t("onboarding.invitation.allerALaConnexion")} variante="lien" onPress={onConnexion} />
+            )}
+          </View>
+        )}
+        <View className="mt-4" style={{ gap: 12 }}>
+          <Bouton
+            libelle={t("onboarding.invitation.continuer")}
+            enCours={enCours}
+            onPress={() => resoudre(saisie)}
+            testID="invitation-continuer"
+          />
+          <Bouton
+            libelle={t("onboarding.invitation.scanner")}
+            variante="secondaire"
+            desactive={enCours}
+            icone={<ScanLine size={20} color={GP.clay} />}
+            onPress={() => setScan(true)}
+          />
+        </View>
+      </CadreDEcran>
+      {scan && (
+        <QRScannerScreen
+          onScanned={(url) => {
+            setScan(false);
+            setSaisie(url);
+            resoudre(url);
+          }}
+          onClose={() => setScan(false)}
+        />
+      )}
     </View>
   );
 }
@@ -151,230 +253,71 @@ function CreateWeddingForm({
   const [partner1, setPartner1] = useState("");
   const [partner2, setPartner2] = useState("");
   const [date, setDate] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const { enCours, lancer } = useEnvoi();
 
-  const handleCreate = async () => {
+  const handleCreate = () => {
     if (!partner1.trim()) {
-      Alert.alert(t("error"), t("onboarding.partner1Required"));
+      setErreur(t("onboarding.partner1Required"));
       return;
     }
-    setSaving(true);
-    try {
-      await onCreate({
-        partner1Name: partner1.trim() || null,
-        partner2Name: partner2.trim() || null,
-        weddingDate: date || null,
-      });
-    } catch (e: any) {
-      Alert.alert(t("error"), e.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <KeyboardAvoidingView
-      className="flex-1 bg-accent-paper"
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <ScrollView
-        className="flex-1"
-        contentContainerStyle={{ justifyContent: "center", flexGrow: 1, alignItems: "center" }}
-      >
-        <View style={{ width: "100%", maxWidth: 480, paddingHorizontal: 24 }}>
-          <Pressable onPress={onBack} className="mb-6">
-            <ArrowLeft size={24} color="#9CA3AF" />
-          </Pressable>
-
-          <PageHeader
-            eyebrow={t("onboarding.createEyebrow")}
-            title={t("onboarding.newWedding")}
-            tagline={t("onboarding.createTagline")}
-            titleSize={28}
-            style={{ paddingHorizontal: 0, paddingTop: 0, marginBottom: 8 }}
-          />
-          <Text className="text-base text-mute mb-8">
-            {t("onboarding.autoPassword")}
-          </Text>
-
-          <Text className="text-sm font-medium text-mute mb-1.5 ml-1">
-            {t("onboarding.partner1Label")}
-          </Text>
-          <TextInput
-            className="bg-accent-card rounded-xl px-4 py-3.5 text-base text-ink border border-hair mb-4"
-            placeholder={t("onboarding.partnerPlaceholder")}
-            placeholderTextColor="#C0C0C8"
-            value={partner1}
-            onChangeText={setPartner1}
-            autoFocus
-          />
-
-          <Text className="text-sm font-medium text-mute mb-1.5 ml-1">
-            {t("onboarding.partner2Label")}
-          </Text>
-          <TextInput
-            className="bg-accent-card rounded-xl px-4 py-3.5 text-base text-ink border border-hair mb-4"
-            placeholder={t("onboarding.partnerPlaceholder")}
-            placeholderTextColor="#C0C0C8"
-            value={partner2}
-            onChangeText={setPartner2}
-          />
-
-          <View className="bg-accent-card rounded-xl px-4 border border-hair mb-1.5">
-            <DateRow label={t("onboarding.dateLabel")} value={date} onChange={setDate} />
-          </View>
-          <Text className="text-xs text-mute mb-8 ml-1">
-            {t("onboarding.dateHint")}
-          </Text>
-
-          <Pressable
-            onPress={handleCreate}
-            disabled={saving}
-            style={{ opacity: saving ? 0.6 : 1 }}
-            className="bg-primary-500 rounded-2xl py-4 items-center active:bg-primary-600"
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              {saving && <ActivityIndicator size="small" color="#fff" />}
-              <Text className="text-white font-semibold text-base">
-                {saving ? t("onboarding.creating") : t("create")}
-              </Text>
-            </View>
-          </Pressable>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
-  );
-}
-
-function JoinWeddingForm({
-  onBack,
-  onJoin,
-  inviteToken,
-}: {
-  onBack: () => void;
-  onJoin: (token: SpaceInviteLinkToken) => Promise<void>;
-  inviteToken?: SpaceInviteLinkToken | null;
-}) {
-  const { t } = useTranslation("common");
-  const [saving, setSaving] = useState(false);
-  const [scanning, setScanning] = useState(false);
-
-  const handleJoin = async (token: SpaceInviteLinkToken) => {
-    setSaving(true);
-    try {
-      await onJoin(token);
-    } catch (e: any) {
-      Alert.alert(t("error"), e.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleScanned = async (url: string) => {
-    setScanning(false);
-    const token = parseSpaceInviteUrl(url);
-    if (!token) {
-      Alert.alert(t("error"), t("onboarding.invalidQR"));
-      return;
-    }
-    await handleJoin(token);
-  };
-
-  // Deep link / QR pre-filled path
-  if (inviteToken) {
-    return (
-      <KeyboardAvoidingView
-        className="flex-1 bg-accent-paper"
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView
-          className="flex-1"
-          contentContainerStyle={{ justifyContent: "center", flexGrow: 1, alignItems: "center" }}
-        >
-          <View style={{ width: "100%", maxWidth: 480, paddingHorizontal: 24 }}>
-            <Pressable onPress={onBack} className="mb-6">
-              <ArrowLeft size={24} color="#9CA3AF" />
-            </Pressable>
-
-            <PageHeader
-              eyebrow={t("join.inviteEyebrow")}
-              title={t("join.joinThisWedding")}
-              tagline={inviteToken.spaceName}
-              titleSize={28}
-              style={{ paddingHorizontal: 0, paddingTop: 0, marginBottom: 8 }}
-            />
-
-            <View className="flex-row items-center gap-3 bg-emerald-50 dark:bg-emerald-950 border border-emerald-100 dark:border-emerald-900 rounded-xl px-4 py-3.5 mb-8">
-              <CheckCircle2 size={18} color="#10B981" />
-              <Text className="text-sm font-medium text-emerald-700 dark:text-emerald-300 flex-1">
-                {t("onboarding.inviteReady")}
-              </Text>
-            </View>
-
-            <Pressable
-              onPress={() => handleJoin(inviteToken)}
-              disabled={saving}
-              style={{ opacity: saving ? 0.6 : 1 }}
-              className="bg-primary-500 rounded-2xl py-4 items-center active:bg-primary-600"
-            >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                {saving && <ActivityIndicator size="small" color="#fff" />}
-                <Text className="text-white font-semibold text-base">
-                  {saving ? t("onboarding.joining") : t("join.yesJoin")}
-                </Text>
-              </View>
-            </Pressable>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+    setErreur(null);
+    void lancer(
+      () =>
+        onCreate({
+          partner1Name: partner1.trim() || null,
+          partner2Name: partner2.trim() || null,
+          weddingDate: date || null,
+        }),
+      (e) => setErreur(e instanceof Error ? e.message : String(e)),
     );
-  }
+  };
 
-  // Manual path: scan QR code
   return (
-    <View className="flex-1 bg-accent-paper">
-      <Seo title="Fiancé" description="" noindex />
-      <ScrollView
-        className="flex-1"
-        contentContainerStyle={{ justifyContent: "center", flexGrow: 1, alignItems: "center" }}
-      >
-        <View style={{ width: "100%", maxWidth: 480, paddingHorizontal: 24 }}>
-          <Pressable onPress={onBack} className="mb-6">
-            <ArrowLeft size={24} color="#9CA3AF" />
-          </Pressable>
+    <CadreDEcran onRetour={onBack}>
+      <PageHeader
+        eyebrow={t("onboarding.createEyebrow")}
+        title={t("onboarding.newWedding")}
+        tagline={t("onboarding.createTagline")}
+        titleSize={28}
+        style={{ paddingHorizontal: 0, paddingTop: 0, marginBottom: 8 }}
+      />
+      <Text className="text-base text-mute mb-8">{t("onboarding.compteApres")}</Text>
 
-          <Display size={28} italic style={{ marginBottom: 8 }}>
-            {t("onboarding.joinTitle")}
-          </Display>
+      <Text className="text-sm font-medium text-mute mb-1.5 ml-1">{t("onboarding.partner1Label")}</Text>
+      <TextInput
+        className="bg-accent-card rounded-xl px-4 py-3.5 text-base text-ink border border-hair mb-4"
+        placeholder={t("onboarding.partnerPlaceholder")}
+        placeholderTextColor="#C0C0C8"
+        value={partner1}
+        onChangeText={setPartner1}
+        autoFocus
+      />
 
-          <Pressable
-            onPress={() => setScanning(true)}
-            disabled={saving}
-            style={{ opacity: saving ? 0.6 : 1 }}
-            className="bg-primary-500 rounded-2xl py-4 items-center active:bg-primary-600 mb-6"
-          >
-            <View className="flex-row items-center gap-2">
-              {saving ? <ActivityIndicator size="small" color="#fff" /> : <ScanLine size={20} color="#fff" />}
-              <Text className="text-white font-semibold text-base">
-                {saving ? t("onboarding.joining") : t("onboarding.scanQR")}
-              </Text>
-            </View>
-          </Pressable>
+      <Text className="text-sm font-medium text-mute mb-1.5 ml-1">{t("onboarding.partner2Label")}</Text>
+      <TextInput
+        className="bg-accent-card rounded-xl px-4 py-3.5 text-base text-ink border border-hair mb-4"
+        placeholder={t("onboarding.partnerPlaceholder")}
+        placeholderTextColor="#C0C0C8"
+        value={partner2}
+        onChangeText={setPartner2}
+      />
 
-          <View className="bg-primary-50 dark:bg-primary-950 border border-primary-100 dark:border-primary-900 rounded-2xl px-5 py-4">
-            <Text className="text-sm text-primary-700 dark:text-primary-300 leading-5">
-              {t("onboarding.scanGuide")}
-            </Text>
-          </View>
-        </View>
-      </ScrollView>
+      <View className="bg-accent-card rounded-xl px-4 border border-hair mb-1.5">
+        <DateRow label={t("onboarding.dateLabel")} value={date} onChange={setDate} />
+      </View>
+      <Text className="text-xs text-mute mb-8 ml-1">{t("onboarding.dateHint")}</Text>
 
-      {scanning && (
-        <QRScannerScreen
-          onScanned={handleScanned}
-          onClose={() => setScanning(false)}
-        />
+      <Bouton
+        libelle={enCours ? t("onboarding.creating") : t("create")}
+        enCours={enCours}
+        onPress={handleCreate}
+      />
+      {erreur && (
+        <Text accessibilityRole="alert" className="text-sm mt-3 text-center" style={{ color: GP.strawberryInk }}>
+          {erreur}
+        </Text>
       )}
-    </View>
+    </CadreDEcran>
   );
 }

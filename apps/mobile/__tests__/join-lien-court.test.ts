@@ -20,9 +20,11 @@ import { encodeSpaceInviteLink, type SpaceInviteLinkToken } from "@fiance/sdk";
 import { resoudreLInvitation } from "@/lib/resolution-d-invitation";
 import {
   chiffrerLeJeton,
+  consommer,
   decoderLeJeton,
   construireLeLienCourt,
   deposer,
+  emballerLInvitation,
   lireLeLienCourt,
   ouvrirLInvitationCourte,
   tirerUnCode,
@@ -68,7 +70,9 @@ beforeEach(() => {
 /** L'émission telle que `invite-link.ts` la fait : jeton long → dépôt → lien court. */
 async function emettreUnLienCourt() {
   const fragment = fragmentLong();
-  const { depot, cle } = await chiffrerLeJeton(fragment);
+  const { depot, cle } = await chiffrerLeJeton(
+    emballerLInvitation({ jeton: fragment, nomDuMariage: "Adrien & Emma", nomDeLaPersonne: "Léa" }),
+  );
   const code = tirerUnCode();
   await deposer(BASE, code, depot);
   return { lien: construireLeLienCourt(ORIGINE, code, cle), code, cle, fragment };
@@ -109,7 +113,41 @@ describe("les deux formes de lien", () => {
   });
 });
 
-describe("les trois causes d'un échec", () => {
+describe("ce que la résolution rend d'un lien court", () => {
+  it("le jeton, les deux noms et le code à consommer", async () => {
+    const { lien, code } = await emettreUnLienCourt();
+    const r = await resoudreLInvitation(BASE, lien, null);
+    expect(r).toMatchObject({
+      jeton: { spaceId: JETON.spaceId },
+      nomDuMariage: "Adrien & Emma",
+      nomDeLaPersonne: "Léa",
+      code,
+    });
+  });
+
+  it("un dépôt au jeton NU, émis avant l'enveloppe, se résout sans noms", async () => {
+    const { depot, cle } = await chiffrerLeJeton(fragmentLong());
+    const code = tirerUnCode();
+    await deposer(BASE, code, depot);
+    const r = await resoudreLInvitation(BASE, construireLeLienCourt(ORIGINE, code, cle), null);
+    expect(r).toMatchObject({ jeton: { spaceId: JETON.spaceId }, code });
+    expect(r).not.toHaveProperty("nomDuMariage");
+    expect(r).not.toHaveProperty("nomDeLaPersonne");
+  });
+
+  it("un lien au format long ne porte ni noms ni code", async () => {
+    const r = await resoudreLInvitation(BASE, `${ORIGINE}/join#${fragmentLong()}`, parseSpaceInviteUrl(`${ORIGINE}/join#${fragmentLong()}`));
+    expect(Object.keys(r)).toEqual(["jeton"]);
+  });
+});
+
+describe("les causes d'un échec", () => {
+  it("lien déjà consommé → UTILISÉE, distincte d'expirée", async () => {
+    const { lien, code } = await emettreUnLienCourt();
+    await consommer(BASE, code);
+    expect(await resoudre(lien)).toEqual({ cause: "utilisee" });
+  });
+
   it("adresse tronquée — le fragment a été perdu en route → INCOMPLÈTE", async () => {
     const { lien } = await emettreUnLienCourt();
     expect(await resoudre(lien.split("#")[0])).toEqual({ cause: "incomplete" });
@@ -145,7 +183,7 @@ describe("les trois causes d'un échec", () => {
 describe("le repli par code saisi à la main", () => {
   it("un code recopié permet de rejoindre, sans passer par l'adresse", async () => {
     const { code, cle } = await emettreUnLienCourt();
-    const jeton = decoderLeJeton(await ouvrirLInvitationCourte(BASE, { code, cle }));
+    const jeton = decoderLeJeton((await ouvrirLInvitationCourte(BASE, { code, cle })).jeton);
     expect(jeton).toMatchObject({ spaceId: JETON.spaceId });
   });
 
@@ -154,7 +192,7 @@ describe("le repli par code saisi à la main", () => {
     const { normaliserLeCode } = await import("@/lib/invitation-courte");
     const saisi = normaliserLeCode(`${code.slice(0, 5).toLowerCase()}-${code.slice(5).toLowerCase()}`);
     expect(saisi).toBe(code);
-    expect(decoderLeJeton(await ouvrirLInvitationCourte(BASE, { code: saisi!, cle }))).toMatchObject({
+    expect(decoderLeJeton((await ouvrirLInvitationCourte(BASE, { code: saisi!, cle })).jeton)).toMatchObject({
       spaceId: JETON.spaceId,
     });
   });
