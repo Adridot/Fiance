@@ -53,6 +53,7 @@ import { TelemetryProvider, useTelemetryScreenTracking } from "@drakkar.software
 import { analytics, initAnalytics } from "@/lib/analytics";
 import { configureOnBoot, SyncInitializer, NotificationInitializer, RevenueCatInitializer, WeddingPremiumInitializer, WidgetInitializer } from "@/lib/providers";
 import { DatabaseProvider, useDatabaseSwitching } from "@/db/provider";
+import { installerLesAlertesWeb } from "@/lib/alerte-web";
 import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { ReadOnlyBanner } from "@/components/ReadOnlyBanner";
@@ -65,6 +66,7 @@ import { ObserveRoot, useObserve } from "expo-observe";
 // available before any screen renders (home, settings, public-page all call
 // resolveServerConfig which calls deriveSession).
 configureOnBoot();
+installerLesAlertesWeb();
 
 
 // Hosts every per-wedding side-effect initializer (sync, notifications, RevenueCat,
