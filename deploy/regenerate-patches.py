@@ -486,6 +486,63 @@ GROUPES = collections.OrderedDict([
     ("16-ignorer-les-artefacts", (LOCAL, [
         ".gitignore",
     ])),
+    # ── Compte et connexion ───────────────────────────────────────────────
+    # Ce patch reçoit les fichiers que le changement « compte et connexion » a
+    # créés ou modifiés et qu'AUCUN patch ne possédait. Les autres fichiers du
+    # sujet (`onboarding.tsx`, `join.tsx`, `_layout.tsx`, `providers.tsx`,
+    # `InviteQRSheet.tsx`, `space-sync.ts`, les locales, etc.) RESTENT chez leur
+    # propriétaire : l'invariant « un fichier, un patch » prime sur le sujet.
+    ("17-compte-et-connexion", (LOCAL, [
+        # Le service worker ne doit jamais relayer l'API de sync, servie ici sous /sync/.
+        "apps/mobile/public/sw.js",
+        # Le compte : dérivation, coffre, session, magasins, et le texte de ses messages.
+        "apps/mobile/__tests__/compte-session.test.ts",
+        "apps/mobile/__tests__/compte.test.ts",
+        "apps/mobile/__tests__/messages-de-compte.test.ts",
+        "apps/mobile/lib/compte-session.ts",
+        "apps/mobile/lib/compte.ts",
+        "apps/mobile/lib/messages-de-compte.ts",
+        "apps/mobile/store/useCompteStore.ts",
+        # L'accueil, le parcours d'invitation et l'envoi du lien.
+        "apps/mobile/__tests__/accueil.test.ts",
+        "apps/mobile/__tests__/envoi-d-invitation.test.ts",
+        "apps/mobile/__tests__/invite-qr-density.test.ts",
+        "apps/mobile/__tests__/parcours-d-invitation.test.ts",
+        "apps/mobile/__tests__/resoudre-une-saisie.test.ts",
+        "apps/mobile/components/invitation/ParcoursDInvitation.tsx",
+        "apps/mobile/lib/accueil.ts",
+        "apps/mobile/lib/base-de-sync.ts",
+        "apps/mobile/lib/envoi-d-invitation.ts",
+        "apps/mobile/lib/parcours-d-invitation.ts",
+        "apps/mobile/store/useParcoursDAccueilStore.ts",
+        # Les écrans et composants de compte.
+        "apps/mobile/app/settings/_layout.tsx",
+        "apps/mobile/app/settings/compte.tsx",
+        "apps/mobile/components/compte/Bouton.tsx",
+        "apps/mobile/components/compte/CadreDEcran.tsx",
+        "apps/mobile/components/compte/ChampDeFormulaire.tsx",
+        "apps/mobile/components/compte/FormulaireDeChangementDeMotDePasse.tsx",
+        "apps/mobile/components/compte/FormulaireDeConnexion.tsx",
+        "apps/mobile/components/compte/FormulaireDeCreationDeCompte.tsx",
+        "apps/mobile/components/compte/useEnvoi.ts",
+        # La première hydratation et la récupération des données.
+        "apps/mobile/__tests__/erreurs-d-hydratation.test.ts",
+        "apps/mobile/__tests__/mutation-sans-ecouteur.test.ts",
+        "apps/mobile/__tests__/page-publique-hydratation.test.ts",
+        "apps/mobile/__tests__/premiere-hydratation.test.ts",
+        "apps/mobile/components/RecuperationDesDonnees.tsx",
+        "apps/mobile/lib/erreurs-d-hydratation.ts",
+        "apps/mobile/lib/useApresHydratation.ts",
+        # Les dialogues web, `Alert.alert` étant muet sur react-native-web.
+        "apps/mobile/__tests__/alerte-web.test.ts",
+        "apps/mobile/lib/alerte-web.ts",
+        # Fichiers existants que ce sujet modifie et qu'aucun patch ne possédait.
+        "apps/mobile/lib/join-space.ts",
+        "apps/mobile/lib/share.ts",
+        "apps/mobile/lib/starfish.ts",
+        "apps/mobile/lib/wedding-registry.ts",
+        "apps/mobile/lib/wedding-registry.web.ts",
+    ])),
 ])
 
 # Fichiers partagés, découpés par hunk : (marqueur dans le hunk, patch cible).
@@ -568,6 +625,11 @@ PARTAGES = {
         ("dépôt", "12-acces-chiffre-et-invitations"),
         ("normalizeSyncBase", "12-acces-chiffre-et-invitations"),
         ("readCollection", "12-acces-chiffre-et-invitations"),
+        # EN DERNIER : le hunk qui ne porte que l'appel au coffre après la
+        # poussée du cliché n'a aucun marqueur des autres sujets. Placé devant,
+        # ce marqueur volerait le hunk d'imports (13) et celui de la fin (12),
+        # qui portent aussi `planifierLeCoffre`.
+        ("planifierLeCoffre();", "17-compte-et-connexion"),
     ],
     "apps/mobile/components/InviteQRSheet.tsx": [
         ("ouvertureDeLaFeuille", "13-regenerer-lien-collaborateur"),
@@ -577,6 +639,10 @@ PARTAGES = {
         ("retirer", "12-acces-chiffre-et-invitations"),
         ("retrait", "12-acces-chiffre-et-invitations"),
         ("depot", "12-acces-chiffre-et-invitations"),
+        # EN DERNIER, pour la même raison : le bloc d'imports, qui reçoit les
+        # icônes et les ponts d'envoi de la feuille (WhatsApp, SMS, e-mail,
+        # QR replié), ne contient aucun marqueur des autres sujets.
+        ("MessageCircle", "17-compte-et-connexion"),
     ],
 
     # ── `space-sync.ts` et son test, partagés entre 04 et 08 ────────────────

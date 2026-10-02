@@ -40,4 +40,6 @@ build.log
 rebuild.log
 .pnpm-store/
 apps/mobile/dist.old/
+apps/mobile/dist.new/
+apps/mobile/dist.e2e/
 .smoke.mjs
