@@ -23,9 +23,9 @@ export default function VendorTypeListScreen() {
   const { t } = useTranslation("vendors");
   const { type } = useLocalSearchParams<{ type: string }>();
   const router = useRouter();
-  const vendors = useVendorsStore((s) =>
-    s.vendors.filter((v) => v.type === type)
-  );
+  // A selector must return a stable reference: filtering inside it loops (React #185).
+  const allVendors = useVendorsStore((s) => s.vendors);
+  const vendors = useMemo(() => allVendors.filter((v) => v.type === type), [allVendors, type]);
   const totalVendorCount = useVendorsStore((s) => s.vendors.length);
   const quotePricings = useVendorsStore((s) => s.quotePricings);
   const guests = useGuestsStore((s) => s.guests);
