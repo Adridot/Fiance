@@ -56,7 +56,16 @@ export type SyncStatusValue = "synced" | "pending" | "syncing" | "error" | "offl
  * In v3, this signals all registerPull listeners to refresh their collection.
  */
 export function notifySync(): void {
-  dispatchDocChange("*");
+  // Sans écouteur (avant l'activation, ou entre `teardownSync` et la suivante), la
+  // modification doit quand même être datée : sinon une lecture la recouvre sans trace.
+  if (!dispatchDocChange("*")) _sansEcouteur?.();
+}
+
+let _sansEcouteur: (() => void) | null = null;
+
+/** Branché une fois au démarrage : survit à `teardownSync`, contrairement à `registerPull`. */
+export function auxModificationsSansEcouteur(fn: (() => void) | null): void {
+  _sansEcouteur = fn;
 }
 
 /**

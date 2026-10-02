@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from "react";
-import { View, Pressable, Text, TextInput, ActivityIndicator, useWindowDimensions } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { View, Pressable, Text, TextInput, ActivityIndicator, Linking, Platform, useWindowDimensions } from "react-native";
 import { useTranslation } from "react-i18next";
 import * as Clipboard from "expo-clipboard";
 import { shareLink } from "@/lib/share";
+import { toast } from "@/lib/toast/sonner";
 import { Sheet } from "@fiance/ui/components";
-import { AlertCircle, ChevronRight } from "lucide-react-native";
+import { AlertCircle, Check, ChevronRight, Copy, Mail, MessageCircle, MessageSquare, QrCode, Share2 } from "lucide-react-native";
 import QRCode from "react-native-qrcode-svg";
 import { theme } from "@/lib/theme";
 import { Display } from "@/components/Display";
@@ -14,6 +15,14 @@ import { usePermissionsStore } from "@/store/usePermissionsStore";
 import { roleCanWrite, FEATURE_SURFACES, type FeatureSurface, type RoleDefinition } from "@fiance/sdk";
 // MODIFICATION LOCALE — réémission depuis la fiche d'un collaborateur.
 import { ouvertureDeLaFeuille } from "@/lib/collaborateurs";
+import {
+  LARGEUR_MINIMALE_POUR_LE_QR,
+  prenomDe,
+  tailleDuQR,
+  urlEmail,
+  urlSms,
+  urlWhatsApp,
+} from "@/lib/envoi-d-invitation";
 
 interface InviteQRSheetProps {
   visible: boolean;
@@ -33,6 +42,8 @@ interface InviteQRSheetProps {
   initialName?: string;
   initialRoleId?: string;
 }
+
+const DELAI_DE_GARDE_MS = 30_000;
 
 type State = "selecting" | "generating" | "ready" | "error";
 
@@ -66,16 +77,20 @@ export function InviteQRSheet({
     return granted.map(surfaceLabel).join(" · ");
   };
 
-  // Invite payload embeds a signed cap cert + ephemeral keys (~1.4KB URL) —
-  // dense at default size/ECL. ecl="L" trims the module count to 125, and
-  // sizing up keeps it scannable (real cameras need ~2px/module). Floor of
-  // 250 guarantees that ratio even on the smallest phone widths; capped at
-  // 320 for large screens/web. See __tests__/invite-qr-density.test.ts.
-  const qrSize = Math.max(250, Math.min(320, Math.round(width - 64)));
+  const qrSize = tailleDuQR(width);
+  const qrReplie = width < LARGEUR_MINIMALE_POUR_LE_QR;
+  const [qrOuvert, setQrOuvert] = useState(false);
+  const [copie, setCopie] = useState(false);
+  const minuterie = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const peutPartager =
+    Platform.OS !== "web" || (typeof navigator !== "undefined" && typeof navigator.share === "function");
 
   // The last-picked role, so the error-state "retry" regenerates the same scope.
   const [roleId, setRoleId] = useState<string | undefined>(undefined);
   const nameValid = name.trim().length > 0;
+
+  // Numéro de la tentative en cours : un résultat tardif d'une tentative abandonnée est ignoré.
+  const tentative = useRef(0);
 
   const run = (selectedRoleId?: string, nomExplicite?: string) => {
     const nom = (nomExplicite ?? name).trim();
@@ -83,15 +98,25 @@ export function InviteQRSheet({
     setRoleId(selectedRoleId);
     setState("generating");
     setDetail("");
+    const mienne = ++tentative.current;
+    const echouer = (message: string) => {
+      if (tentative.current !== mienne) return;
+      tentative.current++;
+      setDetail(message);
+      setState("error");
+    };
+    const garde = setTimeout(() => echouer(t("inviteDelaiDepasse")), DELAI_DE_GARDE_MS);
     generate(selectedRoleId, nom || undefined)
       .then((link) => {
+        clearTimeout(garde);
+        if (tentative.current !== mienne) return;
         setUrl(link);
         setState("ready");
       })
       .catch((err: any) => {
+        clearTimeout(garde);
         console.error("[invite] link generation failed:", err);
-        setDetail(err?.message ?? String(err));
-        setState("error");
+        echouer(err?.message ?? String(err));
       });
   };
 
@@ -104,20 +129,80 @@ export function InviteQRSheet({
       if (ouverture.etat === "generating") { run(ouverture.roleId, ouverture.nom); return; }
       setState("selecting");
     } else {
+      tentative.current++;
       setState("selecting");
       setUrl("");
       setDetail("");
       setRoleId(undefined);
       setName("");
       setRetrait("idle");
+      setQrOuvert(false);
+      setCopie(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, initialName, initialRoleId]);
 
-  const handleShare = async () => {
-    await Clipboard.setStringAsync(url);
-    await shareLink(url, "", t("linkCopied"));
+  useEffect(() => () => { if (minuterie.current) clearTimeout(minuterie.current); }, []);
+
+  const message = t("inviteMessage", { prenom: prenomDe(name), lien: url });
+
+  const copier = async () => {
+    try {
+      await Clipboard.setStringAsync(url);
+    } catch {
+      toast.error(t("common:error"));
+      return;
+    }
+    setCopie(true);
+    toast.success(t("linkCopied"));
+    if (minuterie.current) clearTimeout(minuterie.current);
+    minuterie.current = setTimeout(() => setCopie(false), 2000);
   };
+
+  const ouvrir = (adresse: string) => {
+    // Sur le web, sms: et mailto: dans l'onglet courant : `_blank` laisserait un onglet vide.
+    const ouverture =
+      Platform.OS === "web" && !adresse.startsWith("http")
+        ? (Linking as any).openURL(adresse, "_self")
+        : Linking.openURL(adresse);
+    Promise.resolve(ouverture).catch(() => toast.error(t("inviteOuvertureImpossible")));
+  };
+
+  const boutons: { cle: string; icone: React.ReactNode; libelle: string; onPress: () => void; plein?: boolean }[] = [
+    {
+      cle: "copier",
+      icone: copie ? <Check size={17} color="#ffffff" /> : <Copy size={17} color="#ffffff" />,
+      libelle: copie ? t("inviteCopie") : t("inviteCopier"),
+      onPress: () => { void copier(); },
+      plein: true,
+    },
+    {
+      cle: "whatsapp",
+      icone: <MessageCircle size={17} color={theme.ink} />,
+      libelle: t("inviteWhatsApp"),
+      onPress: () => ouvrir(urlWhatsApp(message)),
+    },
+    {
+      cle: "sms",
+      icone: <MessageSquare size={17} color={theme.ink} />,
+      libelle: t("inviteSms"),
+      onPress: () => ouvrir(urlSms(message)),
+    },
+    {
+      cle: "email",
+      icone: <Mail size={17} color={theme.ink} />,
+      libelle: t("inviteEmail"),
+      onPress: () => ouvrir(urlEmail(t("inviteSujet"), message)),
+    },
+    ...(peutPartager
+      ? [{
+          cle: "partager",
+          icone: <Share2 size={17} color={theme.ink} />,
+          libelle: t("invitePartager"),
+          onPress: () => { void shareLink(url, message, t("linkCopied")); },
+        }]
+      : []),
+  ];
 
   return (
     <Sheet visible={visible} onDismiss={onClose} backgroundColor={theme.card}>
@@ -235,50 +320,102 @@ export function InviteQRSheet({
 
         {state === "ready" && (
           <>
-            {/* Header row */}
-            <View style={{ marginBottom: 24 }}>
+            <View style={{ marginBottom: 16 }}>
               <Text style={{ fontSize: 18, fontWeight: "700", color: theme.ink, letterSpacing: -0.3 }}>
                 {t("shareInviteLink")}
               </Text>
-              <Text style={{ fontSize: 13, color: theme.mute, marginTop: 2 }}>
-                {t("scanFromOtherDevice")}
+              <Text style={{ fontSize: 13, color: theme.mute, marginTop: 2, lineHeight: 18 }}>
+                {t("inviteLienAide")}
               </Text>
             </View>
 
-            {/* QR code card */}
-            <View style={{ alignItems: "center", marginBottom: 20 }}>
-              <View style={{
-                backgroundColor: "#ffffff",
-                padding: 16,
-                borderRadius: 20,
-                borderWidth: 1,
-                borderColor: theme.hair,
-              }}>
-                <QRCode value={url} size={qrSize} ecl="L" />
+            <View style={{
+              backgroundColor: theme.paper,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: theme.hair,
+              paddingHorizontal: 14,
+              paddingVertical: 12,
+              marginBottom: 14,
+            }}>
+              <Text selectable style={{ fontSize: 14, color: theme.ink, lineHeight: 20 }}>
+                {url}
+              </Text>
+            </View>
+
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
+              {boutons.map((b) => (
+                <Pressable
+                  key={b.cle}
+                  accessibilityRole="button"
+                  onPress={b.onPress}
+                  style={({ pressed }) => ({
+                    flexGrow: 1,
+                    // 120 : deux boutons par ligne dès 360 px, jamais d'icône rognée.
+                    flexBasis: 120,
+                    minHeight: 44,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 7,
+                    borderRadius: 14,
+                    paddingHorizontal: 10,
+                    backgroundColor: b.plein ? theme.clay : theme.paper,
+                    borderWidth: 1,
+                    borderColor: b.plein ? theme.clay : theme.hair,
+                    opacity: pressed ? 0.75 : 1,
+                  })}
+                >
+                  <View style={{ flexShrink: 0 }}>{b.icone}</View>
+                  <Text style={{ color: b.plein ? "#ffffff" : theme.ink, fontWeight: "600", fontSize: 14, flexShrink: 1 }}>
+                    {b.libelle}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {qrReplie && (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setQrOuvert((o) => !o)}
+                style={({ pressed }) => ({
+                  minHeight: 44,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 7,
+                  opacity: pressed ? 0.6 : 1,
+                })}
+              >
+                <QrCode size={17} color={theme.mute} />
+                <Text style={{ fontSize: 14, color: theme.mute }}>
+                  {qrOuvert ? t("inviteMasquerLeQR") : t("inviteAfficherLeQR")}
+                </Text>
+              </Pressable>
+            )}
+
+            {(!qrReplie || qrOuvert) && (
+              <View style={{ alignItems: "center", marginTop: 4 }}>
+                <View style={{
+                  backgroundColor: "#ffffff",
+                  padding: 16,
+                  borderRadius: 20,
+                  borderWidth: 1,
+                  borderColor: theme.hair,
+                }}>
+                  <QRCode value={url} size={qrSize} ecl="M" />
+                </View>
+                <Text style={{ fontSize: 12, color: theme.mute, marginTop: 10, textAlign: "center" }}>
+                  {t("scanFromOtherDevice")}
+                </Text>
               </View>
-            </View>
-
-            {/* Share button */}
-            <Pressable
-              onPress={handleShare}
-              style={({ pressed }) => ({
-                backgroundColor: theme.clay,
-                borderRadius: 16,
-                paddingVertical: 16,
-                alignItems: "center",
-                opacity: pressed ? 0.8 : 1,
-              })}
-            >
-              <Text style={{ color: "#ffffff", fontWeight: "600", fontSize: 16 }}>
-                {t("shareLink")}
-              </Text>
-            </Pressable>
+            )}
 
             {/* MODIFICATION LOCALE — le dépôt est borné dans le temps, et le
                 propriétaire peut le retirer avant son terme. Un lien retiré
                 présente le message d'EXPIRATION, distinct de « non reconnue ». */}
             {retirer && (
-              <View style={{ marginTop: 14 }}>
+              <View style={{ marginTop: 20 }}>
                 <Text style={{ fontSize: 12, color: theme.mute, textAlign: "center", marginBottom: 10 }}>
                   {t("depotDureeDeVie")}
                 </Text>

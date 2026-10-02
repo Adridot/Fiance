@@ -16,6 +16,10 @@
  * Le serveur ne détient que du chiffré, et la clé ne lui parvient jamais.
  * Obtenir tout ce qu'il détient ne donne ni l'identifiant de l'espace, ni le
  * droit d'y accéder.
+ *
+ * Le clair déposé est une enveloppe JSON `{ j: jeton, m: mariage, p: personne }`.
+ * Un clair qui n'en est pas une est un jeton nu : les liens déjà émis s'ouvrent.
+ * Le lien est à usage unique : `consommer` remplace le dépôt par `{ utilise: true }`.
  */
 
 import { decodeSpaceInviteLink, getSyncNamespace, type SpaceInviteLinkToken } from "@fiance/sdk";
@@ -37,6 +41,8 @@ export type EchecDInvitationCourte =
   | "depot-absent"
   /** Le dépôt ne se déchiffre pas sous cette clé : substitué, ou clé tronquée. */
   | "depot-illisible"
+  /** Le dépôt porte le marqueur d'usage : le lien a déjà servi. */
+  | "depot-utilise"
   /** Le serveur n'a pas répondu. */
   | "reseau";
 
@@ -91,7 +97,35 @@ export interface DepotChiffre {
   ct: string;
 }
 
-/** Chiffre un jeton sous une clé neuve. Rend le dépôt ET la clé, séparément. */
+export interface ContenuDInvitation {
+  jeton: string;
+  nomDuMariage?: string;
+  nomDeLaPersonne?: string;
+}
+
+/** Le clair à chiffrer : l'enveloppe JSON `{ j, m, p }`. */
+export function emballerLInvitation({ jeton, nomDuMariage, nomDeLaPersonne }: ContenuDInvitation): string {
+  return JSON.stringify({ j: jeton, m: nomDuMariage, p: nomDeLaPersonne });
+}
+
+/** Lit un clair : enveloppe JSON, ou jeton nu des liens émis avant l'enveloppe. */
+export function deballerLInvitation(clair: string): ContenuDInvitation {
+  try {
+    const v = JSON.parse(clair) as { j?: unknown; m?: unknown; p?: unknown } | null;
+    if (v && typeof v === "object" && typeof v.j === "string" && v.j) {
+      return {
+        jeton: v.j,
+        ...(typeof v.m === "string" && v.m ? { nomDuMariage: v.m } : {}),
+        ...(typeof v.p === "string" && v.p ? { nomDeLaPersonne: v.p } : {}),
+      };
+    }
+  } catch {
+    // pas du JSON : un jeton nu
+  }
+  return { jeton: clair };
+}
+
+/** Chiffre un clair sous une clé neuve. Rend le dépôt ET la clé, séparément. */
 export async function chiffrerLeJeton(
   jeton: string,
 ): Promise<{ depot: DepotChiffre; cle: string }> {
@@ -166,16 +200,21 @@ export async function deposer(syncBase: string, code: string, depot: DepotChiffr
  * Récupère un dépôt.
  *
  * Un document absent — jamais écrit, ou expiré — se lit `{hash:"",data:{}}`,
- * jamais un 404 : c'est l'absence de hash qui est le signal fiable.
+ * jamais un 404 : c'est l'absence de hash qui est le signal fiable. Un dépôt
+ * consommé a un hash mais ni `iv` ni `ct` : le marqueur se teste AVANT eux.
  */
 export async function recuperer(syncBase: string, code: string): Promise<DepotChiffre> {
-  let lu: { hash?: string; data?: Partial<DepotChiffre> } | null = null;
+  type Lu = { hash?: string; data?: Partial<DepotChiffre> & { utilise?: boolean } };
+  let lu: Lu | null = null;
   try {
     const rép = await fetch(cheminDuDepot(syncBase, code, "pull"), { cache: "no-store" });
     if (!rép.ok) throw new Error(`HTTP ${rép.status}`);
-    lu = (await rép.json()) as { hash?: string; data?: Partial<DepotChiffre> };
+    lu = (await rép.json()) as Lu;
   } catch (err) {
     throw new InvitationCourteError("reseau", `dépôt injoignable (${err instanceof Error ? err.message : String(err)})`);
+  }
+  if (lu?.hash && lu.data?.utilise === true) {
+    throw new InvitationCourteError("depot-utilise", "ce lien a déjà servi");
   }
   if (!lu?.hash || !lu.data?.iv || !lu.data?.ct) {
     throw new InvitationCourteError("depot-absent", "aucun dépôt à ce code — jamais émis, expiré, ou retiré");
@@ -183,23 +222,43 @@ export async function recuperer(syncBase: string, code: string): Promise<DepotCh
   return { iv: lu.data.iv, ct: lu.data.ct };
 }
 
+/** Le hash courant du dépôt, ou null s'il est absent ou injoignable : le conflit rattrapera. */
+async function hashCourant(syncBase: string, code: string): Promise<string | null> {
+  try {
+    const rép = await fetch(cheminDuDepot(syncBase, code, "pull"), { cache: "no-store" });
+    if (!rép.ok) return null;
+    const lu = (await rép.json()) as { hash?: string } | null;
+    return lu?.hash || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Retire un dépôt avant son terme. Un dépôt vidé se lit comme un dépôt absent.
- *
- * L'écriture est en CAS : pousser avec `hash: null` sur un document qui existe
- * rend un 409 `hash_mismatch`, et le dépôt survivrait au retrait. On repart
- * donc du `currentHash` que le serveur rend dans le corps du conflit.
+ * Écrit en CAS au hash lu juste avant : pousser avec `baseHash: null` sur un
+ * document qui existe rend un 409 (visible en console). Si le document a bougé
+ * entre-temps, on repart du `currentHash` que le serveur rend dans le conflit.
  */
-export async function retirer(syncBase: string, code: string): Promise<void> {
-  let rép = await pousser(syncBase, code, {}, null);
+async function ecrireEnCAS(syncBase: string, code: string, data: unknown, action: string): Promise<void> {
+  let rép = await pousser(syncBase, code, data, await hashCourant(syncBase, code));
   if (rép.status === 409) {
     const conflit = (await rép.json().catch(() => null)) as { currentHash?: string } | null;
     if (!conflit?.currentHash) {
-      throw new InvitationCourteError("reseau", "retrait refusé — le conflit ne porte pas le hash courant");
+      throw new InvitationCourteError("reseau", `${action} refusé — le conflit ne porte pas le hash courant`);
     }
-    rép = await pousser(syncBase, code, {}, conflit.currentHash);
+    rép = await pousser(syncBase, code, data, conflit.currentHash);
   }
-  if (!rép.ok) throw new InvitationCourteError("reseau", `retrait refusé — HTTP ${rép.status}`);
+  if (!rép.ok) throw new InvitationCourteError("reseau", `${action} refusé — HTTP ${rép.status}`);
+}
+
+/** Retire un dépôt avant son terme. Un dépôt vidé se lit comme un dépôt absent. */
+export async function retirer(syncBase: string, code: string): Promise<void> {
+  await ecrireEnCAS(syncBase, code, {}, "retrait");
+}
+
+/** Marque le lien comme servi : le dépôt devient `{ utilise: true }`. */
+export async function consommer(syncBase: string, code: string): Promise<void> {
+  await ecrireEnCAS(syncBase, code, { utilise: true }, "consommation");
 }
 
 /** `https://origine/i/<code>#<clé>` — environ 81 caractères. */
@@ -227,9 +286,9 @@ export function lireLeLienCourt(url: string): LienCourt | null {
   }
 }
 
-/** Récupère puis déchiffre : le jeton, tel qu'`encodeSpaceInviteLink` l'avait rendu. */
-export async function ouvrirLInvitationCourte(syncBase: string, lien: LienCourt): Promise<string> {
-  return dechiffrerLeDepot(await recuperer(syncBase, lien.code), lien.cle);
+/** Récupère puis déchiffre : le jeton, tel qu'`encodeSpaceInviteLink` l'avait rendu, et les noms. */
+export async function ouvrirLInvitationCourte(syncBase: string, lien: LienCourt): Promise<ContenuDInvitation> {
+  return deballerLInvitation(await dechiffrerLeDepot(await recuperer(syncBase, lien.code), lien.cle));
 }
 
 /**

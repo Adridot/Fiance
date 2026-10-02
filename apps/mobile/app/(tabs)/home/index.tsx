@@ -2,13 +2,14 @@ import React, { useCallback, useEffect } from "react";
 import { View, Text, ScrollView, Pressable } from "react-native-css/components";
 import { Platform, StatusBar as RNStatusBar } from "react-native";
 import { useRouter } from "expo-router";
-import { Settings, MapPin, AlertTriangle, Briefcase, Sparkles, ChevronRight, Download, LayoutGrid, Clock, Circle, Eye, CloudOff } from "lucide-react-native";
+import { UserRound, Settings, MapPin, AlertTriangle, Briefcase, Sparkles, ChevronRight, Download, LayoutGrid, Clock, Circle, Eye, CloudOff } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { differenceInDays, format } from "date-fns";
 import { getDateLocale, safeFormat } from "@/i18n/dateFnsLocale";
 import { useWeddingStore } from "@/store/useWeddingStore";
 import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
+import { useCompteStore } from "@/store/useCompteStore";
 import { isAgendaEventUpcoming } from "@/lib/agenda-upcoming";
 import { needsNamespaceResync } from "@/lib/space-resync";
 import { useIsReadOnlyMember } from "@/lib/permissions/useIsReadOnlyMember";
@@ -36,6 +37,9 @@ import { PageHeader } from "@/components/PageHeader";
 import { useIsWideScreen } from "@/lib/useIsWideScreen";
 import { getPrimaryEvent } from "@fiance/sdk";
 
+/** Congédié pour la session seulement : le module vit tant que l'appli reste ouverte. */
+let bandeauDeCompteCongedie = false;
+
 export default function HomeScreen() {
   return <DashboardScreen />;
 }
@@ -50,6 +54,12 @@ function DashboardScreen() {
   const registry = useWeddingRegistryStore((s) => s.registry);
   const activeEntry = registry?.weddings.find((w) => w.id === registry.activeWeddingId);
   const showResyncBanner = needsNamespaceResync(activeEntry);
+  const compteCharge = useCompteStore((s) => s.charge);
+  const aUnCompte = useCompteStore((s) => s.compte !== null);
+  const coffreDeplace = useCompteStore((s) => s.coffre === "deplace");
+  const [compteCongedie, setCompteCongedie] = React.useState(bandeauDeCompteCongedie);
+  const estMembre = activeEntry?.role === "member";
+  const showCompteBanner = compteCharge && !aUnCompte && !(estMembre && compteCongedie);
   // Desktop web shows this as a persistent top bar instead (ReadOnlyBanner,
   // mounted in app/_layout.tsx) — a fixed overlay is awkward on a small screen.
   const isReadOnlyMember = useIsReadOnlyMember();
@@ -311,6 +321,33 @@ function DashboardScreen() {
             icon={<CloudOff size={20} color={GP.mustard} />}
             iconBg={`${GP.mustard}1f`}
             title={t("settings:syncStatusUnsaved")}
+          />
+        )}
+
+        {compteCharge && aUnCompte && coffreDeplace && (
+          <HomeBanner
+            icon={<UserRound size={20} color={GP.strawberryInk} />}
+            iconBg={GP.strawberrySoft}
+            title={t("settings:compte.banniereDeplace")}
+            onPress={() => router.push("/settings/compte" as any)}
+            showChevron
+          />
+        )}
+
+        {showCompteBanner && (
+          <HomeBanner
+            icon={<UserRound size={20} color={GP.clay} />}
+            title={t("settings:compte.banniere")}
+            onPress={() => router.push("/settings/compte" as any)}
+            onDismiss={
+              estMembre
+                ? () => {
+                    bandeauDeCompteCongedie = true;
+                    setCompteCongedie(true);
+                  }
+                : undefined
+            }
+            showChevron
           />
         )}
 

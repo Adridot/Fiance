@@ -342,5 +342,42 @@
   "revoquerDernierLienMsg": "C'est le seul lien de cette personne : la révoquer la retirera de la liste des collaborateurs, et l'appareil qui s'en sert perdra son accès. Tout le contenu chiffré sera rescellé sous une clé neuve.",
   "lienNonConserve": "Un lien déjà émis n'est pas conservé : sa matière privée n'est écrite nulle part, à dessein. Il ne peut donc pas être recopié — régénérez-en un nouveau, l'ancien restera valable.",
   "collaborateurSansNom": "Lien sans nom",
-  "collaborateurSansNomAide": "Émis avant que le nom soit obligatoire — impossible de savoir à qui il appartient."
+  "collaborateurSansNomAide": "Émis avant que le nom soit obligatoire — impossible de savoir à qui il appartient.",
+  "inviteLienAide": "Envoyez ce lien à la personne invitée. Il est valable 7 jours et ne sert qu'une fois.",
+  "inviteCopier": "Copier",
+  "inviteCopie": "Copié",
+  "inviteWhatsApp": "WhatsApp",
+  "inviteSms": "SMS",
+  "inviteEmail": "E-mail",
+  "invitePartager": "Partager",
+  "inviteMessage": "Bonjour {{prenom}}, voici ton invitation pour préparer le mariage avec nous : {{lien}} — elle est valable 7 jours et ne sert qu'une fois.",
+  "inviteSujet": "Invitation à préparer notre mariage",
+  "inviteAfficherLeQR": "Afficher le QR code",
+  "inviteMasquerLeQR": "Masquer le QR code",
+  "inviteDelaiDepasse": "Le serveur ne répond pas.",
+  "inviteOuvertureImpossible": "Impossible d'ouvrir l'application d'envoi.",
+  "compte": {
+    "titre": "Mon compte",
+    "aucun": "Aucun compte : créez-le pour ne pas perdre l'accès",
+    "banniere": "Créez votre compte pour retrouver votre mariage sur tous vos appareils",
+    "banniereDeplace": "Votre mot de passe a été changé sur un autre appareil. Reconnectez-vous.",
+    "sansCompte": "Sans compte, votre accès n'existe que sur cet appareil : si vous le perdez ou effacez ses données, vous perdez le mariage. Créez un compte pour le retrouver sur tous vos appareils.",
+    "creer": "Créer mon compte",
+    "identifiant": "Identifiant",
+    "changerLeMotDePasse": "Changer de mot de passe",
+    "coffre": {
+      "aJour": "Votre accès est enregistré.",
+      "enAttente": "Enregistrement…",
+      "echec": "Votre accès n'a pas pu être enregistré.",
+      "reessayer": "Réessayer",
+      "deplace": "Le mot de passe a été changé sur un autre appareil. Reconnectez-vous."
+    },
+    "deconnexion": {
+      "bouton": "Se déconnecter",
+      "titre": "Se déconnecter ?",
+      "message": "Vos données restent sur le serveur. Pour les retrouver, reconnectez-vous avec votre identifiant et votre mot de passe.",
+      "poussee": "Des modifications n'ont pas pu être envoyées. Se déconnecter quand même ?",
+      "quandMeme": "Se déconnecter quand même"
+    }
+  }
 }

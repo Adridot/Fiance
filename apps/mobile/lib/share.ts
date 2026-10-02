@@ -24,8 +24,8 @@ export async function shareLink(url: string, message: string, copiedText: string
     }
   } else {
     try {
-      // Empty message = link-only share: omit message so the share sheet doesn't duplicate the url.
-      await (message ? Share.share({ message, url }) : Share.share({ message: url }));
+      // Le message se termine déjà par l'url : la passer aussi la dupliquerait sur iOS.
+      await Share.share({ message: message || url });
     } catch {
       // dismissed
     }

@@ -9,7 +9,7 @@ import { toast } from "@/lib/toast/sonner";
 import { format } from "date-fns";
 import Constants from "expo-constants";
 import { useUpdates } from "expo-updates";
-import { Share2, ChevronRight, Cloud, CloudOff, Heart, CheckCircle2, Lock, Bell, PlusCircle, Trash2, Download, Globe, Pencil, Sparkles, FileText, QrCode, RefreshCw, Users } from "lucide-react-native";
+import { UserRound, Share2, ChevronRight, Cloud, CloudOff, Heart, CheckCircle2, Lock, Bell, PlusCircle, Trash2, Download, Globe, Pencil, Sparkles, FileText, QrCode, RefreshCw, Users } from "lucide-react-native";
 import { isLockEnabled, setLockEnabled } from "@/lib/app-lock";
 import { PinSetup } from "@/components/PinSetup";
 import { QRScannerScreen } from "@/components/QRScannerScreen";
@@ -52,6 +52,7 @@ import { Label } from "@/components/Label";
 import { Chip } from "@/components/Chip";
 import { PageHeader } from "@/components/PageHeader";
 import { useWeddingStore } from "@/store/useWeddingStore";
+import { useCompteStore } from "@/store/useCompteStore";
 import { theme } from "@/lib/theme";
 
 export default function SettingsScreen() {
@@ -62,6 +63,8 @@ export default function SettingsScreen() {
   const colorScheme = useSettingsStore((s) => s.colorScheme);
   const setColorScheme = useSettingsStore((s) => s.setColorScheme);
   const tasks = usePlanningStore((s) => s.tasks);
+  const compte = useCompteStore((s) => s.compte);
+  const compteCharge = useCompteStore((s) => s.charge);
 
   const appVersion = Constants.expoConfig?.version ?? "";
   const { currentlyRunning } = useUpdates();
@@ -328,6 +331,21 @@ export default function SettingsScreen() {
           />
         </View>
       )}
+
+      {/* Mon compte */}
+      <View className="px-4 pt-2">
+        <IconCard
+          icon={
+            <View className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center">
+              <UserRound size={20} color={theme.clay} />
+            </View>
+          }
+          title={t("compte.titre")}
+          subtitle={!compteCharge ? undefined : (compte?.identifiant ?? t("compte.aucun"))}
+          right={<ChevronRight size={18} color="#C0C0C8" />}
+          onPress={() => router.push("/settings/compte")}
+        />
+      </View>
 
       {/* Premium */}
       <View className="px-4 pt-2">

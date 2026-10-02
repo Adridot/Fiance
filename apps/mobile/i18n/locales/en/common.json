@@ -71,7 +71,26 @@
     "partnerPlaceholder": "First name",
     "partner1Required": "Enter at least your first name",
     "dateLabel": "Wedding date",
-    "dateHint": "Optional — you can change it later"
+    "dateHint": "Optional — you can change it later",
+    "seConnecter": "Sign in",
+    "jAiUneInvitation": "I have an invitation",
+    "creerUnNouveauMariage": "Create a new wedding",
+    "compteApres": "You'll then create your account to find your wedding on all your devices.",
+    "connexionEyebrow": "Sign in",
+    "connexionTitre": "Welcome back",
+    "connexionTagline": "find your wedding on this device",
+    "invitation": {
+      "champ": "Paste the link you received, or the code",
+      "placeholder": "Invitation link or code",
+      "continuer": "Continue",
+      "scanner": "Scan a QR code",
+      "vide": "Paste the link you received, or enter the invitation code.",
+      "incomplete": "This link is incomplete or was copied wrongly: the part after the “#” is missing or doesn't match. Paste it in full, or ask the person who invited you for it again.",
+      "expiree": "This invitation is no longer valid. Ask the couple for a new one.",
+      "invalide": "This link or code doesn't match any invitation. Check that it's complete.",
+      "utilisee": "This invitation has already been used. Sign in with your account.",
+      "allerALaConnexion": "Go to sign in"
+    }
   },
   "join": {
     "newWedding": "New wedding",
@@ -87,9 +106,14 @@
     "joinThisWedding": "Join this wedding?",
     "joinThisWeddingFirst": "You've been invited to join this wedding.",
     "invitationIncomplete": "Incomplete invitation",
-    "invitationIncompleteDetail": "The address arrived truncated — the part after the “#” is missing. Ask whoever invited you to send the link again, or enter the invitation code below.",
+    "invitationIncompleteDetail": "This link is incomplete or was copied wrongly: the part after the “#” is missing or doesn't match. Ask whoever invited you to send the link again, or enter the invitation code below.",
     "invitationExpiree": "Invitation expired",
     "invitationExpireeDetail": "This invitation is no longer valid. Ask the couple for a new one.",
+    "invitationUtilisee": "This invitation has already been used",
+    "invitationUtiliseeDetail": "Sign in with the account created at that time. If it wasn't you, ask the couple for a new invitation.",
+    "invitationSeConnecter": "Sign in",
+    "invitationDejaConnecte": "You are already signed in.",
+    "invitationAllerAuMariage": "Go to the wedding",
     "invitationInvalide": "Invitation not recognised",
     "invitationInvalideDetail": "This link doesn't match any invitation. Check that it's complete, or enter the invitation code below.",
     "codeSaisieTitre": "Enter the invitation code",
@@ -102,7 +126,14 @@
     "dejaMembre": "You're already a member",
     "dejaMembreDetail": "This invitation opens “{{name}}”, a wedding this device already has access to. There's nothing to join.",
     "dejaMembreDetailSansNom": "This invitation opens a wedding this device already has access to. There's nothing to join.",
-    "allerAuMariage": "Go to the wedding"
+    "allerAuMariage": "Go to the wedding",
+    "inviteATitre": "You're invited to help plan",
+    "ongletCreer": "Create my account",
+    "ongletConnexion": "I already have an account",
+    "boutonRejoindre": "Join the wedding",
+    "creationEnCours": "Creating your account…",
+    "jonctionEnCours": "Opening the wedding…",
+    "reessayer": "Try again"
   },
   "homeEyebrow": "Wedding",
   "homeTagline": "days",
@@ -118,5 +149,50 @@
   "quota": {
     "badge": "{{count}} / {{limit}}",
     "badgeLabel": "{{count}} of {{limit}} used on the free plan"
+  },
+  "compte": {
+    "recuperation": {
+      "titre": "Retrieving your data…",
+      "echec": "Could not reach the server.",
+      "reessayer": "Try again",
+      "deconnecter": "Sign out"
+    },
+    "champs": {
+      "identifiant": "Username",
+      "identifiantAide": "Your e-mail or your first name: this is what you'll enter to sign in",
+      "identifiantPlaceholder": "E-mail or first name",
+      "motDePasse": "Password",
+      "motDePassePlaceholder": "Your password",
+      "motDePasseAide": "At least 8 characters.",
+      "confirmation": "Confirm password",
+      "confirmationPlaceholder": "Enter it a second time",
+      "nouveauMotDePasse": "New password",
+      "confirmationDuNouveau": "Confirm new password",
+      "afficher": "Show password",
+      "masquer": "Hide password"
+    },
+    "connexion": {
+      "bouton": "Sign in",
+      "enCours": "Signing in…",
+      "champsVides": "Enter your username and password."
+    },
+    "changement": {
+      "bouton": "Change password",
+      "enCours": "Changing…",
+      "reussi": "Password changed."
+    },
+    "validation": {
+      "identifiantVide": "Enter a username.",
+      "motDePasseCourt": "The password must be at least 8 characters long.",
+      "confirmationDifferente": "The two passwords don't match."
+    },
+    "erreurs": {
+      "identifiants": "Incorrect username or password.",
+      "reseau": "The server isn't responding. Check your connection and try again.",
+      "illisible": "This account can't be read. Ask the couple for a new invitation.",
+      "existeDeja": "An account already exists with this username and password. Choose different ones.",
+      "deplace": "The password was changed on another device. Sign in again.",
+      "inconnue": "Something went wrong. Try again."
+    }
   }
 }

@@ -14,6 +14,7 @@ import { configureStarfishPlatform, kvGet, kvSet, kvRemove } from "@drakkar.soft
 import {
   initSync,
   teardownSync,
+  auxModificationsSansEcouteur,
   pullEntitlements,
   isSyncActive,
   getActiveSession,
@@ -21,7 +22,9 @@ import {
   getActiveWeddingNodeId,
 } from "@/lib/starfish";
 import { registerPull } from "@fiance/sdk";
-import { hydrateFromSpace, scheduleSyncPush, pushSpaceSnapshot, refreshRsvpInbox, refreshFromSpaceIfIdle, discoverOwnerWeddingRoot, hydrateSawLegacyNodes, resetDirtyPushBaseline, rejouerPousséeEnAttente, viderPousséeEnAttente } from "@/lib/space-sync";
+import { hydrateFromSpace, scheduleSyncPush, noterModificationLocale, époqueLocale, pushSpaceSnapshot, refreshRsvpInbox, refreshFromSpaceIfIdle, discoverOwnerWeddingRoot, hydrateSawLegacyNodes, resetDirtyPushBaseline, rejouerPousséeEnAttente, viderPousséeEnAttente, premièreHydratationAttendue } from "@/lib/space-sync";
+import { restaurerLesAnnexes } from "@/lib/compte-session";
+import { useCompteStore } from "@/store/useCompteStore";
 import { ensureSpaceProvisioned } from "@/lib/space-provision";
 import { resolveServerUrl, resolveSessionConfig, resolveOwnerUserId, normalizeSyncBase } from "@/lib/server";
 import { ensurePublicPageNode, pushPublicPageContent, publicPageNodeId } from "@/lib/public-page";
@@ -54,6 +57,7 @@ export function configureOnBoot(): void {
 
   const syncBase = normalizeSyncBase(resolveServerUrl() ?? "");
   configureFiance({ syncBase }, { get: kvGet, set: kvSet, remove: kvRemove });
+  auxModificationsSansEcouteur(noterModificationLocale);
 }
 
 // ---------------------------------------------------------------------------
@@ -154,16 +158,23 @@ export function activateSync(
   return p;
 }
 
+/** Mariage de la dernière activation : une ré-activation du même mariage garde l'arriéré de poussée. */
+let _mariageActivé: string | null = null;
+
 /** Initializes starfish-spaces sync inside DatabaseProvider. */
 export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) {
+  // Relancer la sync depuis l'écran de récupération des données : voir `RecuperationDesDonnees`.
+  const relance = useCompteStore((s) => s.relance);
   useEffect(() => {
+    restaurerLesAnnexes(wedding.id);
     if (isSyncActive()) {
       teardownSync();
       // Dirty-push baselines are keyed by weddingNodeId — clear them on every
       // space switch so a stale baseline from the previous wedding/space can
       // never make a later pushSpaceSnapshot() see fresh content as already-pushed.
-      resetDirtyPushBaseline();
+      resetDirtyPushBaseline({ garderLArriéré: _mariageActivé === wedding.id });
     }
+    _mariageActivé = wedding.id;
 
     // Sync (the couple's own device pair) is free for everyone — it's no longer
     // premium-gated. Premium gates scale (guest/vendor/event/task caps, extra
@@ -214,6 +225,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
       //
       //    Le marqueur n'est effacé qu'au succès : un rattrapage qui échoue est
       //    retenté au démarrage suivant, et le réessai ordinaire s'en charge d'ici là.
+      const époqueAvantRattrapage = époqueLocale();
       if (!cancelled) {
         await rejouerPousséeEnAttente(session, spaceId, weddingNodeId);
       }
@@ -251,7 +263,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
       // recoverSpaceAccess + discoverOwnerWeddingRoot run inside activateSync (above),
       // so the adopted weddingNodeId is already in effect via getActiveWeddingNodeId().
       if (!cancelled) {
-        const nodeCount = await hydrateFromSpace(session, spaceId, weddingNodeId).catch((err) => {
+        const nodeCount = await hydrateFromSpace(session, spaceId, weddingNodeId, { depuisÉpoque: époqueAvantRattrapage }).catch((err) => {
           console.warn("[providers] hydrateFromSpace failed:", err);
           return -1;
         });
@@ -266,6 +278,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
         if (
           !cancelled &&
           wedding.role !== "member" &&
+          !premièreHydratationAttendue() &&
           useWeddingStore.getState().wedding &&
           (nodeCount === 0 || hydrateSawLegacyNodes())
         ) {
@@ -303,7 +316,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
       // live immediately after creation. Owner-only: a member's first sync must never
       // push its local (possibly stale/empty) snapshot over the owner's real content
       // (mirrors the wedding.role !== "member" guard on pushSpaceSnapshot above).
-      if (!cancelled && publicPageNodeReady && wedding.role !== "member") {
+      if (!cancelled && publicPageNodeReady && wedding.role !== "member" && !premièreHydratationAttendue()) {
         await pushPublicPageContent(session, spaceId, publicPageNodeId(weddingNodeId)).catch(
           (err) => console.warn("[providers] initial public page push failed:", err),
         );
@@ -391,7 +404,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
       unregisterPush?.();
       unsubSse?.();
     };
-  }, [wedding.id]);
+  }, [wedding.id, relance]);
 
   // Re-push public page when day-of items or wedding info change (B5).
   // Debounced: collapses rapid per-keystroke changes into one network push.
@@ -410,7 +423,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
       // Trouvé en cherchant la boucle de rétroaction du flux d'événements (elle
       // faisait boucler les onglets membres aussi), mais c'est un défaut de
       // DROITS, indépendant du flux et antérieur à lui.
-      if (wedding.role === "member") return;
+      if (wedding.role === "member" || premièreHydratationAttendue()) return;
       const session = getActiveSession();
       const spaceId = getActiveSpaceId();
       const weddingNodeId = getActiveWeddingNodeId();

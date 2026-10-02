@@ -1,4 +1,4 @@
-const CACHE_NAME = "fiance-v3";
+const CACHE_NAME = "fiance-v4";
 const PRECACHE = ["/", "/manifest.json"];
 
 self.addEventListener("install", (e) => {
@@ -39,6 +39,9 @@ self.addEventListener("fetch", (e) => {
   // whose response hash must never be served stale (causes CAS 409 loops).
   const url = new URL(request.url);
   if (url.origin !== self.location.origin || /\/(pull|push)\//.test(url.pathname)) return;
+  // Self-hosted: the sync API lives same-origin under /sync/. Caching it would
+  // serve stale collections (/batch/pull) and hold the /events stream open forever.
+  if (url.pathname.startsWith("/sync/")) return;
 
   // Static assets are content-hashed and immutable: cache-first.
   // Always resolve to a valid Response — never respondWith(undefined).

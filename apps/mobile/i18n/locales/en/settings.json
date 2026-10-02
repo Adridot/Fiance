@@ -342,5 +342,42 @@
   "revoquerDernierLienMsg": "This is the person's only link: revoking it removes them from the collaborators list, and the device using it loses access. All encrypted content will be re-sealed under a fresh key.",
   "lienNonConserve": "An issued link is not kept: its private material is written nowhere, by design. It therefore can't be copied again — regenerate a new one, the old stays valid.",
   "collaborateurSansNom": "Unnamed link",
-  "collaborateurSansNomAide": "Issued before a name was required — there's no way to tell whose it is."
+  "collaborateurSansNomAide": "Issued before a name was required — there's no way to tell whose it is.",
+  "inviteLienAide": "Send this link to the person you're inviting. It is valid for 7 days and works only once.",
+  "inviteCopier": "Copy",
+  "inviteCopie": "Copied",
+  "inviteWhatsApp": "WhatsApp",
+  "inviteSms": "SMS",
+  "inviteEmail": "Email",
+  "invitePartager": "Share",
+  "inviteMessage": "Hi {{prenom}}, here is your invitation to help plan the wedding with us: {{lien}} — it is valid for 7 days and can only be used once.",
+  "inviteSujet": "Invitation to help plan our wedding",
+  "inviteAfficherLeQR": "Show QR code",
+  "inviteMasquerLeQR": "Hide QR code",
+  "inviteDelaiDepasse": "The server is not responding.",
+  "inviteOuvertureImpossible": "Couldn't open the sharing app.",
+  "compte": {
+    "titre": "My account",
+    "aucun": "No account: create one so you don't lose access",
+    "banniere": "Create your account to find your wedding on all your devices",
+    "banniereDeplace": "Your password was changed on another device. Sign in again.",
+    "sansCompte": "Without an account, your access exists only on this device: if you lose it or clear its data, you lose the wedding. Create an account to find it on all your devices.",
+    "creer": "Create my account",
+    "identifiant": "Username",
+    "changerLeMotDePasse": "Change password",
+    "coffre": {
+      "aJour": "Your access is saved.",
+      "enAttente": "Saving…",
+      "echec": "Your access could not be saved.",
+      "reessayer": "Try again",
+      "deplace": "The password was changed on another device. Sign in again."
+    },
+    "deconnexion": {
+      "bouton": "Sign out",
+      "titre": "Sign out?",
+      "message": "Your data stays on the server. To get it back, sign in again with your username and password.",
+      "poussee": "Some changes could not be sent. Sign out anyway?",
+      "quandMeme": "Sign out anyway"
+    }
+  }
 }
