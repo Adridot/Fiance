@@ -53,6 +53,7 @@ import { TelemetryProvider, useTelemetryScreenTracking } from "@drakkar.software
 import { analytics, initAnalytics } from "@/lib/analytics";
 import { configureOnBoot, SyncInitializer, NotificationInitializer, RevenueCatInitializer, WeddingPremiumInitializer, WidgetInitializer } from "@/lib/providers";
 import { DatabaseProvider, useDatabaseSwitching } from "@/db/provider";
+import { tolererLesEcartsDHydratation } from "@/lib/erreurs-d-hydratation";
 import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { ReadOnlyBanner } from "@/components/ReadOnlyBanner";
@@ -64,6 +65,7 @@ import { ObserveRoot, useObserve } from "expo-observe";
 // Configure octospaces-sdk at module load so deriveSession/buildSession are
 // available before any screen renders (home, settings, public-page all call
 // resolveServerConfig which calls deriveSession).
+tolererLesEcartsDHydratation();
 configureOnBoot();
 
 
