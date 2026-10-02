@@ -42,7 +42,7 @@ index 0000000..aa55ed7
 +  },
 +});
 diff --git a/apps/mobile/lib/providers.tsx b/apps/mobile/lib/providers.tsx
-index f3163cb..09c4977 100644
+index c407a2d..bf06727 100644
 --- a/apps/mobile/lib/providers.tsx
 +++ b/apps/mobile/lib/providers.tsx
 @@ -14,6 +14,7 @@ import { configureStarfishPlatform, kvGet, kvSet, kvRemove } from "@drakkar.soft
@@ -241,7 +241,7 @@ index f3163cb..09c4977 100644
        if (state !== "active" || !resolvedUserId) return;
        pullEntitlements(null, resolvedUserId)
          .then((features) => {
-@@ -310,15 +400,30 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+@@ -310,10 +400,11 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
      return () => {
        cancelled = true;
        foregroundSub.remove();
@@ -254,37 +254,15 @@ index f3163cb..09c4977 100644
  
    // Re-push public page when day-of items or wedding info change (B5).
    // Debounced: collapses rapid per-keystroke changes into one network push.
-   useEffect(() => {
+@@ -321,7 +412,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
      function pushPublicPageContentIfActive() {
-+      // MODIFICATION LOCALE — la garde de rôle qui manquait ici.
-+      //
-+      // La poussée d'amorçage, cent lignes plus haut, ne s'autorise QUE pour le
-+      // propriétaire (« a member's first sync must never push its local
-+      // (possibly stale/empty) snapshot over the owner's real content »). Cette
-+      // ré-poussée-ci, elle, n'avait aucune garde — un onglet MEMBRE écrivait
-+      // donc sa propre vue par-dessus la page publique du propriétaire, à
-+      // chaque hydratation. Le même raisonnement vaut ici mot pour mot ; seule
-+      // la garde manquait.
-+      //
-+      // Trouvé en cherchant la boucle de rétroaction du flux d'événements (elle
-+      // faisait boucler les onglets membres aussi), mais c'est un défaut de
-+      // DROITS, indépendant du flux et antérieur à lui.
+       // The bootstrap push above guards itself to the owner; this re-push had none,
+       // so a member tab overwrote the owner's public page on every hydration.
+-      if (wedding.role === "member") return;
 +      if (wedding.role === "member" || premièreHydratationAttendue()) return;
        const session = getActiveSession();
        const spaceId = getActiveSpaceId();
        const weddingNodeId = getActiveWeddingNodeId();
-@@ -357,7 +462,10 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
-     });
- 
-     return () => { unsubPlanning(); unsubWedding(); unsubPermissions(); if (pushTimer) clearTimeout(pushTimer); };
--  }, []);
-+    // `wedding.role` est lu dans `pushPublicPageContentIfActive` : sans lui ici,
-+    // l'effet fermerait sur le rôle du premier rendu, et un rôle changé en cours
-+    // de session laisserait la garde ci-dessus décider sur une valeur périmée.
-+  }, [wedding.role]);
- 
-   return null;
- }
 diff --git a/apps/mobile/store/useSyncPendingStore.ts b/apps/mobile/store/useSyncPendingStore.ts
 new file mode 100644
 index 0000000..fd6bab8
@@ -310,7 +288,7 @@ index 0000000..fd6bab8
 +  setUnsavedChanges: (pending) => set({ unsavedChanges: pending }),
 +}));
 diff --git a/apps/mobile/i18n/locales/fr/settings.json b/apps/mobile/i18n/locales/fr/settings.json
-index 3bf7b5b..33dae6b 100644
+index 6ff40e4..33dae6b 100644
 --- a/apps/mobile/i18n/locales/fr/settings.json
 +++ b/apps/mobile/i18n/locales/fr/settings.json
 @@ -19,6 +19,7 @@
@@ -322,7 +300,7 @@ index 3bf7b5b..33dae6b 100644
    "tapToEnable": "Appuyez pour activer la sauvegarde",
    "shareInviteLink": "Partager un lien d'invitation",
 diff --git a/apps/mobile/i18n/locales/en/settings.json b/apps/mobile/i18n/locales/en/settings.json
-index 86026b0..615bd18 100644
+index 9d1e35f..615bd18 100644
 --- a/apps/mobile/i18n/locales/en/settings.json
 +++ b/apps/mobile/i18n/locales/en/settings.json
 @@ -19,6 +19,7 @@

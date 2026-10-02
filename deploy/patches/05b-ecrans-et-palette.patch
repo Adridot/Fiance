@@ -3460,17 +3460,9 @@ index 9b2b74e..99cb0c6 100644
    "dir": "ltr",
    "categories": ["lifestyle", "productivity", "utilities"],
 diff --git a/apps/mobile/samples/big.json b/apps/mobile/samples/big.json
-index 240b36e..60c36dd 100644
+index 867423f..60c36dd 100644
 --- a/apps/mobile/samples/big.json
 +++ b/apps/mobile/samples/big.json
-@@ -1,6 +1,6 @@
- {
-   "version": 16,
--  "timestamp": "2026-07-15T19:36:00.923Z",
-+  "timestamp": "2026-07-01T10:00:00.000Z",
-   "wedding": {
-     "id": 1,
-     "partner1Name": "Sophie",
 @@ -5440,6 +5440,7 @@
        "updatedAt": "2026-07-01T10:00:00.000Z"
      }
@@ -3479,51 +3471,6 @@ index 240b36e..60c36dd 100644
    "vendors": [
      {
        "id": "big-v-001",
-@@ -6390,7 +6391,7 @@
-       "description": null,
-       "status": "TODO",
-       "priority": "MEDIUM",
--      "dueDate": "2025-11-03T01:00:00.000Z",
-+      "dueDate": "2025-11-03T00:00:00.000Z",
-       "monthsBefore": 11,
-       "isSystem": false,
-       "vendorId": null,
-@@ -6408,7 +6409,7 @@
-       "description": null,
-       "status": "DONE",
-       "priority": "MEDIUM",
--      "dueDate": "2025-12-03T01:00:00.000Z",
-+      "dueDate": "2025-12-03T00:00:00.000Z",
-       "monthsBefore": 10,
-       "isSystem": false,
-       "vendorId": "big-v-009",
-@@ -6426,7 +6427,7 @@
-       "description": "Tâche importante à ne pas oublier.",
-       "status": "TODO",
-       "priority": "HIGH",
--      "dueDate": "2026-01-03T01:00:00.000Z",
-+      "dueDate": "2026-01-03T00:00:00.000Z",
-       "monthsBefore": 9,
-       "isSystem": false,
-       "vendorId": null,
-@@ -6444,7 +6445,7 @@
-       "description": null,
-       "status": "TODO",
-       "priority": "CRITICAL",
--      "dueDate": "2026-02-03T01:00:00.000Z",
-+      "dueDate": "2026-02-03T00:00:00.000Z",
-       "monthsBefore": 8,
-       "isSystem": false,
-       "vendorId": "big-v-011",
-@@ -6462,7 +6463,7 @@
-       "description": null,
-       "status": "TODO",
-       "priority": "MEDIUM",
--      "dueDate": "2026-03-03T01:00:00.000Z",
-+      "dueDate": "2026-03-03T00:00:00.000Z",
-       "monthsBefore": 7,
-       "isSystem": false,
-       "vendorId": null,
 @@ -7208,7 +7209,7 @@
        "category": "TABLE_DECOR",
        "vendorId": "big-v-001",
@@ -3687,17 +3634,9 @@ index 240b36e..60c36dd 100644
        "updatedAt": "2026-07-01T10:00:00.000Z"
      }
 diff --git a/apps/mobile/samples/medium.json b/apps/mobile/samples/medium.json
-index 0f3e2d7..6976100 100644
+index 1043af7..6976100 100644
 --- a/apps/mobile/samples/medium.json
 +++ b/apps/mobile/samples/medium.json
-@@ -1,6 +1,6 @@
- {
-   "version": 16,
--  "timestamp": "2026-07-15T19:36:00.915Z",
-+  "timestamp": "2026-07-01T10:00:00.000Z",
-   "wedding": {
-     "id": 1,
-     "partner1Name": "Léa",
 @@ -2728,6 +2728,7 @@
        "updatedAt": "2026-07-01T10:00:00.000Z"
      }
@@ -3706,78 +3645,6 @@ index 0f3e2d7..6976100 100644
    "vendors": [
      {
        "id": "medium-v-001",
-@@ -3488,7 +3489,7 @@
-       "description": "Tâche importante à ne pas oublier.",
-       "status": "DONE",
-       "priority": "CRITICAL",
--      "dueDate": "2024-12-20T01:00:00.000Z",
-+      "dueDate": "2024-12-20T00:00:00.000Z",
-       "monthsBefore": 18,
-       "isSystem": false,
-       "vendorId": "medium-v-001",
-@@ -3506,7 +3507,7 @@
-       "description": null,
-       "status": "TODO",
-       "priority": "MEDIUM",
--      "dueDate": "2025-01-20T01:00:00.000Z",
-+      "dueDate": "2025-01-20T00:00:00.000Z",
-       "monthsBefore": 17,
-       "isSystem": false,
-       "vendorId": null,
-@@ -3524,7 +3525,7 @@
-       "description": null,
-       "status": "TODO",
-       "priority": "MEDIUM",
--      "dueDate": "2025-02-20T01:00:00.000Z",
-+      "dueDate": "2025-02-20T00:00:00.000Z",
-       "monthsBefore": 16,
-       "isSystem": false,
-       "vendorId": "medium-v-003",
-@@ -3542,7 +3543,7 @@
-       "description": "Tâche importante à ne pas oublier.",
-       "status": "TODO",
-       "priority": "HIGH",
--      "dueDate": "2025-03-20T01:00:00.000Z",
-+      "dueDate": "2025-03-20T00:00:00.000Z",
-       "monthsBefore": 15,
-       "isSystem": false,
-       "vendorId": null,
-@@ -3686,7 +3687,7 @@
-       "description": null,
-       "status": "TODO",
-       "priority": "MEDIUM",
--      "dueDate": "2025-11-20T01:00:00.000Z",
-+      "dueDate": "2025-11-20T00:00:00.000Z",
-       "monthsBefore": 7,
-       "isSystem": false,
-       "vendorId": null,
-@@ -3704,7 +3705,7 @@
-       "description": "Tâche importante à ne pas oublier.",
-       "status": "DONE",
-       "priority": "HIGH",
--      "dueDate": "2025-12-20T01:00:00.000Z",
-+      "dueDate": "2025-12-20T00:00:00.000Z",
-       "monthsBefore": 6,
-       "isSystem": false,
-       "vendorId": "medium-v-013",
-@@ -3722,7 +3723,7 @@
-       "description": null,
-       "status": "TODO",
-       "priority": "MEDIUM",
--      "dueDate": "2026-01-20T01:00:00.000Z",
-+      "dueDate": "2026-01-20T00:00:00.000Z",
-       "monthsBefore": 5,
-       "isSystem": false,
-       "vendorId": null,
-@@ -3740,7 +3741,7 @@
-       "description": null,
-       "status": "TODO",
-       "priority": "MEDIUM",
--      "dueDate": "2026-02-20T01:00:00.000Z",
-+      "dueDate": "2026-02-20T00:00:00.000Z",
-       "monthsBefore": 4,
-       "isSystem": false,
-       "vendorId": "medium-v-015",
 @@ -4115,7 +4116,7 @@
        "category": "TABLE_DECOR",
        "vendorId": "medium-v-001",
@@ -3887,7 +3754,7 @@ index 0f3e2d7..6976100 100644
        "updatedAt": "2026-07-01T10:00:00.000Z"
      }
 diff --git a/apps/mobile/samples/shared.ts b/apps/mobile/samples/shared.ts
-index 3f6d48f..c64de3a 100644
+index 9aabdee..c64de3a 100644
 --- a/apps/mobile/samples/shared.ts
 +++ b/apps/mobile/samples/shared.ts
 @@ -625,7 +625,7 @@ function buildIdeas(
@@ -3909,28 +3776,10 @@ index 3f6d48f..c64de3a 100644
      vendors,
      quotePricings,
      vendorPayments,
-@@ -1055,7 +1058,8 @@ export function buildWeddingSnapshot(profile: SampleProfile): WeddingSnapshot {
- }
- 
- export function buildWeddingBackup(profile: SampleProfile): BackupData {
--  return createBackupDocument(buildWeddingSnapshot(profile));
-+  // Figé : samples.test.ts réécrit les fixtures à chaque exécution.
-+  return { ...createBackupDocument(buildWeddingSnapshot(profile)), timestamp: TS };
- }
- 
- export function backupToJson(backup: BackupData): string {
 diff --git a/apps/mobile/samples/small.json b/apps/mobile/samples/small.json
-index 5f573ac..0b3504f 100644
+index 7531382..0b3504f 100644
 --- a/apps/mobile/samples/small.json
 +++ b/apps/mobile/samples/small.json
-@@ -1,6 +1,6 @@
- {
-   "version": 16,
--  "timestamp": "2026-07-15T19:36:00.905Z",
-+  "timestamp": "2026-07-01T10:00:00.000Z",
-   "wedding": {
-     "id": 1,
-     "partner1Name": "Camille",
 @@ -1084,6 +1084,7 @@
        "updatedAt": "2026-07-01T10:00:00.000Z"
      }
@@ -3939,15 +3788,6 @@ index 5f573ac..0b3504f 100644
    "vendors": [
      {
        "id": "small-v-001",
-@@ -1324,7 +1325,7 @@
-       "description": "Tâche importante à ne pas oublier.",
-       "status": "DONE",
-       "priority": "CRITICAL",
--      "dueDate": "2025-03-12T01:00:00.000Z",
-+      "dueDate": "2025-03-12T00:00:00.000Z",
-       "monthsBefore": 18,
-       "isSystem": false,
-       "vendorId": "small-v-001",
 @@ -1705,7 +1706,7 @@
        "category": "TABLE_DECOR",
        "vendorId": "small-v-001",
