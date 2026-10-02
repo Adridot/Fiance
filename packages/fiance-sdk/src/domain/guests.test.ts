@@ -22,6 +22,7 @@ import {
   selectRange,
   adjacentGuestId,
   newGuestDraft,
+  normaliserLePatronyme,
   resolveChainedHousehold,
 } from './guests.js';
 import type { GuestGroup, GuestGroupSide } from './schema.js';
@@ -895,6 +896,13 @@ describe('adjacentGuestId', () => {
 
   it('rend null pour un invité absent de la liste visible', () => {
     expect(adjacentGuestId(items, 'zz', 'next')).toBeNull();
+  });
+});
+
+describe('normaliserLePatronyme', () => {
+  it('range en capitales, accents compris, sans les blancs de bord', () => {
+    expect(normaliserLePatronyme('  Martin ')).toBe('MARTIN');
+    expect(normaliserLePatronyme('étienne')).toBe('ÉTIENNE');
   });
 });
 

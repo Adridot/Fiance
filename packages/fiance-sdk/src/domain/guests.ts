@@ -650,6 +650,11 @@ export interface NewGuestInput {
   householdId?: string | null;
 }
 
+/** Le patronyme se range en capitales, à la création comme à la modification. */
+export function normaliserLePatronyme(lastName: string): string {
+  return lastName.trim().toLocaleUpperCase("fr");
+}
+
 /**
  * Les défauts de création, en un seul endroit : deux surfaces de création qui
  * les recopieraient divergeraient en silence.
@@ -669,7 +674,7 @@ export function newGuestDraft(input: NewGuestInput): Guest {
     id: input.id,
     firstName: input.firstName.trim(),
     nameParticle: particle || null,
-    lastName: input.lastName.trim().toLocaleUpperCase("fr"),
+    lastName: normaliserLePatronyme(input.lastName),
     side: null,
     invitationType: input.invitationType,
     householdId: input.householdId ?? null,

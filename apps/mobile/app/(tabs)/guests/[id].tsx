@@ -19,6 +19,7 @@ import {
   rsvpStatusUpdate,
   formatGuestName,
   formatGuestLastName,
+  normaliserLePatronyme,
   resolveHousehold,
   householdName,
   MEAL_CHOICE_LABELS,
@@ -201,7 +202,7 @@ export default function GuestDetailScreen() {
     const now = new Date().toISOString();
     const guestData: Partial<Guest> = {
       firstName: firstName.trim(),
-      lastName: lastName.trim(),
+      lastName: normaliserLePatronyme(lastName),
       nameParticle: nameParticle.trim() || null,
       groupId: groupId || null,
       invitationType,
