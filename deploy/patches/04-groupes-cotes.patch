@@ -308,7 +308,7 @@ index 0000000..b7ca900
 +  });
 +});
 diff --git a/apps/mobile/app/(tabs)/guests/[id].tsx b/apps/mobile/app/(tabs)/guests/[id].tsx
-index 25cb218..68c531d 100644
+index 6f9a1be..68c531d 100644
 --- a/apps/mobile/app/(tabs)/guests/[id].tsx
 +++ b/apps/mobile/app/(tabs)/guests/[id].tsx
 @@ -16,6 +16,12 @@ import { useVendorsStore } from "@/store/useVendorsStore";
@@ -361,15 +361,7 @@ index 25cb218..68c531d 100644
    const addGuest = useGuestsStore((s) => s.addGuest);
    const updateGuest = useGuestsStore((s) => s.updateGuest);
    const removeGuest = useGuestsStore((s) => s.removeGuest);
-@@ -135,6 +148,7 @@ export default function GuestDetailScreen() {
- 
-   const [firstName, setFirstName] = useState(existing?.firstName || "");
-   const [lastName, setLastName] = useState(existing?.lastName || "");
-+  const [nameParticle, setNameParticle] = useState(existing?.nameParticle || "");
-   const [groupId, setGroupId] = useState(existing?.groupId || "");
-   const [invitationType, setInvitationType] = useState<string>(
-     existing?.invitationType || "FULL"
-@@ -142,7 +156,7 @@ export default function GuestDetailScreen() {
+@@ -143,7 +156,7 @@ export default function GuestDetailScreen() {
    const [rsvpStatus, setRsvpStatus] = useState<RsvpStatus>(
      (existing?.rsvpStatus as RsvpStatus) || "PENDING"
    );
@@ -378,7 +370,7 @@ index 25cb218..68c531d 100644
    const [diet, setDiet] = useState<Diet>((existing?.diet as Diet) || "STANDARD");
    const [dietNotes, setDietNotes] = useState(existing?.dietNotes || "");
    const [email, setEmail] = useState(existing?.email || "");
-@@ -167,15 +181,16 @@ export default function GuestDetailScreen() {
+@@ -168,15 +181,16 @@ export default function GuestDetailScreen() {
    const [showDelete, setShowDelete] = useState(false);
    const [showCompanionPicker, setShowCompanionPicker] = useState(false);
    const [showCompanionConfirm, setShowCompanionConfirm] = useState(false);
@@ -398,13 +390,13 @@ index 25cb218..68c531d 100644
        return;
      }
      if (isNew && !canAddGuest) {
-@@ -187,15 +202,16 @@ export default function GuestDetailScreen() {
+@@ -188,16 +202,16 @@ export default function GuestDetailScreen() {
      const now = new Date().toISOString();
      const guestData: Partial<Guest> = {
        firstName: firstName.trim(),
 -      lastName: lastName.trim(),
 +      lastName: normaliserLePatronyme(lastName),
-+      nameParticle: nameParticle.trim() || null,
+       nameParticle: nameParticle.trim() || null,
        groupId: groupId || null,
        invitationType,
 -      rsvpStatus,
@@ -422,7 +414,7 @@ index 25cb218..68c531d 100644
        diet,
        dietNotes: dietNotes || null,
        email: email || null,
-@@ -286,6 +302,15 @@ export default function GuestDetailScreen() {
+@@ -288,6 +302,15 @@ export default function GuestDetailScreen() {
  
    const contactSummary = [email, phone].filter(Boolean).join(" · ") || t("sections.contactEmpty");
  
@@ -438,7 +430,7 @@ index 25cb218..68c531d 100644
    const invitationTypeLabel = invitationTypes.find((it) => it.id === invitationType)?.label ?? invitationType;
    const rsvpSummary = `${t(RSVP_STATUS_LABELS[rsvpStatus])} · ${invitationTypeLabel}`;
  
-@@ -316,7 +341,7 @@ export default function GuestDetailScreen() {
+@@ -318,7 +341,7 @@ export default function GuestDetailScreen() {
      <View className="flex-1 bg-accent-paper">
        <Stack.Screen
          options={{
@@ -447,7 +439,7 @@ index 25cb218..68c531d 100644
            headerRight: () => (
              <SaveHeaderButton label={t("common:save")} enabled={canSave} onPress={handleSave} />
            ),
-@@ -328,12 +353,12 @@ export default function GuestDetailScreen() {
+@@ -330,12 +353,12 @@ export default function GuestDetailScreen() {
              <PageHeader
                eyebrow={t("guest")}
                title={firstName || t("guest")}
@@ -462,20 +454,7 @@ index 25cb218..68c531d 100644
              )}
            </View>
          )}
-@@ -355,6 +380,12 @@ export default function GuestDetailScreen() {
-         <FormCard>
-           <InputRow label={t("firstName")} value={firstName} onChangeText={setFirstName} />
-           <InputRow label={t("lastName")} value={lastName} onChangeText={setLastName} />
-+          <InputRow
-+            label={t("nameParticle")}
-+            value={nameParticle}
-+            onChangeText={setNameParticle}
-+            placeholder={t("nameParticlePlaceholder")}
-+          />
-         </FormCard>
- 
-         {/* Everything else: compact summary rows, each opening a bottom sheet */}
-@@ -372,6 +403,14 @@ export default function GuestDetailScreen() {
+@@ -380,6 +403,14 @@ export default function GuestDetailScreen() {
            summary={contactSummary}
            onPress={() => setActiveSheet("contact")}
          />
@@ -490,7 +469,7 @@ index 25cb218..68c531d 100644
          <GuestSectionRow
            icon={CheckCircle2}
            title={t("sections.rsvpInvitation")}
-@@ -495,8 +534,8 @@ export default function GuestDetailScreen() {
+@@ -503,8 +534,8 @@ export default function GuestDetailScreen() {
            const target = guests.find((g) => g.id === pendingCompanionId);
            const old = guests.find((g) => g.id === target?.companionId);
            return t("companionConflictMessage", {
@@ -501,7 +480,7 @@ index 25cb218..68c531d 100644
            });
          })()}
          onConfirm={() => {
-@@ -515,9 +554,93 @@ export default function GuestDetailScreen() {
+@@ -523,9 +554,93 @@ export default function GuestDetailScreen() {
        <GuestSheet title={t("sections.contact")} visible={activeSheet === "contact"} onDismiss={() => setActiveSheet(null)}>
          <InputRow label={t("email")} value={email} onChangeText={setEmail} keyboardType="email-address" />
          <InputRow label={t("phone")} value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
@@ -596,7 +575,7 @@ index 25cb218..68c531d 100644
        {!isNew && (
          <GuestSheet title={t("sections.role")} visible={activeSheet === "role"} onDismiss={() => setActiveSheet(null)}>
            {guestRoles.length > 0 && (
-@@ -624,11 +747,11 @@ export default function GuestDetailScreen() {
+@@ -632,11 +747,11 @@ export default function GuestDetailScreen() {
          >
            {companionId ? (
              <>
@@ -610,7 +589,7 @@ index 25cb218..68c531d 100644
                  })()}
                </Text>
                <Pressable
-@@ -649,24 +772,7 @@ export default function GuestDetailScreen() {
+@@ -657,24 +772,7 @@ export default function GuestDetailScreen() {
              </>
            )}
          </Pressable>
@@ -636,7 +615,7 @@ index 25cb218..68c531d 100644
  
          {!isNew && (
            <>
-@@ -680,7 +786,7 @@ export default function GuestDetailScreen() {
+@@ -688,7 +786,7 @@ export default function GuestDetailScreen() {
                      onPress={() => toggleRecipient(comm.id, id!, new Date().toISOString())}
                      className="flex-row items-center py-2 border-b border-hair"
                    >
@@ -645,7 +624,7 @@ index 25cb218..68c531d 100644
                      <View className="flex-1 ml-2.5">
                        <Text className="text-sm text-ink" numberOfLines={1}>{comm.label}</Text>
                        {comm.channel && (
-@@ -744,7 +850,7 @@ export default function GuestDetailScreen() {
+@@ -752,7 +850,7 @@ export default function GuestDetailScreen() {
                    .filter((gid) => gid !== id)
                    .map((gid) => {
                      const g = guests.find((gg) => gg.id === gid);
@@ -654,7 +633,7 @@ index 25cb218..68c531d 100644
                    })
                    .filter(Boolean)
                    .join(", ");
-@@ -946,7 +1052,7 @@ function GuestSectionRow({
+@@ -954,7 +1052,7 @@ function GuestSectionRow({
        className="bg-accent-card rounded-2xl p-4 mb-2.5 border border-hair flex-row items-center active:opacity-70"
      >
        <View className="w-9 h-9 rounded-full bg-accent-clay-soft dark:bg-primary-900 items-center justify-center mr-3">
@@ -3997,15 +3976,13 @@ index 4e492ec..9103a55 100644
 +  return bulkSetRecipients(communications, commId, memberIds, sent ? null : today);
 +}
 diff --git a/packages/fiance-sdk/src/domain/guests.test.ts b/packages/fiance-sdk/src/domain/guests.test.ts
-index 74d1d71..14bd4dd 100644
+index fbad376..14bd4dd 100644
 --- a/packages/fiance-sdk/src/domain/guests.test.ts
 +++ b/packages/fiance-sdk/src/domain/guests.test.ts
-@@ -1,14 +1,38 @@
- import { describe, it, expect } from 'vitest';
--import { computeCounts, countDuplicateGuests } from './guests.js';
-+import {
-+  computeCounts,
-+  countDuplicateGuests,
+@@ -2,22 +2,37 @@ import { describe, it, expect } from 'vitest';
+ import {
+   computeCounts,
+   countDuplicateGuests,
 +  sortGroups,
 +  formatGuestGroupSide,
 +  groupsBySide,
@@ -4015,11 +3992,12 @@ index 74d1d71..14bd4dd 100644
 +  isFirstNameToComplete,
 +  computeGroupProgress,
 +  groupFamiliesToComplete,
-+  formatGuestName,
-+  removeGuest,
-+  removeGuests,
-+  applyGuestUpdates,
-+  rsvpStatusUpdate,
+   formatGuestName,
+-  guestNameMatches,
+   removeGuest,
+   removeGuests,
+   applyGuestUpdates,
+   rsvpStatusUpdate,
 +  updateGroup,
 +  guestNameMatches,
 +  nextFirstNameToComplete,
@@ -4028,7 +4006,7 @@ index 74d1d71..14bd4dd 100644
 +  newGuestDraft,
 +  normaliserLePatronyme,
 +  resolveChainedHousehold,
-+} from './guests.js';
+ } from './guests.js';
 +import type { GuestGroup, GuestGroupSide } from './schema.js';
  
 -// Minimal guest factory — computeCounts only reads rsvpStatus + invitationType here.
@@ -4043,7 +4021,7 @@ index 74d1d71..14bd4dd 100644
  const TWO_DAYS = "b1f2c3d4-2days";
  
  describe('computeCounts — per-invitation-type pricing counts', () => {
-@@ -19,8 +43,8 @@ describe('computeCounts — per-invitation-type pricing counts', () => {
+@@ -28,8 +43,8 @@ describe('computeCounts — per-invitation-type pricing counts', () => {
        g('ACCEPTED', 'COCKTAIL'),
        g('ACCEPTED', 'FULL'),
        g('ACCEPTED', TWO_DAYS),
@@ -4054,7 +4032,7 @@ index 74d1d71..14bd4dd 100644
      ];
      const c = computeCounts(guests);
      expect(c.inv_by_type).toEqual({ CEREMONY: 2, COCKTAIL: 1, FULL: 1, [TWO_DAYS]: 1 });
-@@ -35,7 +59,6 @@ describe('computeCounts — per-invitation-type pricing counts', () => {
+@@ -44,7 +59,6 @@ describe('computeCounts — per-invitation-type pricing counts', () => {
        g('PENDING', TWO_DAYS),
      ];
      const c = computeCounts(guests);
@@ -4062,7 +4040,7 @@ index 74d1d71..14bd4dd 100644
      const guestScreenCount = (id: string) => guests.filter((x) => x.invitationType === id).length;
      expect(c.inv_by_type_all).toEqual({ FULL: 3, [TWO_DAYS]: 2 });
      expect(c.inv_by_type_all.FULL).toBe(guestScreenCount('FULL'));
-@@ -49,9 +72,8 @@ describe('computeCounts — per-invitation-type pricing counts', () => {
+@@ -58,9 +72,8 @@ describe('computeCounts — per-invitation-type pricing counts', () => {
        g('MAYBE', TWO_DAYS),
      ];
      const c = computeCounts(guests);
@@ -4073,7 +4051,7 @@ index 74d1d71..14bd4dd 100644
    });
  
    it('inv_by_type estimates from non-declined guests when nobody has accepted yet', () => {
-@@ -59,12 +81,12 @@ describe('computeCounts — per-invitation-type pricing counts', () => {
+@@ -68,12 +81,12 @@ describe('computeCounts — per-invitation-type pricing counts', () => {
        g('PENDING', 'FULL'),
        g('PENDING', 'FULL'),
        g('MAYBE', 'COCKTAIL'),
@@ -4089,7 +4067,7 @@ index 74d1d71..14bd4dd 100644
    });
  
    it('is empty with no guests', () => {
-@@ -74,6 +96,88 @@ describe('computeCounts — per-invitation-type pricing counts', () => {
+@@ -83,6 +96,88 @@ describe('computeCounts — per-invitation-type pricing counts', () => {
    });
  });
  
@@ -4178,7 +4156,7 @@ index 74d1d71..14bd4dd 100644
  describe('countDuplicateGuests', () => {
    it('returns 0 when no names repeat', () => {
      const guests = [named('Jean', 'Dupont'), named('Marie', 'Curie')];
-@@ -103,7 +207,6 @@ describe('countDuplicateGuests', () => {
+@@ -112,7 +207,6 @@ describe('countDuplicateGuests', () => {
        named('Marie', 'Curie'),
        named('Paul', 'Martin'),
      ];
@@ -4186,11 +4164,10 @@ index 74d1d71..14bd4dd 100644
      expect(countDuplicateGuests(guests)).toBe(5);
    });
  
-@@ -116,3 +219,803 @@ describe('countDuplicateGuests', () => {
-     expect(countDuplicateGuests([])).toBe(0);
+@@ -126,6 +220,91 @@ describe('countDuplicateGuests', () => {
    });
  });
-+
+ 
 +describe('sortGroups', () => {
 +  const g = (
 +    name: string,
@@ -4276,210 +4253,13 @@ index 74d1d71..14bd4dd 100644
 +  });
 +});
 +
-+describe('formatGuestName', () => {
-+  const n = (firstName: string, lastName: string, nameParticle?: string) =>
-+    ({ firstName, lastName, nameParticle }) as never;
-+
-+  it('adds no stray space when there is no particle', () => {
-+    expect(formatGuestName(n('Adrien', 'DIDOT'))).toBe('DIDOT Adrien');
-+    expect(formatGuestName(n('Adrien', 'DIDOT', ''))).toBe('DIDOT Adrien');
-+    expect(formatGuestName(n('Adrien', 'DIDOT', '   '))).toBe('DIDOT Adrien');
-+  });
-+
-+  it('puts the particle before the last name, in upper case', () => {
-+    expect(formatGuestName(n('Nicole', 'FONTAINES', 'de'))).toBe('DE FONTAINES Nicole');
-+    expect(formatGuestName(n('Marie', 'PRESLE', 'de la'))).toBe('DE LA PRESLE Marie');
-+  });
-+
-+  it('keeps an elided particle glued to the last name', () => {
-+    expect(formatGuestName(n('Jean', 'ORMESSON', "d'"))).toBe("D'ORMESSON Jean");
-+  });
-+
-+  it('composes a placeholder first name like any other', () => {
-+    expect(formatGuestName(n('Invité 2', 'GRUAU'))).toBe('GRUAU Invité 2');
-+  });
-+
-+  it('stays readable when a part is missing', () => {
-+    expect(formatGuestName(n('Adrien', ''))).toBe('Adrien');
-+    expect(formatGuestName(n('', 'DIDOT'))).toBe('DIDOT');
-+  });
-+});
-+
-+describe('guestNameMatches — searching what you read', () => {
-+  const n = (firstName: string, lastName: string, nameParticle?: string) =>
-+    ({ firstName, lastName, nameParticle }) as never;
-+  const mayeul = n('Mayeul', 'FONTAINE DE FONTENAY', 'de la');
-+
-+  it('matches on the particle, which used to be unsearchable', () => {
-+    expect(guestNameMatches(mayeul, 'de la')).toBe(true);
-+    expect(guestNameMatches(mayeul, 'DE LA FONTAINE')).toBe(true);
-+  });
-+
-+  it('matches the whole name copied exactly as displayed', () => {
-+    expect(guestNameMatches(mayeul, 'DE LA FONTAINE DE FONTENAY Mayeul')).toBe(true);
-+    expect(guestNameMatches(mayeul, 'fontenay mayeul')).toBe(true);
-+  });
-+
-+  it('still matches on first name alone or last name alone', () => {
-+    expect(guestNameMatches(mayeul, 'mayeul')).toBe(true);
-+    expect(guestNameMatches(mayeul, 'fontaine')).toBe(true);
-+  });
-+
-+  it('a guest without a particle is searched as before', () => {
-+    const adrien = n('Adrien', 'DIDOT');
-+    expect(guestNameMatches(adrien, 'didot')).toBe(true);
-+    expect(guestNameMatches(adrien, 'DIDOT Adrien')).toBe(true);
-+    expect(guestNameMatches(adrien, 'fontaine')).toBe(false);
-+  });
-+
-+  it('an empty term filters nothing', () => {
-+    expect(guestNameMatches(mayeul, '')).toBe(true);
-+    expect(guestNameMatches(mayeul, '   ')).toBe(true);
-+  });
-+
-+  it('does not match two unrelated guests', () => {
-+    expect(guestNameMatches(n('Adrien', 'DIDOT'), 'presle')).toBe(false);
-+  });
-+});
-+
-+describe('sorting — the particle is excluded from it', () => {
-+  // Mirrors the guest list's own sort key verbatim: the contract is that the
-+  // particle must NOT change it. Nothing in the sort reads it.
-+  const key = (g: { lastName: string; firstName: string }) => `${g.lastName}${g.firstName}`;
-+  const n = (firstName: string, lastName: string, nameParticle?: string) =>
-+    ({ firstName, lastName, nameParticle });
-+
-+  it('a guest with a particle sorts on the last name, between its alphabetical neighbours', () => {
-+    const guests = [
-+      n('Jean', 'PONCHON'),
-+      n('Marie', 'PRESLE', 'de la'),
-+      n('Luc', 'PORTIER'),
-+      n('Anne', 'PRUNELE'),
-+    ];
-+    const sorted = [...guests].sort((a, b) => key(a).localeCompare(key(b)));
-+    expect(sorted.map((g) => g.lastName)).toEqual(['PONCHON', 'PORTIER', 'PRESLE', 'PRUNELE']);
-+    expect(formatGuestName(sorted[2] as never)).toBe('DE LA PRESLE Marie');
-+  });
-+});
-+
-+const guestOf = (
-+  id: string,
-+  extra: Partial<{ companionId: string | null; rsvpStatus: string; rsvpDate: string | null }> = {},
-+) =>
-+  ({
-+    id,
-+    firstName: id,
-+    lastName: id.toUpperCase(),
-+    companionId: null,
-+    rsvpStatus: 'PENDING',
-+    rsvpDate: null,
-+    ...extra,
-+  }) as any;
-+
-+describe('removeGuests — the batch IS the sequence of single removals', () => {
-+  const roster = () => [
-+    guestOf('a', { companionId: 'b' }),
-+    guestOf('b', { companionId: 'a' }),
-+    guestOf('c', { companionId: 'd' }),
-+    guestOf('d', { companionId: 'c' }),
-+    guestOf('e'),
-+    guestOf('f'),
-+  ];
-+  const targets = ['a', 'c', 'd', 'e'];
-+
-+  // `updatedAt` carries the removal instant: it differs from one run to the
-+  // next, and is not what the equivalence claims.
-+  const withoutTimestamps = (guests: any[]) =>
-+    guests.map(({ updatedAt, ...rest }) => rest);
-+
-+  it('yields the same state as the sequence of removeGuest calls', () => {
-+    const batched = removeGuests(roster(), targets);
-+    const oneByOne = targets.reduce((gs, id) => removeGuest(gs, id), roster());
-+    expect(withoutTimestamps(batched)).toEqual(withoutTimestamps(oneByOne));
-+  });
-+
-+  it('a companion left alone loses its companion link', () => {
-+    const remaining = removeGuests(roster(), targets);
-+    expect(remaining.map((g) => g.id)).toEqual(['b', 'f']);
-+    expect(remaining.find((g) => g.id === 'b')?.companionId).toBeNull();
-+  });
-+
-+  it('a couple removed whole leaves no dangling link', () => {
-+    const remaining = removeGuests(roster(), ['c', 'd']);
-+    expect(remaining.some((g) => g.companionId === 'c' || g.companionId === 'd')).toBe(false);
-+  });
-+
-+  it('a batch of one is the single removal', () => {
-+    expect(withoutTimestamps(removeGuests(roster(), ['a']))).toEqual(
-+      withoutTimestamps(removeGuest(roster(), 'a')),
-+    );
-+  });
-+
-+  it('an empty batch touches nothing', () => {
-+    const start = roster();
-+    expect(removeGuests(start, [])).toBe(start);
-+  });
-+});
-+
-+describe('applyGuestUpdates', () => {
-+  it('two guests in one batch can receive different fragments', () => {
-+    const guests = [guestOf('a'), guestOf('b'), guestOf('c')];
-+    const after = applyGuestUpdates(guests, ['a', 'b'], (g) => ({
-+      rsvpStatus: g.id === 'a' ? 'ACCEPTED' : 'DECLINED',
-+    }));
-+    expect(after.map((g) => g.rsvpStatus)).toEqual(['ACCEPTED', 'DECLINED', 'PENDING']);
-+  });
-+
-+  it('stamps `updatedAt` on the batched guests only', () => {
-+    const guests = [guestOf('a'), guestOf('b')];
-+    const after = applyGuestUpdates(guests, ['a'], () => ({ rsvpStatus: 'ACCEPTED' }));
-+    expect(after[0].updatedAt).toEqual(expect.any(String));
-+    expect(after[1].updatedAt).toBeUndefined();
-+  });
-+
-+  it('an id absent from the list creates nothing', () => {
-+    const guests = [guestOf('a')];
-+    expect(applyGuestUpdates(guests, ['zzz'], () => ({ rsvpStatus: 'ACCEPTED' }))).toHaveLength(1);
-+  });
-+});
-+
-+describe('rsvpStatusUpdate — the guest-record rule, applied per guest', () => {
-+  const NOW = '2026-08-20T12:00:00.000Z';
-+  const EARLIER = '2026-01-02T09:00:00.000Z';
-+
-+  it('already in the target state: the existing date is kept', () => {
-+    const g = guestOf('a', { rsvpStatus: 'ACCEPTED', rsvpDate: EARLIER });
-+    expect(rsvpStatusUpdate(g, 'ACCEPTED', NOW)).toEqual({
-+      rsvpStatus: 'ACCEPTED',
-+      rsvpDate: EARLIER,
-+    });
-+  });
-+
-+  it('pending to accepted: stamped', () => {
-+    const g = guestOf('a', { rsvpStatus: 'PENDING', rsvpDate: null });
-+    expect(rsvpStatusUpdate(g, 'ACCEPTED', NOW)).toEqual({
-+      rsvpStatus: 'ACCEPTED',
-+      rsvpDate: NOW,
-+    });
-+  });
-+
-+  it('accepted to declined: re-stamped', () => {
-+    const g = guestOf('a', { rsvpStatus: 'ACCEPTED', rsvpDate: EARLIER });
-+    expect(rsvpStatusUpdate(g, 'DECLINED', NOW)).toEqual({
-+      rsvpStatus: 'DECLINED',
-+      rsvpDate: NOW,
-+    });
-+  });
-+
-+  it('going back to pending never stamps', () => {
-+    const g = guestOf('a', { rsvpStatus: 'ACCEPTED', rsvpDate: EARLIER });
-+    expect(rsvpStatusUpdate(g, 'PENDING', NOW)).toEqual({
-+      rsvpStatus: 'PENDING',
-+      rsvpDate: EARLIER,
-+    });
-+  });
-+});
-+
+ describe('formatGuestName', () => {
+   const n = (firstName: string, lastName: string, nameParticle?: string) =>
+     ({ firstName, lastName, nameParticle }) as never;
+@@ -330,3 +509,513 @@ describe('rsvpStatusUpdate — the guest-record rule, applied per guest', () =>
+   });
+ });
+ 
 +describe('first name still to be filled in', () => {
 +  const i = (firstName: string, lastName: string, groupId: string | null = 'g1') =>
 +    ({ firstName, lastName, groupId });
@@ -4991,19 +4771,17 @@ index 74d1d71..14bd4dd 100644
 +  });
 +});
 diff --git a/packages/fiance-sdk/src/domain/guests.ts b/packages/fiance-sdk/src/domain/guests.ts
-index 4d88cda..c9e2d46 100644
+index 882bc0e..c9e2d46 100644
 --- a/packages/fiance-sdk/src/domain/guests.ts
 +++ b/packages/fiance-sdk/src/domain/guests.ts
-@@ -1,5 +1,7 @@
+@@ -1,5 +1,5 @@
  // NodeNext .js extension required
 -import type { Guest, Table, GuestGroup } from './schema.js';
 +import type { Guest, Table, GuestGroup, GuestGroupSide, Wedding } from './schema.js';
-+
-+export type NamedGuest = Pick<Guest, 'firstName' | 'lastName' | 'nameParticle'>;
  
- export interface GuestCounts {
-   total: number;
-@@ -20,7 +22,20 @@ export interface GuestCounts {
+ export type NamedGuest = Pick<Guest, 'firstName' | 'lastName' | 'nameParticle'>;
+ 
+@@ -22,7 +22,20 @@ export interface GuestCounts {
    //    screen's invitation-type filter counts exactly.
    inv_by_type: Record<string, number>;
    inv_by_type_all: Record<string, number>;
@@ -5024,7 +4802,7 @@ index 4d88cda..c9e2d46 100644
    vegetarian_count: number;
    sleeping_count: number;
    response_rate: number;
-@@ -38,9 +53,21 @@ export function computeCounts(guests: Guest[]): GuestCounts {
+@@ -40,9 +53,21 @@ export function computeCounts(guests: Guest[]): GuestCounts {
    // For per-invitation-type pricing: bill accepted guests of each exact type. Before any
    // RSVP (no accepted), estimate from non-declined guests so previews aren't all zero.
    const invPool = acceptedCount > 0 ? accepted : guests.filter((g) => g.rsvpStatus !== "DECLINED");
@@ -5047,7 +4825,7 @@ index 4d88cda..c9e2d46 100644
        const key = g.invitationType;
        if (key == null) continue;
        map[key] = (map[key] ?? 0) + 1;
-@@ -54,17 +81,22 @@ export function computeCounts(guests: Guest[]): GuestCounts {
+@@ -56,17 +81,22 @@ export function computeCounts(guests: Guest[]): GuestCounts {
      declined: declinedCount,
      pending: guests.filter((g) => g.rsvpStatus === "PENDING").length,
      maybe: guests.filter((g) => g.rsvpStatus === "MAYBE").length,
@@ -5075,107 +4853,10 @@ index 4d88cda..c9e2d46 100644
      vegetarian_count: accepted.filter((g) =>
        ["VEGETARIAN", "VEGAN"].includes(g.diet || "")
      ).length,
-@@ -86,11 +118,10 @@ export function addGuest(guests: Guest[], guest: Guest): Guest[] {
+@@ -260,3 +290,447 @@ export function guestNameMatches(g: NamedGuest, query: string): boolean {
+   );
  }
  
- export function updateGuest(guests: Guest[], id: string, updates: Partial<Guest>): Guest[] {
--  const now = new Date().toISOString();
--  return guests.map(g => g.id === id ? { ...g, ...updates, updatedAt: now } : g);
-+  return applyGuestUpdates(guests, [id], () => updates);
- }
- 
--export function removeGuest(guests: Guest[], id: string): Guest[] {
-+function removeOneGuest(guests: Guest[], id: string): Guest[] {
-   const now = new Date().toISOString();
-   // cascade unlinks: any guest pointing to the deleted guest as companion gets companionId=null
-   const toUnlink = new Set(
-@@ -104,6 +135,49 @@ export function removeGuest(guests: Guest[], id: string): Guest[] {
-     .map(g => toUnlink.has(g.id) ? { ...g, companionId: null, updatedAt: now } : g);
- }
- 
-+// ─── Batch removal and update ────────────────────────────────────────────────
-+//
-+// A batch is the FOLD of the unit operation, so the two cannot diverge — the
-+// companion-unlink cascade included. O(N·M) is deliberate: what costs in a bulk
-+// delete is WRITING N times, and the store is what hoists the writes out of the
-+// loop.
-+
-+export function removeGuests(guests: Guest[], ids: string[]): Guest[] {
-+  return ids.reduce((acc, id) => removeOneGuest(acc, id), guests);
-+}
-+
-+export function removeGuest(guests: Guest[], id: string): Guest[] {
-+  return removeGuests(guests, [id]);
-+}
-+
-+export function applyGuestUpdates(
-+  guests: Guest[],
-+  ids: string[],
-+  updatesFor: (guest: Guest) => Partial<Guest>,
-+): Guest[] {
-+  const now = new Date().toISOString();
-+  const targets = new Set(ids);
-+  return guests.map(g => targets.has(g.id) ? { ...g, ...updatesFor(g), updatedAt: now } : g);
-+}
-+
-+/**
-+ * RSVP status and the date that goes with it — the single place that rule
-+ * lives, so the guest screen and the batch path cannot read it differently.
-+ */
-+export function rsvpStatusUpdate(
-+  guest: Pick<Guest, 'rsvpStatus' | 'rsvpDate'>,
-+  status: string,
-+  now: string,
-+): Partial<Guest> {
-+  return {
-+    rsvpStatus: status,
-+    rsvpDate:
-+      status !== "PENDING" && status !== guest.rsvpStatus
-+        ? now
-+        : guest.rsvpDate || null,
-+  };
-+}
-+
- export function linkCompanion(guests: Guest[], guestId: string, companionId: string): Guest[] {
-   // mutual link; unlink any prior companions of both
-   const now = new Date().toISOString();
-@@ -183,3 +257,480 @@ export function countDuplicateGuests(guests: Guest[]): number {
-   for (const n of seen.values()) if (n > 1) dup += n;
-   return dup;
- }
-+
-+// ─── Displayed name ──────────────────────────────────────────────────────────
-+//
-+// The particle is displayed but stays OUT of the sort key — that is the whole
-+// point of storing it apart: the existing sort code becomes right untouched.
-+
-+/** Uppercased surname, particle included: « DE LA PRESLE ». */
-+export function formatGuestLastName(g: NamedGuest): string {
-+  const particle = (g.nameParticle ?? "").trim().toUpperCase();
-+  const last = (g.lastName ?? "").trim();
-+  if (!particle) return last;
-+  // « D' » sticks to the name, « DE LA » is separated by a space.
-+  const glue = /['’]$/.test(particle) ? "" : " ";
-+  return last ? `${particle}${glue}${last}` : particle;
-+}
-+
-+export function formatGuestName(g: NamedGuest): string {
-+  return [formatGuestLastName(g), (g.firstName ?? "").trim()].filter(Boolean).join(" ");
-+}
-+
-+// A name read on screen but not found when typed back is a trap: matching
-+// `firstName` and `lastName` separately misses the particle and any two parts
-+// in a row. Search therefore matches the COMPOSED name, from one place.
-+export function guestNameMatches(g: NamedGuest, query: string): boolean {
-+  const q = query.trim().toLowerCase();
-+  if (!q) return true;
-+  return (
-+    (g.firstName ?? "").toLowerCase().includes(q) ||
-+    (g.lastName ?? "").toLowerCase().includes(q) ||
-+    formatGuestName(g).toLowerCase().includes(q)
-+  );
-+}
-+
 +// ─── Category side and order ─────────────────────────────────────────────────
 +//
 +// Array order is NOT insertion order once a device hydrates from the Space:
@@ -6697,7 +6378,7 @@ index 0000000..e13e5b7
 +  );
 +}
 diff --git a/packages/fiance-sdk/src/domain/schema.ts b/packages/fiance-sdk/src/domain/schema.ts
-index 2d8619e..95e492f 100644
+index 0c2d933..95e492f 100644
 --- a/packages/fiance-sdk/src/domain/schema.ts
 +++ b/packages/fiance-sdk/src/domain/schema.ts
 @@ -20,9 +20,37 @@ export interface Wedding {
@@ -6776,6 +6457,17 @@ index 2d8619e..95e492f 100644
    address: string | null;
    notes: string | null;
    shuttleVendorId: string | null;
+@@ -58,10 +104,6 @@ export interface Guest {
+   shuttlePickupTime: string | null;
+   parkingNeeded: boolean | null;
+   parkingNotes: string | null;
+-  // Name particle, stored apart from the surname and deliberately OUT of the
+-  // sort key: sorting on `lastName` files « de la Presle » under P with no sort
+-  // code touched. Additive field — `BACKUP_VERSION` is NOT bumped.
+-  nameParticle?: string | null;
+   arrivalNotes: string | null;
+   transportMode: string | null; // TransportMode enum
+   createdAt: string | null;
 diff --git a/packages/fiance-sdk/src/index.ts b/packages/fiance-sdk/src/index.ts
 index c3df0ce..7e79194 100644
 --- a/packages/fiance-sdk/src/index.ts
@@ -7553,23 +7245,10 @@ index 957ca64..69da1c4 100644
    });
  });
 diff --git a/apps/mobile/i18n/locales/fr/guests.json b/apps/mobile/i18n/locales/fr/guests.json
-index 8f808a2..008ecfe 100644
+index ae021bc..008ecfe 100644
 --- a/apps/mobile/i18n/locales/fr/guests.json
 +++ b/apps/mobile/i18n/locales/fr/guests.json
-@@ -61,6 +61,8 @@
-   "personalInfo": "Informations personnelles",
-   "firstName": "Prénom *",
-   "lastName": "Nom *",
-+  "nameParticle": "Particule",
-+  "nameParticlePlaceholder": "de, du, de la…  (exclue du classement)",
-   "email": "Email",
-   "phone": "Téléphone",
-   "address": "Adresse",
-diff --git a/apps/mobile/i18n/locales/fr/guests.json b/apps/mobile/i18n/locales/fr/guests.json
-index 8f808a2..008ecfe 100644
---- a/apps/mobile/i18n/locales/fr/guests.json
-+++ b/apps/mobile/i18n/locales/fr/guests.json
-@@ -75,12 +77,12 @@
+@@ -77,12 +77,12 @@
    "deleteGroup": "Supprimer ce groupe ?",
    "deleteGroupMsg": "Les invités de ce groupe seront désassignés.",
    "groupNameRequired": "Le nom du groupe est obligatoire",
@@ -7584,10 +7263,10 @@ index 8f808a2..008ecfe 100644
    "unassigned": "Non assigné",
    "dietLabel": "Régime alimentaire",
 diff --git a/apps/mobile/i18n/locales/fr/guests.json b/apps/mobile/i18n/locales/fr/guests.json
-index 8f808a2..008ecfe 100644
+index ae021bc..008ecfe 100644
 --- a/apps/mobile/i18n/locales/fr/guests.json
 +++ b/apps/mobile/i18n/locales/fr/guests.json
-@@ -115,6 +117,7 @@
+@@ -117,6 +117,7 @@
    "deleteGuestConfirm": "Supprimer cet invité ?",
    "irreversible": "Cette action est irréversible.",
    "firstLastRequired": "Le prénom et le nom sont obligatoires",
@@ -7596,10 +7275,10 @@ index 8f808a2..008ecfe 100644
    "newTable": "Nouvelle table",
    "tableName": "Nom de la table",
 diff --git a/apps/mobile/i18n/locales/fr/guests.json b/apps/mobile/i18n/locales/fr/guests.json
-index 8f808a2..008ecfe 100644
+index ae021bc..008ecfe 100644
 --- a/apps/mobile/i18n/locales/fr/guests.json
 +++ b/apps/mobile/i18n/locales/fr/guests.json
-@@ -262,5 +265,121 @@
+@@ -264,5 +265,121 @@
      "deleteConstraint": "Supprimer cette contrainte ?",
      "deleteConstraintMsg": "Cette action est irréversible."
    },
@@ -7723,23 +7402,10 @@ index 8f808a2..008ecfe 100644
 +  }
  }
 diff --git a/apps/mobile/i18n/locales/en/guests.json b/apps/mobile/i18n/locales/en/guests.json
-index 7816354..ac8a9ed 100644
+index cf84921..ac8a9ed 100644
 --- a/apps/mobile/i18n/locales/en/guests.json
 +++ b/apps/mobile/i18n/locales/en/guests.json
-@@ -61,6 +61,8 @@
-   "personalInfo": "Personal information",
-   "firstName": "First name *",
-   "lastName": "Last name *",
-+  "nameParticle": "Name particle",
-+  "nameParticlePlaceholder": "de, van, von…  (excluded from sorting)",
-   "email": "Email",
-   "phone": "Phone",
-   "address": "Address",
-diff --git a/apps/mobile/i18n/locales/en/guests.json b/apps/mobile/i18n/locales/en/guests.json
-index 7816354..ac8a9ed 100644
---- a/apps/mobile/i18n/locales/en/guests.json
-+++ b/apps/mobile/i18n/locales/en/guests.json
-@@ -75,12 +77,12 @@
+@@ -77,12 +77,12 @@
    "deleteGroup": "Delete this group?",
    "deleteGroupMsg": "Guests in this group will be unassigned.",
    "groupNameRequired": "Group name is required",
@@ -7754,10 +7420,10 @@ index 7816354..ac8a9ed 100644
    "unassigned": "Unassigned",
    "dietLabel": "Dietary requirements",
 diff --git a/apps/mobile/i18n/locales/en/guests.json b/apps/mobile/i18n/locales/en/guests.json
-index 7816354..ac8a9ed 100644
+index cf84921..ac8a9ed 100644
 --- a/apps/mobile/i18n/locales/en/guests.json
 +++ b/apps/mobile/i18n/locales/en/guests.json
-@@ -115,6 +117,7 @@
+@@ -117,6 +117,7 @@
    "deleteGuestConfirm": "Delete this guest?",
    "irreversible": "This action is irreversible.",
    "firstLastRequired": "First name and last name are required",
@@ -7766,10 +7432,10 @@ index 7816354..ac8a9ed 100644
    "newTable": "New table",
    "tableName": "Table name",
 diff --git a/apps/mobile/i18n/locales/en/guests.json b/apps/mobile/i18n/locales/en/guests.json
-index 7816354..ac8a9ed 100644
+index cf84921..ac8a9ed 100644
 --- a/apps/mobile/i18n/locales/en/guests.json
 +++ b/apps/mobile/i18n/locales/en/guests.json
-@@ -262,5 +265,121 @@
+@@ -264,5 +265,121 @@
      "deleteConstraint": "Delete this constraint?",
      "deleteConstraintMsg": "This action cannot be undone."
    },

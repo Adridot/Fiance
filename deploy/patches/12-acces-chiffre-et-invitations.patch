@@ -2976,10 +2976,10 @@ index 0000000..faa77e1
 +  return Object.keys(useAccesChiffreStore.getState().illisibles).length > 0;
 +}
 diff --git a/apps/mobile/i18n/locales/fr/settings.json b/apps/mobile/i18n/locales/fr/settings.json
-index 3bf7b5b..33dae6b 100644
+index 6ff40e4..33dae6b 100644
 --- a/apps/mobile/i18n/locales/fr/settings.json
 +++ b/apps/mobile/i18n/locales/fr/settings.json
-@@ -302,7 +310,7 @@
+@@ -307,7 +310,7 @@
    "noCollaborators": "Aucun collaborateur invité pour l'instant.",
    "unknownRole": "Rôle inconnu",
    "removeCollaboratorTitle": "Retirer le collaborateur",
@@ -2989,10 +2989,10 @@ index 3bf7b5b..33dae6b 100644
    "collaboratorRemoveError": "Le retrait a échoué. Régénérez le lien d'invitation pour couper l'accès.",
    "rolePickerEyebrow": "Invitation",
 diff --git a/apps/mobile/i18n/locales/fr/settings.json b/apps/mobile/i18n/locales/fr/settings.json
-index 3bf7b5b..33dae6b 100644
+index 6ff40e4..33dae6b 100644
 --- a/apps/mobile/i18n/locales/fr/settings.json
 +++ b/apps/mobile/i18n/locales/fr/settings.json
-@@ -312,5 +320,64 @@
+@@ -317,5 +320,64 @@
    "inviteNamePlaceholder": "ex. Maman, Julie, wedding planner",
    "inviteNameRequired": "Indiquez un nom pour générer le lien",
    "roleFullAccess": "Accès complet",
@@ -3059,10 +3059,10 @@ index 3bf7b5b..33dae6b 100644
 +  }
  }
 diff --git a/apps/mobile/i18n/locales/en/settings.json b/apps/mobile/i18n/locales/en/settings.json
-index 86026b0..615bd18 100644
+index 9d1e35f..615bd18 100644
 --- a/apps/mobile/i18n/locales/en/settings.json
 +++ b/apps/mobile/i18n/locales/en/settings.json
-@@ -302,7 +310,7 @@
+@@ -307,7 +310,7 @@
    "noCollaborators": "No collaborators invited yet.",
    "unknownRole": "Unknown role",
    "removeCollaboratorTitle": "Remove collaborator",
@@ -3072,10 +3072,10 @@ index 86026b0..615bd18 100644
    "collaboratorRemoveError": "Removal failed. Regenerate the invite link to cut off access.",
    "rolePickerEyebrow": "Invitation",
 diff --git a/apps/mobile/i18n/locales/en/settings.json b/apps/mobile/i18n/locales/en/settings.json
-index 86026b0..615bd18 100644
+index 9d1e35f..615bd18 100644
 --- a/apps/mobile/i18n/locales/en/settings.json
 +++ b/apps/mobile/i18n/locales/en/settings.json
-@@ -312,5 +320,64 @@
+@@ -317,5 +320,64 @@
    "inviteNamePlaceholder": "e.g. Mum, Julie, wedding planner",
    "inviteNameRequired": "Enter a name to generate the link",
    "roleFullAccess": "Full access",

@@ -212,189 +212,13 @@ index 0000000..e2d091c
 +  });
 +});
 diff --git a/apps/mobile/__tests__/guest-import.test.ts b/apps/mobile/__tests__/guest-import.test.ts
-index 26bb080..e730fb1 100644
+index 90fb0dd..e730fb1 100644
 --- a/apps/mobile/__tests__/guest-import.test.ts
 +++ b/apps/mobile/__tests__/guest-import.test.ts
-@@ -1,7 +1,7 @@
- import { describe, it, expect } from "vitest";
- import { zipSync, strToU8 } from "fflate";
--import { base64ToBytes, parseSpreadsheet, mapRowsToGuests, type ParsedSheet } from "@/lib/guest-import";
--import type { GuestGroup, Table } from "@fiance/sdk";
-+import { base64ToBytes, parseSpreadsheet, mapRowsToGuests, reconcileGuests, type ParsedSheet } from "@/lib/guest-import";
-+import type { Guest, GuestGroup, Table } from "@fiance/sdk";
- 
- // ─── Fixtures ────────────────────────────────────────────────────────────────
- 
-@@ -123,7 +123,8 @@ describe("mapRowsToGuests", () => {
-     expect(paul.phone).toBe("0612345678"); // mobile preferred over landline
-     expect(paul.address).toBe("1 rue de la Paix, 75001, Paris");
-     expect(paul.email).toBe("paul@example.com");
--    expect(paul.invitationType).toBe("FULL");
-+    // These headers carry no invitation-type column, so every row lands undetermined.
-+    expect(paul.invitationType).toBe("IMPORT_UNDETERMINED");
- 
-     const catherine = result.guests[1];
-     expect(catherine.rsvpStatus).toBe("PENDING");
-@@ -215,3 +216,210 @@ describe("base64ToBytes", () => {
-     expect(Buffer.from(base64ToBytes(b64)).toString("utf8")).toBe("hello!");
+@@ -372,6 +372,29 @@ describe("reconcileGuests", () => {
    });
  });
-+
-+// ─── mapRowsToGuests — invitation types ──────────────────────────────────────
-+
-+describe("mapRowsToGuests — invitation types", () => {
-+  const sheetWith = (header: string, values: string[]) => ({
-+    headers: ["Prénom", "Nom", header],
-+    rows: values.map((v, i) => [`Prenom${i}`, `Nom${i}`, v]),
-+  });
-+  const ids = () => {
-+    let n = 0;
-+    return () => `id-${n++}`;
-+  };
-+
-+  it("recognises the usual column headers, whatever the accents and case", () => {
-+    for (const header of ["Cadre", "CADRE", "Type d'invitation", "invitation", "Cadre d'invitation"]) {
-+      const r = mapRowsToGuests(sheetWith(header, ["Vin d'honneur"]), { groups: [], tables: [] }, { makeId: ids() });
-+      expect(r.withoutInvitationType, `header "${header}" not recognised`).toBe(0);
-+      expect(r.invitationTypes[0].label).toBe("Vin d'honneur");
-+    }
-+  });
-+
-+  it("reuses an existing type, by id or by label, without duplicating it", () => {
-+    const existing = [
-+      { id: "FULL", label: "Journée complète", isDefault: true, needsSleeping: false, createdAt: null, updatedAt: null },
-+    ];
-+    const r = mapRowsToGuests(
-+      sheetWith("Cadre", ["FULL", "Journée complète", "journee complete"]),
-+      { groups: [], tables: [], invitationTypes: existing },
-+      { makeId: ids() },
-+    );
-+    expect(r.invitationTypes).toHaveLength(0);
-+    expect(r.guests.map((g) => g.invitationType)).toEqual(["FULL", "FULL", "FULL"]);
-+  });
-+
-+  it("creates a new type only once when several rows repeat it", () => {
-+    const r = mapRowsToGuests(
-+      sheetWith("Cadre", ["Brunch", "Brunch", "Brunch"]),
-+      { groups: [], tables: [] },
-+      { makeId: ids() },
-+    );
-+    expect(r.invitationTypes).toHaveLength(1);
-+    expect(new Set(r.guests.map((g) => g.invitationType)).size).toBe(1);
-+  });
-+
-+  it("reports rows without an invitation type instead of forcing FULL on them", () => {
-+    const r = mapRowsToGuests(
-+      sheetWith("Cadre", ["Cérémonie", "", "  "]),
-+      { groups: [], tables: [] },
-+      { makeId: ids() },
-+    );
-+    expect(r.withoutInvitationType).toBe(2);
-+    expect(r.guests[1].invitationType).toBe("IMPORT_UNDETERMINED");
-+    expect(r.guests[1].invitationType).not.toBe("FULL");
-+    expect(r.invitationTypes.some((t) => t.id === "IMPORT_UNDETERMINED")).toBe(true);
-+  });
-+
-+  it("reports namesakes found in the source", () => {
-+    const r = mapRowsToGuests(
-+      { headers: ["Prénom", "Nom", "Cadre"], rows: [["Jean", "Dupont", "Cérémonie"], ["Jean", "Dupont", "Cérémonie"], ["Marie", "Curie", "Cérémonie"]] },
-+      { groups: [], tables: [] },
-+      { makeId: ids() },
-+    );
-+    expect(r.duplicateNames).toEqual(["jean dupont"]);
-+    expect(r.guests).toHaveLength(3); // imported all the same: a real namesake is plausible
-+  });
-+});
-+
-+// ─── reconcileGuests ─────────────────────────────────────────────────────────
-+
-+const guest = (over: Partial<Guest> & { firstName: string; lastName: string }): Guest => ({
-+  id: `g-${over.firstName}-${over.lastName}`,
-+  side: null, invitationType: "FULL", rsvpStatus: "PENDING", rsvpDate: null,
-+  isSleeping: null, childrenCount: 0, diet: "STANDARD", dietNotes: null,
-+  groupId: null, tableId: null, companionId: null, noTableNeeded: null,
-+  giftDescription: null, thankYouSent: null, thankYouSentDate: null,
-+  accommodationId: null, roomNumber: null, rsvpToken: null,
-+  email: null, phone: null, address: null, notes: null,
-+  shuttleVendorId: null, shuttlePickupLocation: null, shuttlePickupTime: null,
-+  parkingNeeded: null, parkingNotes: null, arrivalNotes: null, transportMode: null,
-+  createdAt: null, updatedAt: null,
-+  ...over,
-+});
-+
-+describe("reconcileGuests", () => {
-+  it("does not add a guest already present: the import is replayable", () => {
-+    const existing = [guest({ firstName: "Jean", lastName: "Dupont" })];
-+    const incoming = [guest({ id: "new", firstName: "Jean", lastName: "Dupont" })];
-+
-+    const r = reconcileGuests(existing, incoming);
-+
-+    expect(r.toAdd).toHaveLength(0);
-+    expect(r.matched).toBe(1);
-+  });
-+
-+  it("matches across accents and case", () => {
-+    const existing = [guest({ firstName: "Cécile", lastName: "MARTIN" })];
-+    const incoming = [guest({ id: "new", firstName: "cecile", lastName: "martin" })];
-+
-+    expect(reconcileGuests(existing, incoming).toAdd).toHaveLength(0);
-+  });
-+
-+  it("adds the guests that are genuinely unknown", () => {
-+    const existing = [guest({ firstName: "Jean", lastName: "Dupont" })];
-+    const incoming = [
-+      guest({ id: "a", firstName: "Jean", lastName: "Dupont" }),
-+      guest({ id: "b", firstName: "Marie", lastName: "Curie" }),
-+    ];
-+
-+    const r = reconcileGuests(existing, incoming);
-+
-+    expect(r.toAdd.map((g) => g.lastName)).toEqual(["Curie"]);
-+  });
-+
-+  it("fills an empty field without overwriting one already entered in the app", () => {
-+    const existing = [guest({ firstName: "Jean", lastName: "Dupont", email: null, notes: "Allergique aux fruits de mer" })];
-+    const incoming = [guest({ id: "new", firstName: "Jean", lastName: "Dupont", email: "jean@example.com", notes: "" })];
-+
-+    const r = reconcileGuests(existing, incoming);
-+
-+    expect(r.toUpdate).toHaveLength(1);
-+    expect(r.toUpdate[0].updates.email).toBe("jean@example.com");
-+    expect(r.toUpdate[0].updates).not.toHaveProperty("notes");
-+  });
-+
-+  it("replaces the undetermined type when the source finally brings a real one", () => {
-+    const existing = [guest({ firstName: "Jean", lastName: "Dupont", invitationType: "IMPORT_UNDETERMINED" })];
-+    const incoming = [guest({ id: "new", firstName: "Jean", lastName: "Dupont", invitationType: "CEREMONY" })];
-+
-+    expect(reconcileGuests(existing, incoming).toUpdate[0].updates.invitationType).toBe("CEREMONY");
-+  });
-+
-+  it("does not overwrite an invitation type already chosen in the app", () => {
-+    const existing = [guest({ firstName: "Jean", lastName: "Dupont", invitationType: "CEREMONY" })];
-+    const incoming = [guest({ id: "new", firstName: "Jean", lastName: "Dupont", invitationType: "FULL" })];
-+
-+    const r = reconcileGuests(existing, incoming);
-+    expect(r.toUpdate).toHaveLength(0);
-+  });
-+
-+  it("lets two existing namesakes absorb two namesake source rows", () => {
-+    const existing = [
-+      guest({ id: "x1", firstName: "Jean", lastName: "Dupont" }),
-+      guest({ id: "x2", firstName: "Jean", lastName: "Dupont" }),
-+    ];
-+    const incoming = [
-+      guest({ id: "a", firstName: "Jean", lastName: "Dupont" }),
-+      guest({ id: "b", firstName: "Jean", lastName: "Dupont" }),
-+    ];
-+
-+    const r = reconcileGuests(existing, incoming);
-+
-+    expect(r.toAdd).toHaveLength(0);
-+    expect(r.matched).toBe(2);
-+  });
-+});
-+
+ 
 +// ─── mapRowsToGuests — child marker ──────────────────────────────────────────
 +
 +describe("mapRowsToGuests — child marker", () => {
@@ -418,48 +242,14 @@ index 26bb080..e730fb1 100644
 +  });
 +});
 +
-+// ─── reconcileGuests — first names ───────────────────────────────────────────
-+
-+describe("reconcileGuests — the first name is never filled in", () => {
-+  it("a guest without a first name keeps none, even when the source offers one", () => {
-+    const existing = [guest({ firstName: "", lastName: "ARDOUIN", groupId: "g1" })];
-+    const incoming = [guest({ firstName: "", lastName: "ARDOUIN", email: "a@b.c" })];
-+
-+    const { toAdd, toUpdate, matched } = reconcileGuests(existing, incoming);
-+
-+    expect(matched).toBe(1);
-+    expect(toAdd).toHaveLength(0);
-+    expect(toUpdate[0].updates).not.toHaveProperty("firstName");
-+    expect(toUpdate[0].updates.email).toBe("a@b.c");
-+  });
-+
-+  it("a source lending a spouse's first name adds a person rather than overwriting one", () => {
-+    // Reconciliation is no safety net here: a borrowed first name changes the match
-+    // key, so the row is ADDED. The guarantee rests on the source normalizer.
-+    const existing = [guest({ firstName: "", lastName: "ARDOUIN" })];
-+    const incoming = [guest({ firstName: "Luc 2", lastName: "ARDOUIN" })];
-+
-+    const { toAdd, toUpdate } = reconcileGuests(existing, incoming);
-+
-+    expect(toUpdate).toHaveLength(0);
-+    expect(toAdd).toHaveLength(1);
-+    expect(existing[0].firstName).toBe("");
-+  });
-+});
+ // ─── reconcileGuests — first names ───────────────────────────────────────────
+ 
+ describe("reconcileGuests — the first name is never filled in", () => {
 diff --git a/apps/mobile/app/settings/import-file.tsx b/apps/mobile/app/settings/import-file.tsx
-index 08f9d74..8b3b687 100644
+index 2bf132a..8b3b687 100644
 --- a/apps/mobile/app/settings/import-file.tsx
 +++ b/apps/mobile/app/settings/import-file.tsx
-@@ -8,15 +8,17 @@ import { FileSpreadsheet, Users, Lock } from "lucide-react-native";
- import { toast } from "@/lib/toast/sonner";
- import { useGuestsStore } from "@/store/useGuestsStore";
- import { pickSpreadsheetFile } from "@/lib/export-import";
--import { parseSpreadsheet, mapRowsToGuests, type GuestImportResult } from "@/lib/guest-import";
-+import { parseSpreadsheet, mapRowsToGuests, reconcileGuests, type GuestImportResult } from "@/lib/guest-import";
-+import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
- import { analytics } from "@/lib/analytics";
- import { SectionTitle, FormCard, FormActions } from "@/components/FormSection";
- import { SettingsRow, WebFilePickRow } from "@/components/SettingsRow";
+@@ -16,8 +16,9 @@ import { SettingsRow, WebFilePickRow } from "@/components/SettingsRow";
  import { useCan } from "@/lib/permissions/usePermissions";
  import { useIsPremium } from "@/lib/premium";
  import { FREE_LIMITS } from "@/lib/limits";
@@ -470,91 +260,7 @@ index 08f9d74..8b3b687 100644
  
  export default function ImportFileScreen() {
    const { t } = useTranslation("settings");
-@@ -30,6 +32,9 @@ export default function ImportFileScreen() {
-   const groups = useGuestsStore((s) => s.groups);
-   const tables = useGuestsStore((s) => s.tables);
-   const existingGuestCount = useGuestsStore((s) => s.guests.length);
-+  const existingGuests = useGuestsStore((s) => s.guests);
-+  const invitationTypes = useInvitationTypesStore((s) => s.invitationTypes);
-+  const addInvitationType = useInvitationTypesStore((s) => s.addInvitationType);
-   const importGuestData = useGuestsStore((s) => s.importGuestData);
-   const premium = useIsPremium();
- 
-@@ -47,7 +52,7 @@ export default function ImportFileScreen() {
-     (bytes: Uint8Array, name: string) => {
-       try {
-         const sheet = parseSpreadsheet(bytes);
--        const result = mapRowsToGuests(sheet, { groups, tables }, { makeId: () => Crypto.randomUUID() });
-+        const result = mapRowsToGuests(sheet, { groups, tables, invitationTypes }, { makeId: () => Crypto.randomUUID() });
-         if (result.guests.length === 0) {
-           toast.error(t("importNoGuestsFound"));
-           return;
-@@ -58,7 +63,7 @@ export default function ImportFileScreen() {
-         toast.error(t("importParseError"));
-       }
-     },
--    [groups, tables, t]
-+    [groups, tables, invitationTypes, t]
-   );
- 
-   const handlePickNative = useCallback(() => {
-@@ -69,6 +74,11 @@ export default function ImportFileScreen() {
-       .catch(() => toast.error(t("importParseError")));
-   }, [handleFile, t]);
- 
-+  const reconciliation = React.useMemo(
-+    () => (preview ? reconcileGuests(existingGuests, preview.guests) : null),
-+    [preview, existingGuests],
-+  );
-+
-   const doImport = useCallback(() => {
-     if (!preview) return;
-     if (wouldExceedLimit) {
-@@ -76,6 +86,7 @@ export default function ImportFileScreen() {
-       openPaywall(limitMessage);
-       return;
-     }
-+    for (const type of preview.invitationTypes) addInvitationType(type);
-     importGuestData(preview);
-     analytics.capture("import_data", {
-       source: isMariagesNet ? "mariagesnet" : "spreadsheet",
-@@ -83,7 +94,7 @@ export default function ImportFileScreen() {
-     });
-     toast.success(t("importGuestsSuccess", { count: preview.guests.length }));
-     router.back();
--  }, [preview, importGuestData, isMariagesNet, t, router, wouldExceedLimit, limitMessage, openPaywall]);
-+  }, [preview, importGuestData, addInvitationType, isMariagesNet, t, router, wouldExceedLimit, limitMessage, openPaywall]);
- 
-   return (
-     <ScrollView className="flex-1 bg-accent-paper" showsVerticalScrollIndicator={false}>
-@@ -133,6 +144,26 @@ export default function ImportFileScreen() {
-             })}
-             {preview.skippedRows > 0 ? ` · ${t("importPreviewSkipped", { count: preview.skippedRows })}` : ""}
-           </Text>
-+          {/* The summary above counts file rows; this one counts what will be written. */}
-+          <Text className="text-sm text-mute leading-5 mb-3 -mt-2">
-+            {[
-+              reconciliation ? t("importPreviewNew", { count: reconciliation.toAdd.length }) : null,
-+              reconciliation && reconciliation.matched > 0
-+                ? t("importPreviewExisting", { count: reconciliation.matched })
-+                : null,
-+              preview.invitationTypes.length > 0
-+                ? t("importPreviewInvitationTypes", { count: preview.invitationTypes.length })
-+                : null,
-+              preview.withoutInvitationType > 0
-+                ? t("importPreviewUndetermined", { count: preview.withoutInvitationType })
-+                : null,
-+              preview.duplicateNames.length > 0
-+                ? t("importPreviewDuplicates", { count: preview.duplicateNames.length })
-+                : null,
-+            ]
-+              .filter(Boolean)
-+              .join(" · ")}
-+          </Text>
-           <FormCard>
-             {preview.guests.slice(0, 50).map((guest, index) => {
-               const groupName = guest.groupId
-@@ -144,11 +175,11 @@ export default function ImportFileScreen() {
+@@ -174,11 +175,11 @@ export default function ImportFileScreen() {
                    className={`flex-row items-center py-2.5 ${index < Math.min(preview.guests.length, 50) - 1 ? "border-b border-hair" : ""}`}
                  >
                    <View className="w-8 h-8 items-center justify-center mr-3">
@@ -568,7 +274,7 @@ index 08f9d74..8b3b687 100644
                      </Text>
                      {groupName && <Text className="text-xs text-mute mt-0.5">{groupName}</Text>}
                    </View>
-@@ -166,7 +197,7 @@ export default function ImportFileScreen() {
+@@ -196,7 +197,7 @@ export default function ImportFileScreen() {
                onPress={() => openPaywall(limitMessage)}
                className="flex-row items-start gap-2 mt-3 px-3.5 py-3 rounded-xl bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-800 active:opacity-70"
              >
@@ -578,145 +284,37 @@ index 08f9d74..8b3b687 100644
                  {limitMessage}
                </Text>
 diff --git a/apps/mobile/lib/guest-import.ts b/apps/mobile/lib/guest-import.ts
-index e1b2461..7e823fa 100644
+index 782e24d..7e823fa 100644
 --- a/apps/mobile/lib/guest-import.ts
 +++ b/apps/mobile/lib/guest-import.ts
-@@ -8,7 +8,7 @@
-  */
- 
- import { unzipSync, strFromU8 } from "fflate";
--import type { Guest, GuestGroup, Table } from "@fiance/sdk";
-+import type { Guest, GuestGroup, Table, InvitationTypeEntity } from "@fiance/sdk";
- 
- export interface ParsedSheet {
-   headers: string[];
-@@ -21,9 +21,24 @@ export interface GuestImportResult {
-   groups: GuestGroup[];
-   /** Newly created tables only (existing ones are reused by name). */
-   tables: Table[];
-+  /** Newly created invitation types only (existing ones are reused, by id then by label). */
-+  invitationTypes: InvitationTypeEntity[];
-   skippedRows: number;
-+  /** Rows whose source gave no invitation type — they get UNDETERMINED_INVITATION_TYPE. */
-+  withoutInvitationType: number;
-+  /** Names appearing more than once in the source: reported, not merged — every row is imported. */
-+  duplicateNames: string[];
- }
- 
-+export const UNDETERMINED_INVITATION_TYPE: InvitationTypeEntity = {
-+  id: "IMPORT_UNDETERMINED",
-+  label: "À déterminer",
-+  isDefault: false,
-+  needsSleeping: false,
-+  createdAt: null,
-+  updatedAt: null,
-+};
-+
- // ─── Bytes helpers ───────────────────────────────────────────────────────────
- 
- const B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-@@ -183,6 +198,8 @@ type GuestField =
-   | "phoneMobile"
+@@ -199,6 +199,7 @@ type GuestField =
    | "phone"
    | "group"
-+  | "invitationType"
+   | "invitationType"
 +  | "children"
    | "rsvp"
    | "table"
    | "addressStreet"
-@@ -197,6 +214,16 @@ const HEADER_SYNONYMS: Record<GuestField, string[]> = {
-   phoneMobile: ["telephone portable", "portable", "mobile"],
-   phone: ["telephone", "phone", "tel"],
-   group: ["groupe", "group"],
-+  invitationType: [
-+    "cadre",
-+    "cadres",
-+    "cadre d'invitation",
-+    "type d'invitation",
-+    "type invitation",
-+    "invitation",
-+    "invitation type",
-+  ],
+@@ -222,6 +223,7 @@ const HEADER_SYNONYMS: Record<GuestField, string[]> = {
+     "invitation",
+     "invitation type",
+   ],
 +  children: ["enfant", "enfants", "children", "nb enfants"],
    rsvp: ["confirme", "statut", "rsvp", "reponse", "status"],
    table: ["table"],
    addressStreet: ["adresse", "address"],
-@@ -239,7 +266,7 @@ function mapRsvpStatus(raw: string): string {
- 
- export function mapRowsToGuests(
-   sheet: ParsedSheet,
--  existing: { groups: GuestGroup[]; tables: Table[] },
-+  existing: { groups: GuestGroup[]; tables: Table[]; invitationTypes?: InvitationTypeEntity[] },
-   opts: { makeId: () => string; now?: string },
- ): GuestImportResult {
-   const now = opts.now ?? new Date().toISOString();
-@@ -256,6 +283,16 @@ export function mapRowsToGuests(
-   const guests: Guest[] = [];
-   let skippedRows = 0;
- 
-+  const knownTypes = existing.invitationTypes ?? [];
-+  const typeIdsByKey = new Map<string, string>();
-+  for (const it of knownTypes) {
-+    typeIdsByKey.set(normalizeHeader(it.id), it.id);
-+    typeIdsByKey.set(normalizeHeader(it.label), it.id);
-+  }
-+  const newInvitationTypes: InvitationTypeEntity[] = [];
-+  let withoutInvitationType = 0;
-+  const nameSeen = new Map<string, number>();
-+
-   for (const row of sheet.rows) {
-     let firstName = cell(row, "firstName");
-     let lastName = cell(row, "lastName");
-@@ -294,6 +331,43 @@ export function mapRowsToGuests(
+@@ -359,6 +361,10 @@ export function mapRowsToGuests(
        }
      }
  
-+    const rawType = cell(row, "invitationType");
-+    let invitationTypeId: string;
-+    if (!rawType) {
-+      withoutInvitationType++;
-+      const undeterminedKey = normalizeHeader(UNDETERMINED_INVITATION_TYPE.id);
-+      if (!typeIdsByKey.has(undeterminedKey)) {
-+        typeIdsByKey.set(undeterminedKey, UNDETERMINED_INVITATION_TYPE.id);
-+        typeIdsByKey.set(normalizeHeader(UNDETERMINED_INVITATION_TYPE.label), UNDETERMINED_INVITATION_TYPE.id);
-+        newInvitationTypes.push({ ...UNDETERMINED_INVITATION_TYPE, createdAt: now, updatedAt: now });
-+      }
-+      invitationTypeId = UNDETERMINED_INVITATION_TYPE.id;
-+    } else {
-+      const key = normalizeHeader(rawType);
-+      const known = typeIdsByKey.get(key);
-+      if (known) {
-+        invitationTypeId = known;
-+      } else {
-+        invitationTypeId = opts.makeId();
-+        typeIdsByKey.set(key, invitationTypeId);
-+        newInvitationTypes.push({
-+          id: invitationTypeId,
-+          label: rawType,
-+          isDefault: false,
-+          needsSleeping: false,
-+          createdAt: now,
-+          updatedAt: now,
-+        });
-+      }
-+    }
-+
 +    // The column says the person on this row IS a child, not that they bring one:
 +    // reading it as a companion count gave every named child a phantom second one.
 +    const isChild = cell(row, "children") !== "";
 +
-+    const nameKey = normalizeHeader(`${firstName} ${lastName}`);
-+    nameSeen.set(nameKey, (nameSeen.get(nameKey) ?? 0) + 1);
-+
-     const address = [cell(row, "addressStreet"), cell(row, "addressZip"), cell(row, "addressCity")]
-       .filter(Boolean)
-       .join(", ");
-@@ -303,10 +377,11 @@ export function mapRowsToGuests(
-       firstName,
-       lastName,
-       side: null,
--      invitationType: "FULL",
-+      invitationType: invitationTypeId,
+     const nameKey = normalizeHeader(`${firstName} ${lastName}`);
+     nameSeen.set(nameKey, (nameSeen.get(nameKey) ?? 0) + 1);
+ 
+@@ -375,6 +381,7 @@ export function mapRowsToGuests(
        rsvpStatus: mapRsvpStatus(cell(row, "rsvp")),
        rsvpDate: null,
        isSleeping: null,
@@ -724,91 +322,8 @@ index e1b2461..7e823fa 100644
        childrenCount: 0,
        diet: "STANDARD",
        dietNotes: null,
-@@ -336,5 +411,81 @@ export function mapRowsToGuests(
-     });
-   }
- 
--  return { guests, groups: newGroups, tables: newTables, skippedRows };
-+  const duplicateNames = [...nameSeen.entries()].filter(([, n]) => n > 1).map(([k]) => k);
-+
-+  return {
-+    guests,
-+    groups: newGroups,
-+    tables: newTables,
-+    invitationTypes: newInvitationTypes,
-+    skippedRows,
-+    withoutInvitationType,
-+    duplicateNames,
-+  };
-+}
-+
-+// ─── Reconciling an import with what the app already holds ───────────────────
-+
-+/** A guest export carries no stable id, so the normalized name is the only match key. */
-+export function guestMatchKey(g: { firstName: string; lastName: string }): string {
-+  return normalizeHeader(`${g.firstName} ${g.lastName}`);
-+}
-+
-+const isEmpty = (v: unknown): boolean => v == null || (typeof v === "string" && v.trim() === "");
-+
-+/** Fields a re-import may fill in — never the identity, never the timestamps. */
-+const MERGEABLE_FIELDS = [
-+  "email", "phone", "address", "notes", "groupId", "tableId",
-+] as const satisfies readonly (keyof Guest)[];
-+
-+export interface GuestReconciliation {
-+  toAdd: Guest[];
-+  toUpdate: { id: string; updates: Partial<Guest> }[];
-+  /** Source rows recognised as already present. */
-+  matched: number;
-+}
-+
-+/**
-+ * Matches are consumed one by one: two existing namesakes absorb two namesake
-+ * source rows, instead of both rows landing on the first guest.
-+ */
-+export function reconcileGuests(existing: Guest[], incoming: Guest[]): GuestReconciliation {
-+  const pool = new Map<string, Guest[]>();
-+  for (const g of existing) {
-+    const key = guestMatchKey(g);
-+    const bucket = pool.get(key);
-+    if (bucket) bucket.push(g);
-+    else pool.set(key, [g]);
-+  }
-+
-+  const toAdd: Guest[] = [];
-+  const toUpdate: { id: string; updates: Partial<Guest> }[] = [];
-+  let matched = 0;
-+
-+  for (const candidate of incoming) {
-+    const bucket = pool.get(guestMatchKey(candidate));
-+    const match = bucket?.shift();
-+    if (!match) {
-+      toAdd.push(candidate);
-+      continue;
-+    }
-+    matched++;
-+
-+    const updates: Partial<Guest> = {};
-+    for (const field of MERGEABLE_FIELDS) {
-+      if (isEmpty(match[field]) && !isEmpty(candidate[field])) {
-+        (updates as Record<string, unknown>)[field] = candidate[field];
-+      }
-+    }
-+    // The undetermined type is an absence, not a choice: a real one may replace it.
-+    if (
-+      match.invitationType === UNDETERMINED_INVITATION_TYPE.id &&
-+      candidate.invitationType !== UNDETERMINED_INVITATION_TYPE.id
-+    ) {
-+      updates.invitationType = candidate.invitationType;
-+    }
-+    if (Object.keys(updates).length > 0) toUpdate.push({ id: match.id, updates });
-+  }
-+
-+  return { toAdd, toUpdate, matched };
- }
 diff --git a/apps/mobile/store/useGuestsStore.ts b/apps/mobile/store/useGuestsStore.ts
-index 80424dd..9eb1d2f 100644
+index b688b80..9eb1d2f 100644
 --- a/apps/mobile/store/useGuestsStore.ts
 +++ b/apps/mobile/store/useGuestsStore.ts
 @@ -1,20 +1,30 @@
@@ -845,7 +360,7 @@ index 80424dd..9eb1d2f 100644
  } from "@fiance/sdk";
  export type { GuestCounts } from "@fiance/sdk";
  import { getStorage } from "@/lib/kv-storage";
-@@ -22,11 +32,13 @@ import {
+@@ -22,6 +32,7 @@ import {
    persistGuests,
    persistTables,
    persistGroups,
@@ -853,13 +368,7 @@ index 80424dd..9eb1d2f 100644
    persistCommunications,
    persistWeddingRoleAssignments,
    persistSeatingConstraints,
-   persistMealSelections,
- } from "@/lib/persistence";
-+import { reconcileGuests } from "@/lib/guest-import";
- import { notifySync } from "@/lib/starfish";
- import { maybeRequestReview } from "@/lib/store-review";
- import {
-@@ -43,17 +55,43 @@ import { useMealSelectionsStore } from "@/store/useMealSelectionsStore";
+@@ -44,17 +55,43 @@ import { useMealSelectionsStore } from "@/store/useMealSelectionsStore";
  // Re-export computeCounts so existing callers of the store module still work
  export { computeCounts };
  
@@ -903,7 +412,7 @@ index 80424dd..9eb1d2f 100644
    linkCompanion: (guestId: string, companionId: string) => void;
    unlinkCompanion: (guestId: string) => void;
    addTable: (table: Table) => void;
-@@ -71,9 +109,61 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
+@@ -72,9 +109,61 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
    guests: [],
    tables: [],
    groups: [],
@@ -966,29 +475,16 @@ index 80424dd..9eb1d2f 100644
    addGuest: (guest) => {
      set((s) => ({ guests: sdkAddGuest(s.guests, guest) }));
      const storage = getStorage();
-@@ -82,9 +172,19 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
-     maybeRequestReview("guests", get().guests.length);
-   },
-   importGuestData: ({ guests, groups, tables }) => {
-+    const { toAdd, toUpdate } = reconcileGuests(get().guests, guests);
-+    const updateById = new Map(toUpdate.map((u) => [u.id, u.updates]));
-+    const stamp = new Date().toISOString();
-+
-     set((s) => ({
--      guests: [...s.guests, ...guests],
+@@ -95,7 +184,7 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
+         }),
+         ...toAdd,
+       ],
 -      groups: [...s.groups, ...groups],
-+      guests: [
-+        ...s.guests.map((g) => {
-+          const updates = updateById.get(g.id);
-+          return updates ? { ...g, ...updates, updatedAt: stamp } : g;
-+        }),
-+        ...toAdd,
-+      ],
 +      groups: sortGroups([...s.groups, ...groups]),
        tables: [...s.tables, ...tables],
      }));
      const storage = getStorage();
-@@ -95,31 +195,42 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
+@@ -106,31 +195,42 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
      }
      notifySync();
    },
@@ -1047,7 +543,7 @@ index 80424dd..9eb1d2f 100644
        persistCommunications(storage);
        persistWeddingRoleAssignments(storage);
        persistSeatingConstraints(storage);
-@@ -127,6 +238,13 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
+@@ -138,6 +238,13 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
      }
      notifySync();
    },
@@ -1061,7 +557,7 @@ index 80424dd..9eb1d2f 100644
    linkCompanion: (guestId, companionId) => {
      set((s) => ({ guests: sdkLinkCompanion(s.guests, guestId, companionId) }));
      const storage = getStorage();
-@@ -161,13 +279,13 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
+@@ -172,13 +279,13 @@ export const useGuestsStore = create<GuestsState>((set, get) => ({
      notifySync();
    },
    addGroup: (group) => {
@@ -1077,35 +573,3 @@ index 80424dd..9eb1d2f 100644
      const storage = getStorage();
      if (storage) persistGroups(storage);
      notifySync();
-diff --git a/apps/mobile/i18n/locales/fr/settings.json b/apps/mobile/i18n/locales/fr/settings.json
-index 3bf7b5b..33dae6b 100644
---- a/apps/mobile/i18n/locales/fr/settings.json
-+++ b/apps/mobile/i18n/locales/fr/settings.json
-@@ -271,6 +274,11 @@
-   "importPreviewTitle": "Aperçu de l'import",
-   "importPreviewSummary": "{{guests}} invités · {{groups}} nouveaux groupes · {{tables}} nouvelles tables",
-   "importPreviewSkipped": "{{count}} lignes ignorées (nom manquant)",
-+  "importPreviewNew": "{{count}} à ajouter",
-+  "importPreviewExisting": "{{count}} déjà présent(s), non dupliqué(s)",
-+  "importPreviewInvitationTypes": "{{count}} cadre(s) à créer",
-+  "importPreviewUndetermined": "{{count}} sans cadre → « À déterminer »",
-+  "importPreviewDuplicates": "{{count}} homonyme(s) dans le fichier, à vérifier",
-   "importParseError": "Impossible de lire ce fichier. Utilisez un fichier .xlsx ou .csv.",
-   "importNoGuestsFound": "Aucun invité trouvé dans ce fichier.",
-   "importGuestsSuccess": "{{count}} invités importés.",
-diff --git a/apps/mobile/i18n/locales/en/settings.json b/apps/mobile/i18n/locales/en/settings.json
-index 86026b0..615bd18 100644
---- a/apps/mobile/i18n/locales/en/settings.json
-+++ b/apps/mobile/i18n/locales/en/settings.json
-@@ -271,6 +274,11 @@
-   "importPreviewTitle": "Import preview",
-   "importPreviewSummary": "{{guests}} guests · {{groups}} new groups · {{tables}} new tables",
-   "importPreviewSkipped": "{{count}} rows skipped (missing name)",
-+  "importPreviewNew": "{{count}} to add",
-+  "importPreviewExisting": "{{count}} already present, not duplicated",
-+  "importPreviewInvitationTypes": "{{count}} invitation type(s) to create",
-+  "importPreviewUndetermined": "{{count}} with no type → “To be decided”",
-+  "importPreviewDuplicates": "{{count}} duplicate name(s) in the file, to check",
-   "importParseError": "Could not read this file. Use an .xlsx or .csv file.",
-   "importNoGuestsFound": "No guests found in this file.",
-   "importGuestsSuccess": "{{count}} guests imported.",

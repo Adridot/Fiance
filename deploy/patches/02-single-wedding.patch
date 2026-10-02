@@ -1053,7 +1053,7 @@ index 0513fe7..8266009 100644
      const registry = await loadRegistry();
      // Reset BEFORE the registry update below triggers React's re-render, so
 diff --git a/apps/mobile/i18n/locales/fr/settings.json b/apps/mobile/i18n/locales/fr/settings.json
-index 3bf7b5b..33dae6b 100644
+index 6ff40e4..33dae6b 100644
 --- a/apps/mobile/i18n/locales/fr/settings.json
 +++ b/apps/mobile/i18n/locales/fr/settings.json
 @@ -33,6 +34,8 @@
@@ -1066,7 +1066,7 @@ index 3bf7b5b..33dae6b 100644
    "security": "Sécurité",
    "appLock": "Verrouillage de l'app",
 diff --git a/apps/mobile/i18n/locales/en/settings.json b/apps/mobile/i18n/locales/en/settings.json
-index 86026b0..615bd18 100644
+index 9d1e35f..615bd18 100644
 --- a/apps/mobile/i18n/locales/en/settings.json
 +++ b/apps/mobile/i18n/locales/en/settings.json
 @@ -33,6 +34,8 @@
