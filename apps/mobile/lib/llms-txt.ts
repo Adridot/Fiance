@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { getPublishedBlogSlugs } from "./blog";
 
@@ -27,6 +27,7 @@ export function writeLlmsTxtFile(options?: { distDir?: string; publicDir?: strin
   const distPath = join(distDir, "llms.txt");
   const content = readFileSync(publicPath, "utf8");
   const filtered = filterLlmsTxt(content, new Set(getPublishedBlogSlugs(options?.asOf)));
+  mkdirSync(distDir, { recursive: true });
   writeFileSync(distPath, filtered, "utf8");
   return distPath;
 }
