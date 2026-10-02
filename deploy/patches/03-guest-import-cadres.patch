@@ -1078,7 +1078,7 @@ index 80424dd..9eb1d2f 100644
      if (storage) persistGroups(storage);
      notifySync();
 diff --git a/apps/mobile/i18n/locales/fr/settings.json b/apps/mobile/i18n/locales/fr/settings.json
-index 3bf7b5b..81980b7 100644
+index 3bf7b5b..33dae6b 100644
 --- a/apps/mobile/i18n/locales/fr/settings.json
 +++ b/apps/mobile/i18n/locales/fr/settings.json
 @@ -271,6 +274,11 @@
@@ -1094,7 +1094,7 @@ index 3bf7b5b..81980b7 100644
    "importNoGuestsFound": "Aucun invité trouvé dans ce fichier.",
    "importGuestsSuccess": "{{count}} invités importés.",
 diff --git a/apps/mobile/i18n/locales/en/settings.json b/apps/mobile/i18n/locales/en/settings.json
-index 86026b0..98c264a 100644
+index 86026b0..615bd18 100644
 --- a/apps/mobile/i18n/locales/en/settings.json
 +++ b/apps/mobile/i18n/locales/en/settings.json
 @@ -271,6 +274,11 @@

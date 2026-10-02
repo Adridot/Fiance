@@ -879,10 +879,10 @@ index 1355999..5323613 100644
      </ScrollView>
    );
 diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
-index 8c90fdb..0ce885d 100644
+index 8c90fdb..87dbc02 100644
 --- a/apps/mobile/lib/invite-link.ts
 +++ b/apps/mobile/lib/invite-link.ts
-@@ -1,12 +1,23 @@
+@@ -1,12 +1,25 @@
  import * as Linking from "expo-linking";
  import * as Crypto from "expo-crypto";
  import { createSpaceInviteLink, getSyncNamespace, roleCanWrite, serializeSpaceInviteStore, isWithinFreeLimit } from "@fiance/sdk";
@@ -894,11 +894,13 @@ index 8c90fdb..0ce885d 100644
 +  chiffrerLeJeton,
 +  construireLeLienCourt,
 +  deposer,
++  emballerLInvitation,
 +  retirer,
 +  tirerUnCode,
 +} from "@/lib/invitation-courte";
  import { ensureSpaceProvisioned } from "@/lib/space-provision";
  import { pushSpaceSnapshot } from "@/lib/space-sync";
++import { planifierLeCoffre } from "@/lib/compte-session";
  import { usePermissionsStore } from "@/store/usePermissionsStore";
 -import { writeCollection } from "@/lib/kv-storage";
 +import { readCollection, writeCollection } from "@/lib/kv-storage";
@@ -909,10 +911,17 @@ index 8c90fdb..0ce885d 100644
  
  /** KV key holding the serialized space-invite store (edPub/kemPub/cap handles per invite),
 diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
-index 8c90fdb..0ce885d 100644
+index 8c90fdb..87dbc02 100644
 --- a/apps/mobile/lib/invite-link.ts
 +++ b/apps/mobile/lib/invite-link.ts
-@@ -24,7 +35,19 @@ export const SPACE_INVITE_STORE_KEY = "spaceInviteStore";
+@@ -20,11 +33,26 @@ export const SPACE_INVITE_STORE_KEY = "spaceInviteStore";
+  * role mints a read-only member cap). The role assignment is recorded against the
+  * invite's ephemeral subject id and pushed so the joining member can resolve its
+  * per-feature permissions (Phase 1). Throws a human-readable message on failure.
++ *
++ * Rend toujours le lien COURT : si le dépôt échoue, l'erreur remonte, sans repli
++ * sur le format long (illisible une fois partagé, sans nom, non consommable).
+  */
  export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: string, name?: string): Promise<string> {
    // Defensive backstop — the primary gate is the paywall prompt in settings/index.tsx's
    // handleInvite. Free tier allows 1 invited member (the partner); the 2nd+ requires premium.
@@ -934,15 +943,23 @@ index 8c90fdb..0ce885d 100644
    }
  
 diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
-index 07ec918..efd97e0 100644
+index 07ec918..f5ad5cb 100644
 --- a/apps/mobile/components/InviteQRSheet.tsx
 +++ b/apps/mobile/components/InviteQRSheet.tsx
-@@ -12,16 +12,38 @@ import { Label } from "@/components/Label";
+@@ -12,16 +13,48 @@ import { Label } from "@/components/Label";
  import { Chip } from "@/components/Chip";
  import { usePermissionsStore } from "@/store/usePermissionsStore";
  import { roleCanWrite, FEATURE_SURFACES, type FeatureSurface, type RoleDefinition } from "@fiance/sdk";
 +// MODIFICATION LOCALE — réémission depuis la fiche d'un collaborateur.
 +import { ouvertureDeLaFeuille } from "@/lib/collaborateurs";
++import {
++  LARGEUR_MINIMALE_POUR_LE_QR,
++  prenomDe,
++  tailleDuQR,
++  urlEmail,
++  urlSms,
++  urlWhatsApp,
++} from "@/lib/envoi-d-invitation";
  
  interface InviteQRSheetProps {
    visible: boolean;
@@ -963,6 +980,8 @@ index 07ec918..efd97e0 100644
 +  initialRoleId?: string;
  }
  
++const DELAI_DE_GARDE_MS = 30_000;
++
  type State = "selecting" | "generating" | "ready" | "error";
  
 -export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps) {
@@ -978,15 +997,36 @@ index 07ec918..efd97e0 100644
    const { width } = useWindowDimensions();
    const roles = usePermissionsStore((s) => s.roles);
 diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
-index 07ec918..efd97e0 100644
+index 07ec918..f5ad5cb 100644
 --- a/apps/mobile/components/InviteQRSheet.tsx
 +++ b/apps/mobile/components/InviteQRSheet.tsx
-@@ -53,12 +77,13 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
+@@ -42,51 +77,133 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
+     return granted.map(surfaceLabel).join(" · ");
+   };
+ 
+-  // Invite payload embeds a signed cap cert + ephemeral keys (~1.4KB URL) —
+-  // dense at default size/ECL. ecl="L" trims the module count to 125, and
+-  // sizing up keeps it scannable (real cameras need ~2px/module). Floor of
+-  // 250 guarantees that ratio even on the smallest phone widths; capped at
+-  // 320 for large screens/web. See __tests__/invite-qr-density.test.ts.
+-  const qrSize = Math.max(250, Math.min(320, Math.round(width - 64)));
++  const qrSize = tailleDuQR(width);
++  const qrReplie = width < LARGEUR_MINIMALE_POUR_LE_QR;
++  const [qrOuvert, setQrOuvert] = useState(false);
++  const [copie, setCopie] = useState(false);
++  const minuterie = useRef<ReturnType<typeof setTimeout> | null>(null);
++  const peutPartager =
++    Platform.OS !== "web" || (typeof navigator !== "undefined" && typeof navigator.share === "function");
+ 
+   // The last-picked role, so the error-state "retry" regenerates the same scope.
    const [roleId, setRoleId] = useState<string | undefined>(undefined);
    const nameValid = name.trim().length > 0;
  
 -  const run = (selectedRoleId?: string) => {
 -    if (!nameValid) return;
++  // Numéro de la tentative en cours : un résultat tardif d'une tentative abandonnée est ignoré.
++  const tentative = useRef(0);
++
 +  const run = (selectedRoleId?: string, nomExplicite?: string) => {
 +    const nom = (nomExplicite ?? name).trim();
 +    if (!nom) return;
@@ -994,15 +1034,29 @@ index 07ec918..efd97e0 100644
      setState("generating");
      setDetail("");
 -    generate(selectedRoleId, name.trim() || undefined)
++    const mienne = ++tentative.current;
++    const echouer = (message: string) => {
++      if (tentative.current !== mienne) return;
++      tentative.current++;
++      setDetail(message);
++      setState("error");
++    };
++    const garde = setTimeout(() => echouer(t("inviteDelaiDepasse")), DELAI_DE_GARDE_MS);
 +    generate(selectedRoleId, nom || undefined)
        .then((link) => {
++        clearTimeout(garde);
++        if (tentative.current !== mienne) return;
          setUrl(link);
          setState("ready");
-diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
-index 07ec918..efd97e0 100644
---- a/apps/mobile/components/InviteQRSheet.tsx
-+++ b/apps/mobile/components/InviteQRSheet.tsx
-@@ -72,6 +97,11 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
+       })
+       .catch((err: any) => {
++        clearTimeout(garde);
+         console.error("[invite] link generation failed:", err);
+-        setDetail(err?.message ?? String(err));
+-        setState("error");
++        echouer(err?.message ?? String(err));
+       });
+   };
  
    useEffect(() => {
      if (visible) {
@@ -1013,20 +1067,85 @@ index 07ec918..efd97e0 100644
 +      if (ouverture.etat === "generating") { run(ouverture.roleId, ouverture.nom); return; }
        setState("selecting");
      } else {
++      tentative.current++;
        setState("selecting");
-diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
-index 07ec918..efd97e0 100644
---- a/apps/mobile/components/InviteQRSheet.tsx
-+++ b/apps/mobile/components/InviteQRSheet.tsx
-@@ -79,8 +109,10 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
+       setUrl("");
        setDetail("");
        setRoleId(undefined);
        setName("");
 +      setRetrait("idle");
++      setQrOuvert(false);
++      setCopie(false);
      }
 -  }, [visible]);
 +    // eslint-disable-next-line react-hooks/exhaustive-deps
 +  }, [visible, initialName, initialRoleId]);
++
++  useEffect(() => () => { if (minuterie.current) clearTimeout(minuterie.current); }, []);
  
-   const handleShare = async () => {
-     await Clipboard.setStringAsync(url);
+-  const handleShare = async () => {
+-    await Clipboard.setStringAsync(url);
+-    await shareLink(url, "", t("linkCopied"));
++  const message = t("inviteMessage", { prenom: prenomDe(name), lien: url });
++
++  const copier = async () => {
++    try {
++      await Clipboard.setStringAsync(url);
++    } catch {
++      toast.error(t("common:error"));
++      return;
++    }
++    setCopie(true);
++    toast.success(t("linkCopied"));
++    if (minuterie.current) clearTimeout(minuterie.current);
++    minuterie.current = setTimeout(() => setCopie(false), 2000);
+   };
+ 
++  const ouvrir = (adresse: string) => {
++    // Sur le web, sms: et mailto: dans l'onglet courant : `_blank` laisserait un onglet vide.
++    const ouverture =
++      Platform.OS === "web" && !adresse.startsWith("http")
++        ? (Linking as any).openURL(adresse, "_self")
++        : Linking.openURL(adresse);
++    Promise.resolve(ouverture).catch(() => toast.error(t("inviteOuvertureImpossible")));
++  };
++
++  const boutons: { cle: string; icone: React.ReactNode; libelle: string; onPress: () => void; plein?: boolean }[] = [
++    {
++      cle: "copier",
++      icone: copie ? <Check size={17} color="#ffffff" /> : <Copy size={17} color="#ffffff" />,
++      libelle: copie ? t("inviteCopie") : t("inviteCopier"),
++      onPress: () => { void copier(); },
++      plein: true,
++    },
++    {
++      cle: "whatsapp",
++      icone: <MessageCircle size={17} color={theme.ink} />,
++      libelle: t("inviteWhatsApp"),
++      onPress: () => ouvrir(urlWhatsApp(message)),
++    },
++    {
++      cle: "sms",
++      icone: <MessageSquare size={17} color={theme.ink} />,
++      libelle: t("inviteSms"),
++      onPress: () => ouvrir(urlSms(message)),
++    },
++    {
++      cle: "email",
++      icone: <Mail size={17} color={theme.ink} />,
++      libelle: t("inviteEmail"),
++      onPress: () => ouvrir(urlEmail(t("inviteSujet"), message)),
++    },
++    ...(peutPartager
++      ? [{
++          cle: "partager",
++          icone: <Share2 size={17} color={theme.ink} />,
++          libelle: t("invitePartager"),
++          onPress: () => { void shareLink(url, message, t("linkCopied")); },
++        }]
++      : []),
++  ];
++
+   return (
+     <Sheet visible={visible} onDismiss={onClose} backgroundColor={theme.card}>
+       {/* paddingHorizontal: BottomSheet already adds 16px iOS insets; 8px adds a bit more breathing room.

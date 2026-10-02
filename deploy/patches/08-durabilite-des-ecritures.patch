@@ -42,19 +42,37 @@ index 0000000..aa55ed7
 +  },
 +});
 diff --git a/apps/mobile/lib/providers.tsx b/apps/mobile/lib/providers.tsx
-index f3163cb..b8128d7 100644
+index f3163cb..09c4977 100644
 --- a/apps/mobile/lib/providers.tsx
 +++ b/apps/mobile/lib/providers.tsx
-@@ -21,7 +21,7 @@ import {
+@@ -14,6 +14,7 @@ import { configureStarfishPlatform, kvGet, kvSet, kvRemove } from "@drakkar.soft
+ import {
+   initSync,
+   teardownSync,
++  auxModificationsSansEcouteur,
+   pullEntitlements,
+   isSyncActive,
+   getActiveSession,
+@@ -21,7 +22,9 @@ import {
    getActiveWeddingNodeId,
  } from "@/lib/starfish";
  import { registerPull } from "@fiance/sdk";
 -import { hydrateFromSpace, scheduleSyncPush, pushSpaceSnapshot, refreshRsvpInbox, refreshFromSpaceIfIdle, discoverOwnerWeddingRoot, hydrateSawLegacyNodes, resetDirtyPushBaseline } from "@/lib/space-sync";
-+import { hydrateFromSpace, scheduleSyncPush, pushSpaceSnapshot, refreshRsvpInbox, refreshFromSpaceIfIdle, discoverOwnerWeddingRoot, hydrateSawLegacyNodes, resetDirtyPushBaseline, rejouerPousséeEnAttente, viderPousséeEnAttente } from "@/lib/space-sync";
++import { hydrateFromSpace, scheduleSyncPush, noterModificationLocale, époqueLocale, pushSpaceSnapshot, refreshRsvpInbox, refreshFromSpaceIfIdle, discoverOwnerWeddingRoot, hydrateSawLegacyNodes, resetDirtyPushBaseline, rejouerPousséeEnAttente, viderPousséeEnAttente, premièreHydratationAttendue } from "@/lib/space-sync";
++import { restaurerLesAnnexes } from "@/lib/compte-session";
++import { useCompteStore } from "@/store/useCompteStore";
  import { ensureSpaceProvisioned } from "@/lib/space-provision";
  import { resolveServerUrl, resolveSessionConfig, resolveOwnerUserId, normalizeSyncBase } from "@/lib/server";
  import { ensurePublicPageNode, pushPublicPageContent, publicPageNodeId } from "@/lib/public-page";
-@@ -68,6 +68,20 @@ export function configureOnBoot(): void {
+@@ -54,6 +57,7 @@ export function configureOnBoot(): void {
+ 
+   const syncBase = normalizeSyncBase(resolveServerUrl() ?? "");
+   configureFiance({ syncBase }, { get: kvGet, set: kvSet, remove: kvRemove });
++  auxModificationsSansEcouteur(noterModificationLocale);
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -68,6 +72,20 @@ export function configureOnBoot(): void {
   */
  const _activating = new Map<string, Promise<{ userId: string } | null>>();
  
@@ -75,7 +93,32 @@ index f3163cb..b8128d7 100644
  /**
   * Drop any in-flight activation for a wedding id so a subsequent activateSync()
   * call can't return a stale promise built from a since-changed registry entry
-@@ -162,6 +176,9 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+@@ -140,16 +158,23 @@ export function activateSync(
+   return p;
+ }
+ 
++/** Mariage de la dernière activation : une ré-activation du même mariage garde l'arriéré de poussée. */
++let _mariageActivé: string | null = null;
++
+ /** Initializes starfish-spaces sync inside DatabaseProvider. */
+ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) {
++  // Relancer la sync depuis l'écran de récupération des données : voir `RecuperationDesDonnees`.
++  const relance = useCompteStore((s) => s.relance);
+   useEffect(() => {
++    restaurerLesAnnexes(wedding.id);
+     if (isSyncActive()) {
+       teardownSync();
+       // Dirty-push baselines are keyed by weddingNodeId — clear them on every
+       // space switch so a stale baseline from the previous wedding/space can
+       // never make a later pushSpaceSnapshot() see fresh content as already-pushed.
+-      resetDirtyPushBaseline();
++      resetDirtyPushBaseline({ garderLArriéré: _mariageActivé === wedding.id });
+     }
++    _mariageActivé = wedding.id;
+ 
+     // Sync (the couple's own device pair) is free for everyone — it's no longer
+     // premium-gated. Premium gates scale (guest/vendor/event/task caps, extra
+@@ -162,6 +187,9 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
      let unsubSse: (() => void) | null = null;
  
      (async () => {
@@ -85,7 +128,7 @@ index f3163cb..b8128d7 100644
        const activated = await activateSync(wedding);
        if (cancelled || !activated) return;
        resolvedUserId = activated.userId;
-@@ -171,6 +188,36 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+@@ -171,6 +199,37 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
        const weddingNodeId = getActiveWeddingNodeId();
        if (!session || !spaceId || !weddingNodeId) return;
  
@@ -115,6 +158,7 @@ index f3163cb..b8128d7 100644
 +      //
 +      //    Le marqueur n'est effacé qu'au succès : un rattrapage qui échoue est
 +      //    retenté au démarrage suivant, et le réessai ordinaire s'en charge d'ici là.
++      const époqueAvantRattrapage = époqueLocale();
 +      if (!cancelled) {
 +        await rejouerPousséeEnAttente(session, spaceId, weddingNodeId);
 +      }
@@ -122,7 +166,24 @@ index f3163cb..b8128d7 100644
        // Real-time push: subscribe to server-sent events for this space so a peer's
        // change triggers a pull without waiting for foreground/backgrounding. Opened
        // before the hydrate/push awaits below (it needs only session/spaceId, already
-@@ -228,8 +275,8 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+@@ -204,7 +263,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+       // recoverSpaceAccess + discoverOwnerWeddingRoot run inside activateSync (above),
+       // so the adopted weddingNodeId is already in effect via getActiveWeddingNodeId().
+       if (!cancelled) {
+-        const nodeCount = await hydrateFromSpace(session, spaceId, weddingNodeId).catch((err) => {
++        const nodeCount = await hydrateFromSpace(session, spaceId, weddingNodeId, { depuisÉpoque: époqueAvantRattrapage }).catch((err) => {
+           console.warn("[providers] hydrateFromSpace failed:", err);
+           return -1;
+         });
+@@ -219,6 +278,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+         if (
+           !cancelled &&
+           wedding.role !== "member" &&
++          !premièreHydratationAttendue() &&
+           useWeddingStore.getState().wedding &&
+           (nodeCount === 0 || hydrateSawLegacyNodes())
+         ) {
+@@ -228,8 +288,8 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
          }
        }
  
@@ -133,7 +194,16 @@ index f3163cb..b8128d7 100644
  
        // B5: ensure the publicPage node exists in the space.
        // Retried with backoff: pull errors and transient 409s are common on first
-@@ -272,7 +319,37 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+@@ -256,7 +316,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+       // live immediately after creation. Owner-only: a member's first sync must never
+       // push its local (possibly stale/empty) snapshot over the owner's real content
+       // (mirrors the wedding.role !== "member" guard on pushSpaceSnapshot above).
+-      if (!cancelled && publicPageNodeReady && wedding.role !== "member") {
++      if (!cancelled && publicPageNodeReady && wedding.role !== "member" && !premièreHydratationAttendue()) {
+         await pushPublicPageContent(session, spaceId, publicPageNodeId(weddingNodeId)).catch(
+           (err) => console.warn("[providers] initial public page push failed:", err),
+         );
+@@ -272,7 +332,37 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
      })().catch((err) => console.warn("[providers] sync init failed:", err));
  
      // Re-pull entitlements on foreground.
@@ -171,7 +241,7 @@ index f3163cb..b8128d7 100644
        if (state !== "active" || !resolvedUserId) return;
        pullEntitlements(null, resolvedUserId)
          .then((features) => {
-@@ -310,6 +387,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+@@ -310,15 +400,30 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
      return () => {
        cancelled = true;
        foregroundSub.remove();
@@ -179,7 +249,10 @@ index f3163cb..b8128d7 100644
        unregisterPush?.();
        unsubSse?.();
      };
-@@ -319,6 +397,20 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+-  }, [wedding.id]);
++  }, [wedding.id, relance]);
+ 
+   // Re-push public page when day-of items or wedding info change (B5).
    // Debounced: collapses rapid per-keystroke changes into one network push.
    useEffect(() => {
      function pushPublicPageContentIfActive() {
@@ -196,11 +269,11 @@ index f3163cb..b8128d7 100644
 +      // Trouvé en cherchant la boucle de rétroaction du flux d'événements (elle
 +      // faisait boucler les onglets membres aussi), mais c'est un défaut de
 +      // DROITS, indépendant du flux et antérieur à lui.
-+      if (wedding.role === "member") return;
++      if (wedding.role === "member" || premièreHydratationAttendue()) return;
        const session = getActiveSession();
        const spaceId = getActiveSpaceId();
        const weddingNodeId = getActiveWeddingNodeId();
-@@ -357,7 +449,10 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+@@ -357,7 +462,10 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
      });
  
      return () => { unsubPlanning(); unsubWedding(); unsubPermissions(); if (pushTimer) clearTimeout(pushTimer); };
@@ -237,7 +310,7 @@ index 0000000..fd6bab8
 +  setUnsavedChanges: (pending) => set({ unsavedChanges: pending }),
 +}));
 diff --git a/apps/mobile/i18n/locales/fr/settings.json b/apps/mobile/i18n/locales/fr/settings.json
-index 3bf7b5b..81980b7 100644
+index 3bf7b5b..33dae6b 100644
 --- a/apps/mobile/i18n/locales/fr/settings.json
 +++ b/apps/mobile/i18n/locales/fr/settings.json
 @@ -19,6 +19,7 @@
@@ -249,7 +322,7 @@ index 3bf7b5b..81980b7 100644
    "tapToEnable": "Appuyez pour activer la sauvegarde",
    "shareInviteLink": "Partager un lien d'invitation",
 diff --git a/apps/mobile/i18n/locales/en/settings.json b/apps/mobile/i18n/locales/en/settings.json
-index 86026b0..98c264a 100644
+index 86026b0..615bd18 100644
 --- a/apps/mobile/i18n/locales/en/settings.json
 +++ b/apps/mobile/i18n/locales/en/settings.json
 @@ -19,6 +19,7 @@
@@ -261,7 +334,7 @@ index 86026b0..98c264a 100644
    "tapToEnable": "Tap to enable backup",
    "shareInviteLink": "Share an invite link",
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..74077a6 100644
+index 0c9b4af..1a6bd26 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
 @@ -62,11 +63,17 @@ import {
@@ -283,7 +356,7 @@ index 0c9b4af..74077a6 100644
  import { useVendorsStore } from '@/store/useVendorsStore';
  import { usePlanningStore } from '@/store/usePlanningStore';
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..74077a6 100644
+index 0c9b4af..1a6bd26 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
 @@ -112,6 +163,47 @@ let _pushing = false;
@@ -335,10 +408,10 @@ index 0c9b4af..74077a6 100644
   * Dirty-push tracking for the wedding singleton node: node id → stableStringify() of the
   * content last successfully pushed (or hydrated). Only the `wedding` node flows through
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..74077a6 100644
+index 0c9b4af..1a6bd26 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -166,28 +258,333 @@ const MANAGED_TYPES = new Set<string>(
+@@ -166,28 +258,394 @@ const MANAGED_TYPES = new Set<string>(
    Object.values(FIANCE_TYPES).filter((t) => t !== FIANCE_TYPES.publicPage && t !== FIANCE_TYPES.rsvp),
  );
  
@@ -579,13 +652,74 @@ index 0c9b4af..74077a6 100644
 +  spaceId: string,
 +  weddingNodeId: string,
 +): Promise<boolean> {
-+  if (!pousséeEnAttenteAuDémarrage()) return false;
++  if (!pousséeEnAttenteAuDémarrage() || premièreHydratationAttendue()) return false;
 +  try {
 +    return await pushSpaceSnapshot(session, spaceId, weddingNodeId);
 +  } catch (err) {
 +    console.warn('[space-sync] rattrapage de la poussée en attente échoué:', err);
 +    return false;
 +  }
++}
++
++/** Vrai tant que le mariage actif n'a pas été hydraté une première fois : rien ne doit partir vers l'espace. */
++export function premièreHydratationAttendue(): boolean {
++  const r = useWeddingRegistryStore.getState().registry;
++  return r?.weddings.find((w) => w.id === r.activeWeddingId)?.premiereHydratationAttendue === true;
++}
++
++/** Appelée seulement quand une hydratation vient d'être appliquée. Rejouée si un état périmé ressuscite le marqueur. */
++async function leverLaGardeDePremièreHydratation(): Promise<void> {
++  for (let essai = 0; essai < 3 && premièreHydratationAttendue(); essai++) {
++    const { registry, updateWedding } = useWeddingRegistryStore.getState();
++    const actif = registry?.weddings.find((w) => w.id === registry.activeWeddingId);
++    if (!actif) return;
++    await updateWedding(actif.id, { premiereHydratationAttendue: undefined }).catch((err) => {
++      console.warn('[space-sync] marqueur de première hydratation non levé:', err);
++    });
++  }
++}
++
++/**
++ * Déconnexion : pousse ce qui attendait et dit si tout est parti. Attend aussi la fin
++ * d'une hydratation en cours, que l'écho SSE de cette poussée provoque.
++ */
++export async function pousserAvantDeQuitter(): Promise<boolean> {
++  if (_pushTimer) { clearTimeout(_pushTimer); _pushTimer = null; }
++  if (_pushRetryTimer) { clearTimeout(_pushRetryTimer); _pushRetryTimer = null; }
++  await attendreLaFinDeLHydratation();
++  if (premièreHydratationAttendue()) return true;
++  if (!pousséeEnAttenteAuDémarrage() && !_pushDeferred) return true;
++  const session = getActiveSession();
++  const spaceId = getActiveSpaceId();
++  const weddingNodeId = getActiveWeddingNodeId();
++  if (!session || !spaceId || !weddingNodeId) return false;
++  try {
++    return await pushSpaceSnapshot(session, spaceId, weddingNodeId);
++  } catch (err) {
++    console.warn('[space-sync] poussée avant déconnexion échouée:', err);
++    return false;
++  }
++}
++
++/** Rend la main quand plus aucune hydratation ni poussée n'est en vol (15 s au plus). */
++export async function attendreLaFinDeLHydratation(): Promise<void> {
++  for (let i = 0; i < 300 && (_isHydrating || _pushing); i++) {
++    await new Promise<void>((r) => setTimeout(r, 50));
++  }
++}
++
++/** L'époque des modifications locales, à relever avant un rattrapage et à passer à `hydrateFromSpace`. */
++export function époqueLocale(): number {
++  return _localEditEpoch;
++}
++
++/** Modification faite sans planificateur branché (avant ou entre deux activations) : `rejouerPousséeEnAttente` la poussera. */
++export function noterModificationLocale(): void {
++  _localEditEpoch++;
++  const r = useWeddingRegistryStore.getState().registry;
++  const actif = r?.weddings.find((w) => w.id === r.activeWeddingId);
++  // Sans synchronisation voulue il n'y a rien à rattraper : un marqueur resterait posé pour toujours.
++  if (actif?.seedPhrase && !actif.syncDisabled) noterPousséeEnAttente();
 +}
 +
  /** Called from registerPull('*') in providers.tsx after initSync(). Debounced 2s. */
@@ -599,7 +733,7 @@ index 0c9b4af..74077a6 100644
 +  // Avant les gardes, pour la même raison que l'époque : trois chemins de sortie
 +  // écartent une demande plus bas, et aucun ne doit pouvoir la faire oublier.
 +  noterPousséeEnAttente();
-+  if (_isHydrating) { _pushDeferred = true; return; }
++  if (_isHydrating || premièreHydratationAttendue()) { _pushDeferred = true; return; }
    if (_pushTimer) clearTimeout(_pushTimer);
 -  _pushTimer = setTimeout(async () => {
 +  _pushTimer = setTimeout(() => {
@@ -642,7 +776,7 @@ index 0c9b4af..74077a6 100644
 +/** Exécute la poussée. Partagée par le minuteur d'anti-rebond et par le réessai. */
 +async function exécuterPoussée(): Promise<void> {
 +  // re-check: hydration may have started after this timer was queued
-+  if (_isHydrating) { _pushDeferred = true; return; }
++  if (_isHydrating || premièreHydratationAttendue()) { _pushDeferred = true; return; }
 +  const session = getActiveSession();
 +  const spaceId = getActiveSpaceId();
 +  const weddingNodeId = getActiveWeddingNodeId();
@@ -688,10 +822,10 @@ index 0c9b4af..74077a6 100644
   * Cancel any pending debounced push and block future scheduling.
   * Call before a legacy import so a stale timer cannot overwrite freshly pushed nodes.
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..74077a6 100644
+index 0c9b4af..1a6bd26 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -196,6 +593,14 @@ export function scheduleSyncPush(): void {
+@@ -196,6 +654,14 @@ export function scheduleSyncPush(): void {
  export function suppressSyncPush(): void {
    if (_pushTimer) { clearTimeout(_pushTimer); _pushTimer = null; }
    _isHydrating = true;
@@ -707,10 +841,16 @@ index 0c9b4af..74077a6 100644
  
  /** Re-enable push scheduling after a legacy import. */
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..74077a6 100644
+index 0c9b4af..1a6bd26 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -211,7 +616,24 @@ export function resetDirtyPushBaseline(): void {
+@@ -206,12 +672,30 @@ export function restoreSyncPush(): void {
+ /** Clears the dirty-push baselines and collection state. hydrateFromSpace already reseeds
+  *  these correctly in production (cold boot / wedding switch); exported so tests can isolate
+  *  consecutive pushSpaceSnapshot calls from each other's state. */
+-export function resetDirtyPushBaseline(): void {
++export function resetDirtyPushBaseline(options: { garderLArriéré?: boolean } = {}): void {
+   _lastPushedJson.clear();
    _lastPushedCollectionJson.clear();
    _collectionState.clear();
    _collectionEntityJson.clear();
@@ -729,17 +869,18 @@ index 0c9b4af..74077a6 100644
 +  _pushRetryAttempt = 0;
 +  _pushDeferred = false;
 +  _lastPushWriteDenied = false;
-+  // L'arriéré appartient au mariage qu'on quitte, la note durable aussi.
-+  effacerPousséeEnAttente();
++  // L'arriéré appartient au mariage qu'on quitte, la note durable aussi — sauf pour une
++  // ré-activation du MÊME mariage : la note est alors la seule trace d'une saisie à rejouer.
++  if (!options.garderLArriéré) effacerPousséeEnAttente();
 +  useSyncPendingStore.getState().setUnsavedChanges(false);
  }
  
  // ---------------------------------------------------------------------------
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..74077a6 100644
+index 0c9b4af..1a6bd26 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -409,27 +840,78 @@ async function pushCollectionDoc(
+@@ -409,27 +902,78 @@ async function pushCollectionDoc(
      // useSyncAccessStore.ts for how this flag is consumed (ReadOnlyBanner + usePermissions).
      if (err instanceof StarfishHttpError && err.status === 403) {
        useSyncAccessStore.getState().setWriteDenied(true);
@@ -821,10 +962,10 @@ index 0c9b4af..74077a6 100644
    // Pushing a space+enc content doc is index-independent (access resolves from local caps +
    // the space keyring, not the object index — see starfish-spaces getNodeAccess/handle.push).
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..74077a6 100644
+index 0c9b4af..1a6bd26 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -449,25 +931,53 @@ export async function pushSpaceSnapshot(
+@@ -449,25 +993,53 @@ export async function pushSpaceSnapshot(
      (b) => stableStringify(b.doc) !== _lastPushedCollectionJson.get(b.node.id),
    );
  
@@ -881,10 +1022,10 @@ index 0c9b4af..74077a6 100644
    // from a prior push). ONLY these may have their legacy per-entity nodes pruned below.
    const durableSentinels = new Set(
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..74077a6 100644
+index 0c9b4af..1a6bd26 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -499,6 +1009,8 @@ export async function pushSpaceSnapshot(
+@@ -499,6 +1071,8 @@ export async function pushSpaceSnapshot(
        return merged;
      }),
    );
@@ -894,25 +1035,10 @@ index 0c9b4af..74077a6 100644
  
  // ---------------------------------------------------------------------------
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..74077a6 100644
+index 0c9b4af..1a6bd26 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -595,6 +1220,10 @@ export async function hydrateFromSpace(
-   weddingNodeId: string,
- ): Promise<number> {
-   _isHydrating = true;
-+  // MODIFICATION LOCALE — l'époque retenue à l'entrée. Toute mutation locale
-+  // survenue d'ici à l'application la fera diverger, et l'état lu sera jeté.
-+  const époqueÀLEntrée = _localEditEpoch;
-+  _lastHydrateApplied = false;
-   try {
-     const nodes = await readObjectTree(session, spaceId);
-     if (!nodes.length) {
-diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..74077a6 100644
---- a/apps/mobile/lib/space-sync.ts
-+++ b/apps/mobile/lib/space-sync.ts
-@@ -662,28 +1291,85 @@ export async function hydrateFromSpace(
+@@ -662,28 +1356,85 @@ export async function hydrateFromSpace(
      const collectionDocsByType = await pullCollectionDocs(session, spaceId, sentinelNodes);
      // Reset to fresh remote truth: a type with no pulled doc gets no carried state, so a
      // locally-deleted-but-still-legacy entity re-hydrates rather than sticking.
@@ -1012,10 +1138,10 @@ index 0c9b4af..74077a6 100644
  
      // Select the active wedding node at index level (node ids are available here but
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..74077a6 100644
+index 0c9b4af..1a6bd26 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -765,6 +1453,38 @@ export async function hydrateFromSpace(
+@@ -765,6 +1518,38 @@ export async function hydrateFromSpace(
        console.warn(`[space-sync] decrypted 0/${totalGuestNodes} guest nodes — check space-access credential`);
      }
  
@@ -1055,10 +1181,10 @@ index 0c9b4af..74077a6 100644
      // readSingletonEntity unwraps the 1-item CollectionDoc (or tolerates a legacy raw, or
      // rollout-window hybrid, remote — see its doc comment) before it reaches the store.
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..74077a6 100644
+index 0c9b4af..1a6bd26 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -821,19 +1547,59 @@ export async function hydrateFromSpace(
+@@ -821,19 +1612,60 @@ export async function hydrateFromSpace(
      // already seeded from the pulled docs above. A collection that gained a legacy-only entity
      // (rev absent) will show as dirty on the next push — that is the intended one-shot migration
      // that folds the straggler into the collection doc.
@@ -1101,6 +1227,7 @@ index 0c9b4af..74077a6 100644
 +    persisterDernièresPoussées();
  
 +    _lastHydrateApplied = true;
++    if (premièreHydratationAttendue()) await leverLaGardeDePremièreHydratation();
      return nodes.length;
    } finally {
      _isHydrating = false;
@@ -1120,10 +1247,10 @@ index 0c9b4af..74077a6 100644
  }
  
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..74077a6 100644
+index 0c9b4af..1a6bd26 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -847,13 +1613,31 @@ export async function hydrateFromSpace(
+@@ -847,13 +1679,31 @@ export async function hydrateFromSpace(
   * (which a hydrate already pulls) can skip that redundant pull when this returns true.
   */
  export async function refreshFromSpaceIfIdle(): Promise<boolean> {

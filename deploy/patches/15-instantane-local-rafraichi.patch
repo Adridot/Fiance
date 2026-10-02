@@ -180,10 +180,10 @@ index 0000000..580f1c9
 +  });
 +});
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..74077a6 100644
+index 0c9b4af..1a6bd26 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -588,6 +1154,65 @@ export async function discoverOwnerWeddingRoot(
+@@ -588,19 +1216,85 @@ export async function discoverOwnerWeddingRoot(
    }
  }
  
@@ -249,11 +249,31 @@ index 0c9b4af..74077a6 100644
  /** Returns the number of nodes pulled from the server (0 = space was empty). */
  export async function hydrateFromSpace(
    session: Session,
+   spaceId: string,
+   weddingNodeId: string,
++  options: { depuisÉpoque?: number } = {},
+ ): Promise<number> {
+   _isHydrating = true;
++  // MODIFICATION LOCALE — l'époque retenue à l'entrée. Toute mutation locale
++  // survenue d'ici à l'application la fera diverger, et l'état lu sera jeté.
++  // `depuisÉpoque` : le démarrage la relève avant son rattrapage, qui attend le réseau.
++  const époqueÀLEntrée = options.depuisÉpoque ?? _localEditEpoch;
++  _lastHydrateApplied = false;
+   try {
+     const nodes = await readObjectTree(session, spaceId);
+     if (!nodes.length) {
+       console.warn(
+         `[space-sync] hydrateFromSpace: empty object index for ${spaceId} — owner published no content, or space-access credential unrestored`,
+       );
++      if (premièreHydratationAttendue()) await leverLaGardeDePremièreHydratation();
+       return 0;
+     }
+ 
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..74077a6 100644
+index 0c9b4af..1a6bd26 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -810,6 +1532,10 @@ export async function hydrateFromSpace(
+@@ -810,6 +1597,10 @@ export async function hydrateFromSpace(
        await pullAndApplyRsvpNodes(session, spaceId, byType.get(FIANCE_TYPES.rsvp) ?? []);
      }
  

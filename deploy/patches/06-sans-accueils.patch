@@ -62,7 +62,7 @@ index 0000000..b435778
 +  });
 +});
 diff --git a/apps/mobile/app/_layout.tsx b/apps/mobile/app/_layout.tsx
-index 9007e8d..4de4c0e 100644
+index 9007e8d..02fa282 100644
 --- a/apps/mobile/app/_layout.tsx
 +++ b/apps/mobile/app/_layout.tsx
 @@ -1,3 +1,7 @@
@@ -73,13 +73,18 @@ index 9007e8d..4de4c0e 100644
  import "react-native-get-random-values";
  import "../global.css";
  import "@/i18n";
-@@ -51,15 +55,20 @@ import { useSettingsStore } from "@/store/useSettingsStore";
+@@ -51,20 +55,34 @@ import { useSettingsStore } from "@/store/useSettingsStore";
  import { Toaster } from "@/lib/toast/sonner";
  import { TelemetryProvider, useTelemetryScreenTracking } from "@drakkar.software/dk-spaces-analytics-sdk";
  import { analytics, initAnalytics } from "@/lib/analytics";
 -import { configureOnBoot, SyncInitializer, NotificationInitializer, RevenueCatInitializer, WeddingPremiumInitializer, WidgetInitializer } from "@/lib/providers";
 +import { configureOnBoot, SyncInitializer, NotificationInitializer, WeddingPremiumInitializer, WidgetInitializer } from "@/lib/providers";
  import { DatabaseProvider, useDatabaseSwitching } from "@/db/provider";
++import { installerLesAlertesWeb } from "@/lib/alerte-web";
++import { tolererLesEcartsDHydratation } from "@/lib/erreurs-d-hydratation";
++import { installerLeSuiviDuCoffre, verifierLeCoffre } from "@/lib/compte-session";
++import { useCompteStore } from "@/store/useCompteStore";
++import { useParcoursDAccueilStore } from "@/store/useParcoursDAccueilStore";
  import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
  import { OfflineBanner } from "@/components/OfflineBanner";
  import { ReadOnlyBanner } from "@/components/ReadOnlyBanner";
@@ -88,6 +93,7 @@ index 9007e8d..4de4c0e 100644
 +import { BandeauLectureImpossible } from "@/components/BandeauLectureImpossible";
 +// MODIFICATION LOCALE — le jumeau du bandeau de lecture seule.
 +import { UnsavedChangesBanner } from "@/components/UnsavedChangesBanner";
++import { RecuperationDesDonnees } from "@/components/RecuperationDesDonnees";
  import { PaywallProvider } from "@/components/PaywallProvider";
  import { useFeatureTrialsStore } from "@/store/useFeatureTrialsStore";
  import { ObserveRoot, useObserve } from "expo-observe";
@@ -96,7 +102,15 @@ index 9007e8d..4de4c0e 100644
  
  // Configure octospaces-sdk at module load so deriveSession/buildSession are
  // available before any screen renders (home, settings, public-page all call
-@@ -80,7 +89,29 @@ function ActiveWeddingRuntime({ wedding }: { wedding: WeddingRegistryEntry }) {
+ // resolveServerConfig which calls deriveSession).
++tolererLesEcartsDHydratation();
+ configureOnBoot();
++installerLesAlertesWeb();
++installerLeSuiviDuCoffre();
+ 
+ 
+ // Hosts every per-wedding side-effect initializer (sync, notifications, RevenueCat,
+@@ -80,7 +98,29 @@ function ActiveWeddingRuntime({ wedding }: { wedding: WeddingRegistryEntry }) {
      <>
        <SyncInitializer wedding={wedding} />
        <NotificationInitializer />
@@ -127,7 +141,13 @@ index 9007e8d..4de4c0e 100644
        <WeddingPremiumInitializer wedding={wedding} />
        <WidgetInitializer />
      </>
-@@ -97,7 +128,12 @@ function AppContent() {
+@@ -92,12 +132,18 @@ function AppContent() {
+   const isLoaded = useWeddingRegistryStore((s) => s.isLoaded);
+   const segments = useSegments();
+   const router = useRouter();
++  const parcoursEnCours = useParcoursDAccueilStore((s) => s.enCours);
+   // (marketing) routes are web-only; on native they should fall through to the app
+   const isPublicPage = segments[0] === "wedding" || (Platform.OS === "web" && segments[0] === "(marketing)");
  
    // /join is handled like /onboarding: it must render even when the user has
    // no wedding yet, because that's exactly when the invite link deep-links in.
@@ -141,17 +161,32 @@ index 9007e8d..4de4c0e 100644
  
    // Redirect to /onboarding when no wedding — skip on onboarding/join routes.
    useEffect(() => {
-@@ -148,7 +184,9 @@ function AppContent() {
+@@ -111,11 +157,11 @@ function AppContent() {
+   // after (tabs)/_layout re-renders and mounts DatabaseProvider, guaranteeing the
+   // DB context is available before home.tsx renders.
+   useEffect(() => {
+-    if (!isLoaded || isPublicPage || segments[0] !== "onboarding") return;
++    if (!isLoaded || isPublicPage || segments[0] !== "onboarding" || parcoursEnCours) return;
+     if (registry?.weddings.length) {
+       router.replace("/home" as any);
+     }
+-  }, [isLoaded, isPublicPage, registry?.weddings.length, segments]);
++  }, [isLoaded, isPublicPage, registry?.weddings.length, segments, parcoursEnCours]);
+ 
+   // Public wedding page — always reachable, no auth required
+   if (isPublicPage) {
+@@ -148,7 +194,10 @@ function AppContent() {
      <DatabaseProvider dbFileName={activeWedding?.dbFileName}>
        {activeWedding && <ActiveWeddingRuntime wedding={activeWedding} />}
        <View style={{ flex: 1 }}>
 +        {activeWedding && <BandeauLectureImpossible />}
          {activeWedding && <ReadOnlyBanner />}
 +        {activeWedding && <UnsavedChangesBanner />}
++        {activeWedding && <RecuperationDesDonnees />}
          <View style={{ flex: 1 }}>
            <Stack screenOptions={{ headerShown: false }}>
              <Stack.Screen name="onboarding" />
-@@ -160,7 +198,21 @@ function AppContent() {
+@@ -160,7 +209,21 @@ function AppContent() {
            </Stack>
          </View>
          {activeWedding && <OfflineBanner />}
@@ -174,7 +209,15 @@ index 9007e8d..4de4c0e 100644
        </View>
      </DatabaseProvider>
    );
-@@ -252,6 +304,14 @@ function RootLayout() {
+@@ -225,6 +288,7 @@ function RootLayout() {
+ 
+   useEffect(() => {
+     loadRegistry();
++    void useCompteStore.getState().charger().then(verifierLeCoffre);
+     initAnalytics().catch(console.error);
+     loadFeatureTrials();
+     Promise.all([loadLanguage(), loadNotifications(), loadColorScheme(), isLockEnabled()]).then(
+@@ -252,6 +316,14 @@ function RootLayout() {
  
    const handleUnlock = useCallback(() => setLocked(false), []);
  

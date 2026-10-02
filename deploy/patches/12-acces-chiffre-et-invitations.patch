@@ -565,10 +565,10 @@ index 0000000..af6db9a
 +});
 diff --git a/apps/mobile/__tests__/invitation-courte.test.ts b/apps/mobile/__tests__/invitation-courte.test.ts
 new file mode 100644
-index 0000000..b4c2af5
+index 0000000..aca4192
 --- /dev/null
 +++ b/apps/mobile/__tests__/invitation-courte.test.ts
-@@ -0,0 +1,232 @@
+@@ -0,0 +1,341 @@
 +/**
 + * Le lien court : le serveur ne détient que du chiffré, la clé reste dans le
 + * fragment, et un dépôt substitué ne se déchiffre pas — il est SIGNALÉ.
@@ -581,8 +581,11 @@ index 0000000..b4c2af5
 +  InvitationCourteError,
 +  LONGUEUR_DU_CODE,
 +  chiffrerLeJeton,
++  consommer,
 +  construireLeLienCourt,
 +  dechiffrerLeDepot,
++  deballerLInvitation,
++  emballerLInvitation,
 +  decoderBase64Url,
 +  deposer,
 +  encoderBase64Url,
@@ -614,11 +617,11 @@ index 0000000..b4c2af5
 +      // Le vrai serveur est en CAS, et il lit `baseHash` — JAMAIS `hash`. Un
 +      // faux qui accepterait les deux noms masquerait un retrait qui échoue en
 +      // production : `"baseHash" in corps` est donc une assertion, pas un détail.
-+      const existant = depots[code] as { ct?: string } | undefined;
++      const existant = depots[code] as object | undefined;
 +      if (!("baseHash" in corps)) {
 +        return { ok: false, status: 400, json: async () => ({ error: "baseHash attendu" }) };
 +      }
-+      if (existant?.ct && corps.baseHash !== "h") {
++      if (existant && Object.keys(existant).length && corps.baseHash !== "h") {
 +        return { ok: false, status: 409, json: async () => ({ error: "hash_mismatch", currentHash: "h" }) };
 +      }
 +      depots[code] = corps.data;
@@ -731,7 +734,7 @@ index 0000000..b4c2af5
 +    expect(détenu).not.toContain(cle);
 +    expect(détenu).not.toContain(JETON.slice(0, 40));
 +
-+    expect(await ouvrirLInvitationCourte(BASE, { code, cle })).toBe(JETON);
++    expect(await ouvrirLInvitationCourte(BASE, { code, cle })).toEqual({ jeton: JETON });
 +  });
 +
 +  it("la clé ne part JAMAIS au serveur, ni en adresse ni en corps", async () => {
@@ -773,6 +776,112 @@ index 0000000..b4c2af5
 +  });
 +});
 +
++describe("l'enveloppe du dépôt", () => {
++  it("le clair est le JSON { j, m, p }", () => {
++    const clair = emballerLInvitation({ jeton: "tok", nomDuMariage: "Adrien & Emma", nomDeLaPersonne: "Léa" });
++    expect(JSON.parse(clair)).toEqual({ j: "tok", m: "Adrien & Emma", p: "Léa" });
++  });
++
++  it("fait l'aller-retour par le serveur, noms compris", async () => {
++    const code = tirerUnCode();
++    const { depot, cle } = await chiffrerLeJeton(
++      emballerLInvitation({ jeton: JETON, nomDuMariage: "Adrien & Emma", nomDeLaPersonne: "Léa" }),
++    );
++    await deposer(BASE, code, depot);
++    expect(await ouvrirLInvitationCourte(BASE, { code, cle })).toEqual({
++      jeton: JETON,
++      nomDuMariage: "Adrien & Emma",
++      nomDeLaPersonne: "Léa",
++    });
++  });
++
++  it("un jeton NU, déposé avant l'enveloppe, s'ouvre toujours", async () => {
++    const code = tirerUnCode();
++    const { depot, cle } = await chiffrerLeJeton(JETON);
++    await deposer(BASE, code, depot);
++    expect(await ouvrirLInvitationCourte(BASE, { code, cle })).toEqual({ jeton: JETON });
++  });
++
++  it("un clair JSON qui n'est pas l'enveloppe reste un jeton nu", () => {
++    expect(deballerLInvitation("123")).toEqual({ jeton: "123" });
++    expect(deballerLInvitation('{"x":1}')).toEqual({ jeton: '{"x":1}' });
++  });
++
++  it("des noms absents ou vides ne sont pas rendus", () => {
++    expect(deballerLInvitation(emballerLInvitation({ jeton: "tok", nomDuMariage: "" }))).toEqual({ jeton: "tok" });
++  });
++});
++
++describe("le lien à usage unique", () => {
++  async function depose() {
++    const code = tirerUnCode();
++    const { depot, cle } = await chiffrerLeJeton(emballerLInvitation({ jeton: JETON }));
++    await deposer(BASE, code, depot);
++    return { code, cle };
++  }
++
++  it("consommer pousse { utilise: true } en CAS, avec baseHash", async () => {
++    const { code } = await depose();
++    await consommer(BASE, code);
++    expect(depots[code]).toEqual({ utilise: true });
++    // Une lecture du hash courant, puis une seule écriture : aucun 409 à essuyer.
++    expect(requetes.filter((r) => JSON.stringify(r.corps) === '{"utilise":true}')).toHaveLength(1);
++  });
++
++  it("lit le hash courant avant d'écrire, pour consommer comme pour retirer", async () => {
++    for (const agir of [consommer, retirer]) {
++      const { code } = await depose();
++      requetes.length = 0;
++      await agir(BASE, code);
++      expect(requetes.map((r) => (r.corps === undefined ? "lecture" : "écriture"))).toEqual(["lecture", "écriture"]);
++    }
++  });
++
++  it("le réessai sur 409 reste le filet quand le document a bougé entre la lecture et l'écriture", async () => {
++    const { code } = await depose();
++    const reel = globalThis.fetch;
++    let lectures = 0;
++    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
++      // La première lecture rend un hash périmé.
++      if (init?.method !== "POST" && lectures++ === 0) return { ok: true, status: 200, json: async () => ({ hash: "perime" }) };
++      return reel(url, init);
++    });
++    await consommer(BASE, code);
++    expect(depots[code]).toEqual({ utilise: true });
++  });
++
++  it("un dépôt consommé se lit « utilisé », pas « absent »", async () => {
++    const { code } = await depose();
++    await consommer(BASE, code);
++    await expect(recuperer(BASE, code)).rejects.toMatchObject({ cas: "depot-utilise" });
++  });
++
++  it("ouvrir un lien consommé rend « utilisé », même avec la bonne clé", async () => {
++    const { code, cle } = await depose();
++    await consommer(BASE, code);
++    await expect(ouvrirLInvitationCourte(BASE, { code, cle })).rejects.toMatchObject({ cas: "depot-utilise" });
++  });
++
++  it("consommer deux fois est sans effet de plus", async () => {
++    const { code } = await depose();
++    await consommer(BASE, code);
++    await consommer(BASE, code);
++    await expect(recuperer(BASE, code)).rejects.toMatchObject({ cas: "depot-utilise" });
++  });
++
++  it("un dépôt retiré après consommation se lit absent", async () => {
++    const { code } = await depose();
++    await consommer(BASE, code);
++    await retirer(BASE, code);
++    await expect(recuperer(BASE, code)).rejects.toMatchObject({ cas: "depot-absent" });
++  });
++
++  it("un conflit sans hash courant est signalé, pas avalé", async () => {
++    vi.stubGlobal("fetch", async () => ({ ok: false, status: 409, json: async () => ({ error: "hash_mismatch" }) }));
++    await expect(consommer(BASE, tirerUnCode())).rejects.toMatchObject({ cas: "reseau" });
++  });
++});
++
 +describe("le lien court", () => {
 +  it("tient largement sous cent caractères", async () => {
 +    const { cle } = await chiffrerLeJeton(JETON);
@@ -803,10 +912,10 @@ index 0000000..b4c2af5
 +});
 diff --git a/apps/mobile/__tests__/join-lien-court.test.ts b/apps/mobile/__tests__/join-lien-court.test.ts
 new file mode 100644
-index 0000000..11422e9
+index 0000000..be7405c
 --- /dev/null
 +++ b/apps/mobile/__tests__/join-lien-court.test.ts
-@@ -0,0 +1,161 @@
+@@ -0,0 +1,199 @@
 +/**
 + * L'écran de jonction accepte les DEUX formes de lien, et sait dire laquelle
 + * des trois causes explique un échec.
@@ -829,9 +938,11 @@ index 0000000..11422e9
 +import { resoudreLInvitation } from "@/lib/resolution-d-invitation";
 +import {
 +  chiffrerLeJeton,
++  consommer,
 +  decoderLeJeton,
 +  construireLeLienCourt,
 +  deposer,
++  emballerLInvitation,
 +  lireLeLienCourt,
 +  ouvrirLInvitationCourte,
 +  tirerUnCode,
@@ -877,7 +988,9 @@ index 0000000..11422e9
 +/** L'émission telle que `invite-link.ts` la fait : jeton long → dépôt → lien court. */
 +async function emettreUnLienCourt() {
 +  const fragment = fragmentLong();
-+  const { depot, cle } = await chiffrerLeJeton(fragment);
++  const { depot, cle } = await chiffrerLeJeton(
++    emballerLInvitation({ jeton: fragment, nomDuMariage: "Adrien & Emma", nomDeLaPersonne: "Léa" }),
++  );
 +  const code = tirerUnCode();
 +  await deposer(BASE, code, depot);
 +  return { lien: construireLeLienCourt(ORIGINE, code, cle), code, cle, fragment };
@@ -918,7 +1031,41 @@ index 0000000..11422e9
 +  });
 +});
 +
-+describe("les trois causes d'un échec", () => {
++describe("ce que la résolution rend d'un lien court", () => {
++  it("le jeton, les deux noms et le code à consommer", async () => {
++    const { lien, code } = await emettreUnLienCourt();
++    const r = await resoudreLInvitation(BASE, lien, null);
++    expect(r).toMatchObject({
++      jeton: { spaceId: JETON.spaceId },
++      nomDuMariage: "Adrien & Emma",
++      nomDeLaPersonne: "Léa",
++      code,
++    });
++  });
++
++  it("un dépôt au jeton NU, émis avant l'enveloppe, se résout sans noms", async () => {
++    const { depot, cle } = await chiffrerLeJeton(fragmentLong());
++    const code = tirerUnCode();
++    await deposer(BASE, code, depot);
++    const r = await resoudreLInvitation(BASE, construireLeLienCourt(ORIGINE, code, cle), null);
++    expect(r).toMatchObject({ jeton: { spaceId: JETON.spaceId }, code });
++    expect(r).not.toHaveProperty("nomDuMariage");
++    expect(r).not.toHaveProperty("nomDeLaPersonne");
++  });
++
++  it("un lien au format long ne porte ni noms ni code", async () => {
++    const r = await resoudreLInvitation(BASE, `${ORIGINE}/join#${fragmentLong()}`, parseSpaceInviteUrl(`${ORIGINE}/join#${fragmentLong()}`));
++    expect(Object.keys(r)).toEqual(["jeton"]);
++  });
++});
++
++describe("les causes d'un échec", () => {
++  it("lien déjà consommé → UTILISÉE, distincte d'expirée", async () => {
++    const { lien, code } = await emettreUnLienCourt();
++    await consommer(BASE, code);
++    expect(await resoudre(lien)).toEqual({ cause: "utilisee" });
++  });
++
 +  it("adresse tronquée — le fragment a été perdu en route → INCOMPLÈTE", async () => {
 +    const { lien } = await emettreUnLienCourt();
 +    expect(await resoudre(lien.split("#")[0])).toEqual({ cause: "incomplete" });
@@ -954,7 +1101,7 @@ index 0000000..11422e9
 +describe("le repli par code saisi à la main", () => {
 +  it("un code recopié permet de rejoindre, sans passer par l'adresse", async () => {
 +    const { code, cle } = await emettreUnLienCourt();
-+    const jeton = decoderLeJeton(await ouvrirLInvitationCourte(BASE, { code, cle }));
++    const jeton = decoderLeJeton((await ouvrirLInvitationCourte(BASE, { code, cle })).jeton);
 +    expect(jeton).toMatchObject({ spaceId: JETON.spaceId });
 +  });
 +
@@ -963,7 +1110,7 @@ index 0000000..11422e9
 +    const { normaliserLeCode } = await import("@/lib/invitation-courte");
 +    const saisi = normaliserLeCode(`${code.slice(0, 5).toLowerCase()}-${code.slice(5).toLowerCase()}`);
 +    expect(saisi).toBe(code);
-+    expect(decoderLeJeton(await ouvrirLInvitationCourte(BASE, { code: saisi!, cle }))).toMatchObject({
++    expect(decoderLeJeton((await ouvrirLInvitationCourte(BASE, { code: saisi!, cle })).jeton)).toMatchObject({
 +      spaceId: JETON.spaceId,
 +    });
 +  });
@@ -1146,10 +1293,10 @@ index 0000000..3a9346a
 +});
 diff --git a/apps/mobile/__tests__/revocation-atomique.test.ts b/apps/mobile/__tests__/revocation-atomique.test.ts
 new file mode 100644
-index 0000000..1feba47
+index 0000000..106793e
 --- /dev/null
 +++ b/apps/mobile/__tests__/revocation-atomique.test.ts
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,122 @@
 +/**
 + * Une révocation ne rend la main qu'une fois le contenu rescellé.
 + *
@@ -1188,6 +1335,8 @@ index 0000000..1feba47
 +
 +vi.mock("@/lib/kv-storage", () => ({ readCollection: () => null }));
 +vi.mock("@/lib/invite-link", () => ({ SPACE_INVITE_STORE_KEY: "invites" }));
++const mockPlanifierLeCoffre = vi.fn();
++vi.mock("@/lib/compte-session", () => ({ planifierLeCoffre: () => mockPlanifierLeCoffre() }));
 +
 +vi.mock("@/lib/rescellement", async () => {
 +  const reel = await vi.importActual<typeof import("@/lib/rescellement")>("@/lib/rescellement");
@@ -1213,6 +1362,7 @@ index 0000000..1feba47
 +describe("revokeCollaborator", () => {
 +  beforeEach(() => {
 +    journal.length = 0;
++    mockPlanifierLeCoffre.mockClear();
 +    mockRotationLeve = false;
 +    mockRescellement = { epoque: 2, rescellees: ["guest"], dejaAJour: [], restant: [] };
 +  });
@@ -1257,6 +1407,16 @@ index 0000000..1feba47
 +
 +    expect(journal).toEqual(["retrait-assignation", "poussee", "rotation", "retrait-registre"]);
 +    expect(r.evicted).toBe(false);
++  });
++
++  it("replanifie le coffre à la fin, que la révocation aboutisse ou non", async () => {
++    const { revokeCollaborator } = await import("@/lib/permissions/revoke");
++    await revokeCollaborator("sujet", "a1");
++    expect(mockPlanifierLeCoffre).toHaveBeenCalledTimes(1);
++
++    mockRotationLeve = true;
++    await revokeCollaborator("sujet", "a1");
++    expect(mockPlanifierLeCoffre).toHaveBeenCalledTimes(2);
 +  });
 +});
 diff --git a/apps/mobile/app/i/[code].tsx b/apps/mobile/app/i/[code].tsx
@@ -1403,10 +1563,10 @@ index 0000000..9ee56d3
 +}
 diff --git a/apps/mobile/components/InvitationNonReconnue.tsx b/apps/mobile/components/InvitationNonReconnue.tsx
 new file mode 100644
-index 0000000..db81437
+index 0000000..10f5fbb
 --- /dev/null
 +++ b/apps/mobile/components/InvitationNonReconnue.tsx
-@@ -0,0 +1,112 @@
+@@ -0,0 +1,129 @@
 +import { useState } from "react";
 +import { View, Text, Pressable, TextInput } from "react-native-css/components";
 +import { useRouter } from "expo-router";
@@ -1417,12 +1577,13 @@ index 0000000..db81437
 +import { PageHeader } from "@/components/PageHeader";
 +import { theme as GP } from "@/lib/theme";
 +import { normaliserLeCode } from "@/lib/invitation-courte";
++import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
 +import type { CauseDEchec } from "@/lib/resolution-d-invitation";
 +
 +/**
 + * MODIFICATION LOCALE — l'écran `InvalidInvite` muet, remplacé.
 + *
-+ * Il dit désormais LAQUELLE des trois causes s'applique, et offre un second
++ * Il dit désormais LAQUELLE des causes s'applique, et offre un second
 + * chemin qui ne dépend pas de l'intégrité de l'adresse : saisir ou coller le
 + * code. Il ne redirige JAMAIS de lui-même : la personne doit toujours pouvoir
 + * lire ce qu'il est advenu de son invitation.
@@ -1444,12 +1605,17 @@ index 0000000..db81437
 +    incomplete: ["join.invitationIncomplete", "join.invitationIncompleteDetail"],
 +    expiree: ["join.invitationExpiree", "join.invitationExpireeDetail"],
 +    invalide: ["join.invitationInvalide", "join.invitationInvalideDetail"],
++    utilisee: ["join.invitationUtilisee", "join.invitationUtiliseeDetail"],
 +  };
-+  const [titre, detail] = titres[cause];
++  // Le dépôt est marqué utilisé : on ne sait plus quel espace il ouvrait, mais un registre plein suffit à reconnaître la personne.
++  const dejaConnecte = useWeddingRegistryStore((s) => (s.registry?.weddings.length ?? 0) > 0);
++  const relitSonLien = cause === "utilisee" && dejaConnecte;
++  const [titre, detailParDefaut] = titres[cause];
++  const detail = relitSonLien ? "join.invitationDejaConnecte" : detailParDefaut;
 +
-+  // Une invitation expirée ne se rattrape pas par un code : il faut en demander
-+  // une neuve. Le repli n'a de sens que pour une adresse abîmée.
-+  const offrirLeRepli = cause !== "expiree";
++  // Ni expirée ni utilisée ne se rattrape par un code : il faut une invitation
++  // neuve, ou se connecter. Le repli n'a de sens que pour une adresse abîmée.
++  const offrirLeRepli = cause !== "expiree" && cause !== "utilisee";
 +
 +  const valider = () => {
 +    const codeNormalisé = normaliserLeCode(code);
@@ -1505,6 +1671,17 @@ index 0000000..db81437
 +        </View>
 +      )}
 +
++      {cause === "utilisee" && (
++        <Pressable
++          onPress={() => router.replace((relitSonLien ? "/home" : "/onboarding?mode=connexion") as any)}
++          className="bg-primary-500 rounded-2xl py-4 items-center mb-3 active:bg-primary-600"
++        >
++          <Text className="text-white font-semibold text-base">
++            {t(relitSonLien ? "join.invitationAllerAuMariage" : "join.invitationSeConnecter")}
++          </Text>
++        </Pressable>
++      )}
++
 +      <Pressable
 +        onPress={() => router.replace("/" as any)}
 +        className="bg-accent-card rounded-2xl py-4 items-center border border-hair active:opacity-80"
@@ -1520,19 +1697,52 @@ index 0000000..db81437
 +  );
 +}
 diff --git a/apps/mobile/i18n/locales/en/common.json b/apps/mobile/i18n/locales/en/common.json
-index 6ee5786..c6921b7 100644
+index 6ee5786..603ff6e 100644
 --- a/apps/mobile/i18n/locales/en/common.json
 +++ b/apps/mobile/i18n/locales/en/common.json
-@@ -85,7 +85,24 @@
+@@ -71,7 +71,26 @@
+     "partnerPlaceholder": "First name",
+     "partner1Required": "Enter at least your first name",
+     "dateLabel": "Wedding date",
+-    "dateHint": "Optional — you can change it later"
++    "dateHint": "Optional — you can change it later",
++    "seConnecter": "Sign in",
++    "jAiUneInvitation": "I have an invitation",
++    "creerUnNouveauMariage": "Create a new wedding",
++    "compteApres": "You'll then create your account to find your wedding on all your devices.",
++    "connexionEyebrow": "Sign in",
++    "connexionTitre": "Welcome back",
++    "connexionTagline": "find your wedding on this device",
++    "invitation": {
++      "champ": "Paste the link you received, or the code",
++      "placeholder": "Invitation link or code",
++      "continuer": "Continue",
++      "scanner": "Scan a QR code",
++      "vide": "Paste the link you received, or enter the invitation code.",
++      "incomplete": "This link is incomplete or was copied wrongly: the part after the “#” is missing or doesn't match. Paste it in full, or ask the person who invited you for it again.",
++      "expiree": "This invitation is no longer valid. Ask the couple for a new one.",
++      "invalide": "This link or code doesn't match any invitation. Check that it's complete.",
++      "utilisee": "This invitation has already been used. Sign in with your account.",
++      "allerALaConnexion": "Go to sign in"
++    }
+   },
+   "join": {
+     "newWedding": "New wedding",
+@@ -85,7 +104,36 @@
      "postit": "codes expire fast — for safety 🌿",
      "inviteEyebrow": "Invitation",
      "joinThisWedding": "Join this wedding?",
 -    "joinThisWeddingFirst": "You've been invited to join this wedding."
 +    "joinThisWeddingFirst": "You've been invited to join this wedding.",
 +    "invitationIncomplete": "Incomplete invitation",
-+    "invitationIncompleteDetail": "The address arrived truncated — the part after the “#” is missing. Ask whoever invited you to send the link again, or enter the invitation code below.",
++    "invitationIncompleteDetail": "This link is incomplete or was copied wrongly: the part after the “#” is missing or doesn't match. Ask whoever invited you to send the link again, or enter the invitation code below.",
 +    "invitationExpiree": "Invitation expired",
 +    "invitationExpireeDetail": "This invitation is no longer valid. Ask the couple for a new one.",
++    "invitationUtilisee": "This invitation has already been used",
++    "invitationUtiliseeDetail": "Sign in with the account created at that time. If it wasn't you, ask the couple for a new invitation.",
++    "invitationSeConnecter": "Sign in",
++    "invitationDejaConnecte": "You are already signed in.",
++    "invitationAllerAuMariage": "Go to the wedding",
 +    "invitationInvalide": "Invitation not recognised",
 +    "invitationInvalideDetail": "This link doesn't match any invitation. Check that it's complete, or enter the invitation code below.",
 +    "codeSaisieTitre": "Enter the invitation code",
@@ -1545,29 +1755,120 @@ index 6ee5786..c6921b7 100644
 +    "dejaMembre": "You're already a member",
 +    "dejaMembreDetail": "This invitation opens “{{name}}”, a wedding this device already has access to. There's nothing to join.",
 +    "dejaMembreDetailSansNom": "This invitation opens a wedding this device already has access to. There's nothing to join.",
-+    "allerAuMariage": "Go to the wedding"
++    "allerAuMariage": "Go to the wedding",
++    "inviteATitre": "You're invited to help plan",
++    "ongletCreer": "Create my account",
++    "ongletConnexion": "I already have an account",
++    "boutonRejoindre": "Join the wedding",
++    "creationEnCours": "Creating your account…",
++    "jonctionEnCours": "Opening the wedding…",
++    "reessayer": "Try again"
    },
    "homeEyebrow": "Wedding",
    "homeTagline": "days",
+@@ -101,5 +149,50 @@
+   "quota": {
+     "badge": "{{count}} / {{limit}}",
+     "badgeLabel": "{{count}} of {{limit}} used on the free plan"
++  },
++  "compte": {
++    "recuperation": {
++      "titre": "Retrieving your data…",
++      "echec": "Could not reach the server.",
++      "reessayer": "Try again",
++      "deconnecter": "Sign out"
++    },
++    "champs": {
++      "identifiant": "Username",
++      "identifiantAide": "Your e-mail or your first name: this is what you'll enter to sign in",
++      "identifiantPlaceholder": "E-mail or first name",
++      "motDePasse": "Password",
++      "motDePassePlaceholder": "Your password",
++      "motDePasseAide": "At least 8 characters.",
++      "confirmation": "Confirm password",
++      "confirmationPlaceholder": "Enter it a second time",
++      "nouveauMotDePasse": "New password",
++      "confirmationDuNouveau": "Confirm new password",
++      "afficher": "Show password",
++      "masquer": "Hide password"
++    },
++    "connexion": {
++      "bouton": "Sign in",
++      "enCours": "Signing in…",
++      "champsVides": "Enter your username and password."
++    },
++    "changement": {
++      "bouton": "Change password",
++      "enCours": "Changing…",
++      "reussi": "Password changed."
++    },
++    "validation": {
++      "identifiantVide": "Enter a username.",
++      "motDePasseCourt": "The password must be at least 8 characters long.",
++      "confirmationDifferente": "The two passwords don't match."
++    },
++    "erreurs": {
++      "identifiants": "Incorrect username or password.",
++      "reseau": "The server isn't responding. Check your connection and try again.",
++      "illisible": "This account can't be read. Ask the couple for a new invitation.",
++      "existeDeja": "An account already exists with this username and password. Choose different ones.",
++      "deplace": "The password was changed on another device. Sign in again.",
++      "inconnue": "Something went wrong. Try again."
++    }
+   }
+ }
 diff --git a/apps/mobile/i18n/locales/fr/common.json b/apps/mobile/i18n/locales/fr/common.json
-index c4cae3d..584c2b2 100644
+index c4cae3d..d9f6064 100644
 --- a/apps/mobile/i18n/locales/fr/common.json
 +++ b/apps/mobile/i18n/locales/fr/common.json
-@@ -85,7 +85,24 @@
+@@ -71,7 +71,26 @@
+     "partnerPlaceholder": "Prénom",
+     "partner1Required": "Indiquez au moins votre prénom",
+     "dateLabel": "Date du mariage",
+-    "dateHint": "Optionnel — modifiable plus tard"
++    "dateHint": "Optionnel — modifiable plus tard",
++    "seConnecter": "Se connecter",
++    "jAiUneInvitation": "J'ai une invitation",
++    "creerUnNouveauMariage": "Créer un nouveau mariage",
++    "compteApres": "Vous créerez ensuite votre compte pour retrouver votre mariage sur tous vos appareils.",
++    "connexionEyebrow": "Connexion",
++    "connexionTitre": "Bon retour",
++    "connexionTagline": "retrouvez votre mariage sur cet appareil",
++    "invitation": {
++      "champ": "Collez ici le lien reçu, ou le code",
++      "placeholder": "Lien ou code d'invitation",
++      "continuer": "Continuer",
++      "scanner": "Scanner un QR code",
++      "vide": "Collez le lien reçu, ou saisissez le code d'invitation.",
++      "incomplete": "Ce lien est incomplet ou mal recopié : la partie après le « # » manque ou ne correspond pas. Collez-le en entier, ou redemandez-le à la personne qui vous a invité(e).",
++      "expiree": "Cette invitation n'est plus valable. Demandez-en une nouvelle aux mariés.",
++      "invalide": "Ce lien ou ce code ne correspond à aucune invitation. Vérifiez qu'il est complet.",
++      "utilisee": "Cette invitation a déjà servi. Connectez-vous avec votre compte.",
++      "allerALaConnexion": "Aller à la connexion"
++    }
+   },
+   "join": {
+     "newWedding": "Nouveau mariage",
+@@ -85,7 +104,36 @@
      "postit": "les codes expirent vite — par sécurité 🌿",
      "inviteEyebrow": "Invitation",
      "joinThisWedding": "Rejoindre ce mariage ?",
 -    "joinThisWeddingFirst": "Vous êtes invité(e) à rejoindre ce mariage."
 +    "joinThisWeddingFirst": "Vous êtes invité(e) à rejoindre ce mariage.",
 +    "invitationIncomplete": "Invitation incomplète",
-+    "invitationIncompleteDetail": "L'adresse est arrivée tronquée — il manque la partie après le « # ». Demandez à la personne qui vous a invité(e) de vous redonner le lien, ou saisissez le code d'invitation ci-dessous.",
++    "invitationIncompleteDetail": "Ce lien est incomplet ou mal recopié : la partie après le « # » manque ou ne correspond pas. Demandez à la personne qui vous a invité(e) de vous redonner le lien, ou saisissez le code d'invitation ci-dessous.",
 +    "invitationExpiree": "Invitation expirée",
 +    "invitationExpireeDetail": "Cette invitation n'est plus valable. Demandez-en une nouvelle aux mariés.",
++    "invitationUtilisee": "Cette invitation a déjà servi",
++    "invitationUtiliseeDetail": "Connectez-vous avec le compte créé à ce moment-là. Si ce n'était pas vous, demandez une nouvelle invitation aux mariés.",
++    "invitationSeConnecter": "Se connecter",
++    "invitationDejaConnecte": "Vous êtes déjà connecté(e).",
++    "invitationAllerAuMariage": "Aller au mariage",
 +    "invitationInvalide": "Invitation non reconnue",
 +    "invitationInvalideDetail": "Ce lien ne correspond à aucune invitation. Vérifiez qu'il est complet, ou saisissez le code d'invitation ci-dessous.",
 +    "codeSaisieTitre": "Saisir le code d'invitation",
 +    "codeSaisiePlaceholder": "Par ex. K7M2P9QWX3",
-+    "codeSaisieAide": "Dix caractères, qu'on peut recopier à la main ou se faire dicter. La clé qui l'accompagne est dans la partie du lien après le « # ».",
++    "codeSaisieAide": "Dix caractères, qu'on peut recopier à la main ou se faire dicter. La clé qui l'accompagne est dans la partie du lien après le « # ».",
 +    "cleSaisiePlaceholder": "La partie après le #",
 +    "codeValider": "Rejoindre avec ce code",
 +    "codeIncomplet": "Il faut le code ET la clé qui l'accompagne.",
@@ -1575,10 +1876,68 @@ index c4cae3d..584c2b2 100644
 +    "dejaMembre": "Vous êtes déjà membre",
 +    "dejaMembreDetail": "Cette invitation ouvre « {{name}} », un mariage auquel cet appareil a déjà accès. Il n'y a rien à rejoindre.",
 +    "dejaMembreDetailSansNom": "Cette invitation ouvre un mariage auquel cet appareil a déjà accès. Il n'y a rien à rejoindre.",
-+    "allerAuMariage": "Aller au mariage"
++    "allerAuMariage": "Aller au mariage",
++    "inviteATitre": "Vous êtes invité(e) à préparer",
++    "ongletCreer": "Créer mon compte",
++    "ongletConnexion": "J'ai déjà un compte",
++    "boutonRejoindre": "Rejoindre le mariage",
++    "creationEnCours": "Création de votre compte…",
++    "jonctionEnCours": "Ouverture du mariage…",
++    "reessayer": "Réessayer"
    },
    "homeEyebrow": "Mariage",
    "homeTagline": "jours",
+@@ -101,5 +149,50 @@
+   "quota": {
+     "badge": "{{count}} / {{limit}}",
+     "badgeLabel": "{{count}} sur {{limit}} utilisés dans l'offre gratuite"
++  },
++  "compte": {
++    "recuperation": {
++      "titre": "Récupération de vos données…",
++      "echec": "La connexion au serveur n'aboutit pas.",
++      "reessayer": "Réessayer",
++      "deconnecter": "Se déconnecter"
++    },
++    "champs": {
++      "identifiant": "Identifiant",
++      "identifiantAide": "Votre e-mail ou votre prénom : c'est ce que vous saisirez pour vous connecter",
++      "identifiantPlaceholder": "E-mail ou prénom",
++      "motDePasse": "Mot de passe",
++      "motDePassePlaceholder": "Votre mot de passe",
++      "motDePasseAide": "Au moins 8 caractères.",
++      "confirmation": "Confirmer le mot de passe",
++      "confirmationPlaceholder": "Saisissez-le une seconde fois",
++      "nouveauMotDePasse": "Nouveau mot de passe",
++      "confirmationDuNouveau": "Confirmer le nouveau mot de passe",
++      "afficher": "Afficher le mot de passe",
++      "masquer": "Masquer le mot de passe"
++    },
++    "connexion": {
++      "bouton": "Se connecter",
++      "enCours": "Connexion…",
++      "champsVides": "Saisissez votre identifiant et votre mot de passe."
++    },
++    "changement": {
++      "bouton": "Changer le mot de passe",
++      "enCours": "Changement…",
++      "reussi": "Mot de passe modifié."
++    },
++    "validation": {
++      "identifiantVide": "Saisissez un identifiant.",
++      "motDePasseCourt": "Le mot de passe doit faire au moins 8 caractères.",
++      "confirmationDifferente": "Les deux mots de passe ne sont pas identiques."
++    },
++    "erreurs": {
++      "identifiants": "Identifiant ou mot de passe incorrect.",
++      "reseau": "Le serveur ne répond pas. Vérifiez votre connexion et réessayez.",
++      "illisible": "Ce compte ne peut pas être lu. Demandez une nouvelle invitation aux mariés.",
++      "existeDeja": "Un compte existe déjà avec cet identifiant et ce mot de passe. Choisissez-en d'autres.",
++      "deplace": "Le mot de passe a été changé sur un autre appareil. Reconnectez-vous.",
++      "inconnue": "Une erreur est survenue. Réessayez."
++    }
+   }
+ }
 diff --git a/apps/mobile/lib/acces-chiffre.ts b/apps/mobile/lib/acces-chiffre.ts
 new file mode 100644
 index 0000000..518da19
@@ -1786,10 +2145,10 @@ index 0000000..518da19
 +}
 diff --git a/apps/mobile/lib/invitation-courte.ts b/apps/mobile/lib/invitation-courte.ts
 new file mode 100644
-index 0000000..12395b6
+index 0000000..876a038
 --- /dev/null
 +++ b/apps/mobile/lib/invitation-courte.ts
-@@ -0,0 +1,250 @@
+@@ -0,0 +1,309 @@
 +/**
 + * Le lien d'invitation court : dépôt chiffré, clé dans le fragment.
 + *
@@ -1808,6 +2167,10 @@ index 0000000..12395b6
 + * Le serveur ne détient que du chiffré, et la clé ne lui parvient jamais.
 + * Obtenir tout ce qu'il détient ne donne ni l'identifiant de l'espace, ni le
 + * droit d'y accéder.
++ *
++ * Le clair déposé est une enveloppe JSON `{ j: jeton, m: mariage, p: personne }`.
++ * Un clair qui n'en est pas une est un jeton nu : les liens déjà émis s'ouvrent.
++ * Le lien est à usage unique : `consommer` remplace le dépôt par `{ utilise: true }`.
 + */
 +
 +import { decodeSpaceInviteLink, getSyncNamespace, type SpaceInviteLinkToken } from "@fiance/sdk";
@@ -1829,6 +2192,8 @@ index 0000000..12395b6
 +  | "depot-absent"
 +  /** Le dépôt ne se déchiffre pas sous cette clé : substitué, ou clé tronquée. */
 +  | "depot-illisible"
++  /** Le dépôt porte le marqueur d'usage : le lien a déjà servi. */
++  | "depot-utilise"
 +  /** Le serveur n'a pas répondu. */
 +  | "reseau";
 +
@@ -1883,7 +2248,35 @@ index 0000000..12395b6
 +  ct: string;
 +}
 +
-+/** Chiffre un jeton sous une clé neuve. Rend le dépôt ET la clé, séparément. */
++export interface ContenuDInvitation {
++  jeton: string;
++  nomDuMariage?: string;
++  nomDeLaPersonne?: string;
++}
++
++/** Le clair à chiffrer : l'enveloppe JSON `{ j, m, p }`. */
++export function emballerLInvitation({ jeton, nomDuMariage, nomDeLaPersonne }: ContenuDInvitation): string {
++  return JSON.stringify({ j: jeton, m: nomDuMariage, p: nomDeLaPersonne });
++}
++
++/** Lit un clair : enveloppe JSON, ou jeton nu des liens émis avant l'enveloppe. */
++export function deballerLInvitation(clair: string): ContenuDInvitation {
++  try {
++    const v = JSON.parse(clair) as { j?: unknown; m?: unknown; p?: unknown } | null;
++    if (v && typeof v === "object" && typeof v.j === "string" && v.j) {
++      return {
++        jeton: v.j,
++        ...(typeof v.m === "string" && v.m ? { nomDuMariage: v.m } : {}),
++        ...(typeof v.p === "string" && v.p ? { nomDeLaPersonne: v.p } : {}),
++      };
++    }
++  } catch {
++    // pas du JSON : un jeton nu
++  }
++  return { jeton: clair };
++}
++
++/** Chiffre un clair sous une clé neuve. Rend le dépôt ET la clé, séparément. */
 +export async function chiffrerLeJeton(
 +  jeton: string,
 +): Promise<{ depot: DepotChiffre; cle: string }> {
@@ -1958,16 +2351,21 @@ index 0000000..12395b6
 + * Récupère un dépôt.
 + *
 + * Un document absent — jamais écrit, ou expiré — se lit `{hash:"",data:{}}`,
-+ * jamais un 404 : c'est l'absence de hash qui est le signal fiable.
++ * jamais un 404 : c'est l'absence de hash qui est le signal fiable. Un dépôt
++ * consommé a un hash mais ni `iv` ni `ct` : le marqueur se teste AVANT eux.
 + */
 +export async function recuperer(syncBase: string, code: string): Promise<DepotChiffre> {
-+  let lu: { hash?: string; data?: Partial<DepotChiffre> } | null = null;
++  type Lu = { hash?: string; data?: Partial<DepotChiffre> & { utilise?: boolean } };
++  let lu: Lu | null = null;
 +  try {
 +    const rép = await fetch(cheminDuDepot(syncBase, code, "pull"), { cache: "no-store" });
 +    if (!rép.ok) throw new Error(`HTTP ${rép.status}`);
-+    lu = (await rép.json()) as { hash?: string; data?: Partial<DepotChiffre> };
++    lu = (await rép.json()) as Lu;
 +  } catch (err) {
 +    throw new InvitationCourteError("reseau", `dépôt injoignable (${err instanceof Error ? err.message : String(err)})`);
++  }
++  if (lu?.hash && lu.data?.utilise === true) {
++    throw new InvitationCourteError("depot-utilise", "ce lien a déjà servi");
 +  }
 +  if (!lu?.hash || !lu.data?.iv || !lu.data?.ct) {
 +    throw new InvitationCourteError("depot-absent", "aucun dépôt à ce code — jamais émis, expiré, ou retiré");
@@ -1975,23 +2373,43 @@ index 0000000..12395b6
 +  return { iv: lu.data.iv, ct: lu.data.ct };
 +}
 +
++/** Le hash courant du dépôt, ou null s'il est absent ou injoignable : le conflit rattrapera. */
++async function hashCourant(syncBase: string, code: string): Promise<string | null> {
++  try {
++    const rép = await fetch(cheminDuDepot(syncBase, code, "pull"), { cache: "no-store" });
++    if (!rép.ok) return null;
++    const lu = (await rép.json()) as { hash?: string } | null;
++    return lu?.hash || null;
++  } catch {
++    return null;
++  }
++}
++
 +/**
-+ * Retire un dépôt avant son terme. Un dépôt vidé se lit comme un dépôt absent.
-+ *
-+ * L'écriture est en CAS : pousser avec `hash: null` sur un document qui existe
-+ * rend un 409 `hash_mismatch`, et le dépôt survivrait au retrait. On repart
-+ * donc du `currentHash` que le serveur rend dans le corps du conflit.
++ * Écrit en CAS au hash lu juste avant : pousser avec `baseHash: null` sur un
++ * document qui existe rend un 409 (visible en console). Si le document a bougé
++ * entre-temps, on repart du `currentHash` que le serveur rend dans le conflit.
 + */
-+export async function retirer(syncBase: string, code: string): Promise<void> {
-+  let rép = await pousser(syncBase, code, {}, null);
++async function ecrireEnCAS(syncBase: string, code: string, data: unknown, action: string): Promise<void> {
++  let rép = await pousser(syncBase, code, data, await hashCourant(syncBase, code));
 +  if (rép.status === 409) {
 +    const conflit = (await rép.json().catch(() => null)) as { currentHash?: string } | null;
 +    if (!conflit?.currentHash) {
-+      throw new InvitationCourteError("reseau", "retrait refusé — le conflit ne porte pas le hash courant");
++      throw new InvitationCourteError("reseau", `${action} refusé — le conflit ne porte pas le hash courant`);
 +    }
-+    rép = await pousser(syncBase, code, {}, conflit.currentHash);
++    rép = await pousser(syncBase, code, data, conflit.currentHash);
 +  }
-+  if (!rép.ok) throw new InvitationCourteError("reseau", `retrait refusé — HTTP ${rép.status}`);
++  if (!rép.ok) throw new InvitationCourteError("reseau", `${action} refusé — HTTP ${rép.status}`);
++}
++
++/** Retire un dépôt avant son terme. Un dépôt vidé se lit comme un dépôt absent. */
++export async function retirer(syncBase: string, code: string): Promise<void> {
++  await ecrireEnCAS(syncBase, code, {}, "retrait");
++}
++
++/** Marque le lien comme servi : le dépôt devient `{ utilise: true }`. */
++export async function consommer(syncBase: string, code: string): Promise<void> {
++  await ecrireEnCAS(syncBase, code, { utilise: true }, "consommation");
 +}
 +
 +/** `https://origine/i/<code>#<clé>` — environ 81 caractères. */
@@ -2019,9 +2437,9 @@ index 0000000..12395b6
 +  }
 +}
 +
-+/** Récupère puis déchiffre : le jeton, tel qu'`encodeSpaceInviteLink` l'avait rendu. */
-+export async function ouvrirLInvitationCourte(syncBase: string, lien: LienCourt): Promise<string> {
-+  return dechiffrerLeDepot(await recuperer(syncBase, lien.code), lien.cle);
++/** Récupère puis déchiffre : le jeton, tel qu'`encodeSpaceInviteLink` l'avait rendu, et les noms. */
++export async function ouvrirLInvitationCourte(syncBase: string, lien: LienCourt): Promise<ContenuDInvitation> {
++  return deballerLInvitation(await dechiffrerLeDepot(await recuperer(syncBase, lien.code), lien.cle));
 +}
 +
 +/**
@@ -2041,7 +2459,7 @@ index 0000000..12395b6
 +  }
 +}
 diff --git a/apps/mobile/lib/permissions/revoke.ts b/apps/mobile/lib/permissions/revoke.ts
-index 7a15f84..8a2b953 100644
+index 7a15f84..a474b63 100644
 --- a/apps/mobile/lib/permissions/revoke.ts
 +++ b/apps/mobile/lib/permissions/revoke.ts
 @@ -1,14 +1,29 @@
@@ -2082,7 +2500,12 @@ index 7a15f84..8a2b953 100644
   */
  
  import {
-@@ -22,15 +37,36 @@ import { readCollection } from "@/lib/kv-storage";
+@@ -18,19 +33,53 @@ import {
+ } from "@fiance/sdk";
+ import { getActiveSession, getActiveSpaceId } from "@/lib/starfish";
+ import { pushSpaceSnapshot } from "@/lib/space-sync";
++import { planifierLeCoffre } from "@/lib/compte-session";
+ import { readCollection } from "@/lib/kv-storage";
  import { SPACE_INVITE_STORE_KEY } from "@/lib/invite-link";
  import { usePermissionsStore } from "@/store/usePermissionsStore";
  import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
@@ -2117,10 +2540,22 @@ index 7a15f84..8a2b953 100644
    subjectUserId: string,
    assignmentId: string,
 +  options: RevokeOptions = {},
++): Promise<RevokeResult> {
++  try {
++    return await revoquer(subjectUserId, assignmentId, options);
++  } finally {
++    planifierLeCoffre();
++  }
++}
++
++async function revoquer(
++  subjectUserId: string,
++  assignmentId: string,
++  options: RevokeOptions,
  ): Promise<RevokeResult> {
    const permStore = usePermissionsStore.getState();
    const regStore = useWeddingRegistryStore.getState();
-@@ -79,10 +115,10 @@ export async function revokeCollaborator(
+@@ -79,10 +128,10 @@ export async function revokeCollaborator(
          });
        },
      });
@@ -2134,7 +2569,7 @@ index 7a15f84..8a2b953 100644
      console.warn("[revoke] revokeSpaceAccess failed; falling back to removeSpaceMember", err);
      try {
        await removeSpaceMember(session.accountClient, spaceId, subjectUserId, session);
-@@ -91,4 +127,17 @@ export async function revokeCollaborator(
+@@ -91,4 +140,17 @@ export async function revokeCollaborator(
      }
      return { evicted: false };
    }
@@ -2352,18 +2787,16 @@ index 0000000..afc1707
 +}
 diff --git a/apps/mobile/lib/resolution-d-invitation.ts b/apps/mobile/lib/resolution-d-invitation.ts
 new file mode 100644
-index 0000000..4cef9a4
+index 0000000..7e52784
 --- /dev/null
 +++ b/apps/mobile/lib/resolution-d-invitation.ts
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,120 @@
 +/**
 + * Reconnaître une invitation, et savoir dire pourquoi quand on n'y arrive pas.
 + *
-+ * L'écran de jonction se bornait à déclarer une invitation « invalide », quelle
-+ * que soit la cause. Or les trois causes n'appellent pas le même geste : une
-+ * adresse tronquée se rattrape en saisissant le code, une invitation expirée
-+ * demande qu'on en réclame une neuve, et un lien qui ne veut rien dire n'est
-+ * pas la même chose qu'un dépôt qu'on a retiré.
++ * Les causes n'appellent pas le même geste : une adresse tronquée se rattrape
++ * en saisissant le code, une invitation expirée demande qu'on en réclame une
++ * neuve, une invitation déjà utilisée renvoie à la connexion.
 + */
 +
 +import type { SpaceInviteLinkToken } from "@fiance/sdk";
@@ -2372,20 +2805,22 @@ index 0000000..4cef9a4
 +  InvitationCourteError,
 +  decoderLeJeton,
 +  lireLeLienCourt,
++  normaliserLeCode,
 +  ouvrirLInvitationCourte,
 +  type EchecDInvitationCourte,
 +} from "@/lib/invitation-courte";
 +
-+export type CauseDEchec = "incomplete" | "expiree" | "invalide";
++export type CauseDEchec = "incomplete" | "expiree" | "invalide" | "utilisee";
 +
 +const CAUSE_PAR_ECHEC: Record<EchecDInvitationCourte, CauseDEchec> = {
 +  "depot-absent": "expiree",
 +  "depot-illisible": "incomplete",
++  "depot-utilise": "utilisee",
 +  reseau: "invalide",
 +};
 +
 +export type ResolutionDInvitation =
-+  | { jeton: SpaceInviteLinkToken }
++  | { jeton: SpaceInviteLinkToken; nomDuMariage?: string; nomDeLaPersonne?: string; code?: string }
 +  | { cause: CauseDEchec };
 +
 +/** Vrai quand l'adresse désigne bien une invitation courte, fragment perdu ou non. */
@@ -2415,17 +2850,65 @@ index 0000000..4cef9a4
 +  return resoudreLeCode(syncBase, court.code, court.cle);
 +}
 +
-+/** Le repli : un code et sa clé, saisis ou collés à la main. */
++/** Un code et sa clé, saisis ou collés à la main. */
 +export async function resoudreLeCode(
 +  syncBase: string,
 +  code: string,
 +  cle: string,
 +): Promise<ResolutionDInvitation> {
 +  try {
-+    const jeton = decoderLeJeton(await ouvrirLInvitationCourte(syncBase, { code, cle }));
-+    return jeton ? { jeton } : { cause: "invalide" };
++    const ouvert = await ouvrirLInvitationCourte(syncBase, { code, cle });
++    const jeton = decoderLeJeton(ouvert.jeton);
++    if (!jeton) return { cause: "invalide" };
++    return {
++      jeton,
++      ...(ouvert.nomDuMariage ? { nomDuMariage: ouvert.nomDuMariage } : {}),
++      ...(ouvert.nomDeLaPersonne ? { nomDeLaPersonne: ouvert.nomDeLaPersonne } : {}),
++      code,
++    };
 +  } catch (err) {
 +    return { cause: err instanceof InvitationCourteError ? CAUSE_PAR_ECHEC[err.cas] : "invalide" };
++  }
++}
++
++/**
++ * Résout ce qu'une personne a collé ou tapé : lien court, lien long (même
++ * noyé dans un message), « CODE#clé » ou « CODE clé ».
++ */
++export async function resoudreUneSaisie(syncBase: string, saisie: string): Promise<ResolutionDInvitation> {
++  const texte = saisie.trim();
++
++  const adresse = texte.match(/[a-z][a-z0-9+.-]*:\/\/\S+/i)?.[0];
++  if (adresse) {
++    // Le fragment d'un lien court est la clé : on ne le tente comme jeton long qu'à défaut.
++    const jetonLong = lireLeLienCourt(adresse) ? null : decoderLeJeton(fragmentDe(adresse));
++    return resoudreLInvitation(syncBase, adresse, jetonLong);
++  }
++
++  const dièse = texte.indexOf("#");
++  let brutDuCode: string;
++  let brutDeLaCle: string;
++  if (dièse >= 0) {
++    brutDuCode = texte.slice(0, dièse);
++    brutDeLaCle = texte.slice(dièse + 1);
++  } else {
++    const morceaux = texte.split(/\s+/).filter(Boolean);
++    brutDeLaCle = morceaux.length > 1 ? (morceaux.pop() as string) : "";
++    brutDuCode = morceaux.join(" ");
++  }
++
++  const code = normaliserLeCode(brutDuCode);
++  if (!code) return { cause: "invalide" };
++  const cle = brutDeLaCle.trim().match(/^[A-Za-z0-9_-]+/)?.[0];
++  // Un code sans sa clé n'ouvre rien : c'est une invitation incomplète, pas inconnue.
++  return cle ? resoudreLeCode(syncBase, code, cle) : { cause: "incomplete" };
++}
++
++function fragmentDe(url: string): string {
++  try {
++    return new URL(url).hash.slice(1);
++  } catch {
++    return "";
 +  }
 +}
 diff --git a/apps/mobile/store/useAccesChiffreStore.ts b/apps/mobile/store/useAccesChiffreStore.ts
@@ -2493,7 +2976,7 @@ index 0000000..faa77e1
 +  return Object.keys(useAccesChiffreStore.getState().illisibles).length > 0;
 +}
 diff --git a/apps/mobile/i18n/locales/fr/settings.json b/apps/mobile/i18n/locales/fr/settings.json
-index 3bf7b5b..81980b7 100644
+index 3bf7b5b..33dae6b 100644
 --- a/apps/mobile/i18n/locales/fr/settings.json
 +++ b/apps/mobile/i18n/locales/fr/settings.json
 @@ -302,7 +310,7 @@
@@ -2506,10 +2989,10 @@ index 3bf7b5b..81980b7 100644
    "collaboratorRemoveError": "Le retrait a échoué. Régénérez le lien d'invitation pour couper l'accès.",
    "rolePickerEyebrow": "Invitation",
 diff --git a/apps/mobile/i18n/locales/fr/settings.json b/apps/mobile/i18n/locales/fr/settings.json
-index 3bf7b5b..81980b7 100644
+index 3bf7b5b..33dae6b 100644
 --- a/apps/mobile/i18n/locales/fr/settings.json
 +++ b/apps/mobile/i18n/locales/fr/settings.json
-@@ -312,5 +320,27 @@
+@@ -312,5 +320,64 @@
    "inviteNamePlaceholder": "ex. Maman, Julie, wedding planner",
    "inviteNameRequired": "Indiquez un nom pour générer le lien",
    "roleFullAccess": "Accès complet",
@@ -2536,10 +3019,47 @@ index 3bf7b5b..81980b7 100644
 +  "revoquerDernierLienMsg": "C'est le seul lien de cette personne : la révoquer la retirera de la liste des collaborateurs, et l'appareil qui s'en sert perdra son accès. Tout le contenu chiffré sera rescellé sous une clé neuve.",
 +  "lienNonConserve": "Un lien déjà émis n'est pas conservé : sa matière privée n'est écrite nulle part, à dessein. Il ne peut donc pas être recopié — régénérez-en un nouveau, l'ancien restera valable.",
 +  "collaborateurSansNom": "Lien sans nom",
-+  "collaborateurSansNomAide": "Émis avant que le nom soit obligatoire — impossible de savoir à qui il appartient."
++  "collaborateurSansNomAide": "Émis avant que le nom soit obligatoire — impossible de savoir à qui il appartient.",
++  "inviteLienAide": "Envoyez ce lien à la personne invitée. Il est valable 7 jours et ne sert qu'une fois.",
++  "inviteCopier": "Copier",
++  "inviteCopie": "Copié",
++  "inviteWhatsApp": "WhatsApp",
++  "inviteSms": "SMS",
++  "inviteEmail": "E-mail",
++  "invitePartager": "Partager",
++  "inviteMessage": "Bonjour {{prenom}}, voici ton invitation pour préparer le mariage avec nous : {{lien}} — elle est valable 7 jours et ne sert qu'une fois.",
++  "inviteSujet": "Invitation à préparer notre mariage",
++  "inviteAfficherLeQR": "Afficher le QR code",
++  "inviteMasquerLeQR": "Masquer le QR code",
++  "inviteDelaiDepasse": "Le serveur ne répond pas.",
++  "inviteOuvertureImpossible": "Impossible d'ouvrir l'application d'envoi.",
++  "compte": {
++    "titre": "Mon compte",
++    "aucun": "Aucun compte : créez-le pour ne pas perdre l'accès",
++    "banniere": "Créez votre compte pour retrouver votre mariage sur tous vos appareils",
++    "banniereDeplace": "Votre mot de passe a été changé sur un autre appareil. Reconnectez-vous.",
++    "sansCompte": "Sans compte, votre accès n'existe que sur cet appareil : si vous le perdez ou effacez ses données, vous perdez le mariage. Créez un compte pour le retrouver sur tous vos appareils.",
++    "creer": "Créer mon compte",
++    "identifiant": "Identifiant",
++    "changerLeMotDePasse": "Changer de mot de passe",
++    "coffre": {
++      "aJour": "Votre accès est enregistré.",
++      "enAttente": "Enregistrement…",
++      "echec": "Votre accès n'a pas pu être enregistré.",
++      "reessayer": "Réessayer",
++      "deplace": "Le mot de passe a été changé sur un autre appareil. Reconnectez-vous."
++    },
++    "deconnexion": {
++      "bouton": "Se déconnecter",
++      "titre": "Se déconnecter ?",
++      "message": "Vos données restent sur le serveur. Pour les retrouver, reconnectez-vous avec votre identifiant et votre mot de passe.",
++      "poussee": "Des modifications n'ont pas pu être envoyées. Se déconnecter quand même ?",
++      "quandMeme": "Se déconnecter quand même"
++    }
++  }
  }
 diff --git a/apps/mobile/i18n/locales/en/settings.json b/apps/mobile/i18n/locales/en/settings.json
-index 86026b0..98c264a 100644
+index 86026b0..615bd18 100644
 --- a/apps/mobile/i18n/locales/en/settings.json
 +++ b/apps/mobile/i18n/locales/en/settings.json
 @@ -302,7 +310,7 @@
@@ -2552,10 +3072,10 @@ index 86026b0..98c264a 100644
    "collaboratorRemoveError": "Removal failed. Regenerate the invite link to cut off access.",
    "rolePickerEyebrow": "Invitation",
 diff --git a/apps/mobile/i18n/locales/en/settings.json b/apps/mobile/i18n/locales/en/settings.json
-index 86026b0..98c264a 100644
+index 86026b0..615bd18 100644
 --- a/apps/mobile/i18n/locales/en/settings.json
 +++ b/apps/mobile/i18n/locales/en/settings.json
-@@ -312,5 +320,27 @@
+@@ -312,5 +320,64 @@
    "inviteNamePlaceholder": "e.g. Mum, Julie, wedding planner",
    "inviteNameRequired": "Enter a name to generate the link",
    "roleFullAccess": "Full access",
@@ -2582,31 +3102,85 @@ index 86026b0..98c264a 100644
 +  "revoquerDernierLienMsg": "This is the person's only link: revoking it removes them from the collaborators list, and the device using it loses access. All encrypted content will be re-sealed under a fresh key.",
 +  "lienNonConserve": "An issued link is not kept: its private material is written nowhere, by design. It therefore can't be copied again — regenerate a new one, the old stays valid.",
 +  "collaborateurSansNom": "Unnamed link",
-+  "collaborateurSansNomAide": "Issued before a name was required — there's no way to tell whose it is."
++  "collaborateurSansNomAide": "Issued before a name was required — there's no way to tell whose it is.",
++  "inviteLienAide": "Send this link to the person you're inviting. It is valid for 7 days and works only once.",
++  "inviteCopier": "Copy",
++  "inviteCopie": "Copied",
++  "inviteWhatsApp": "WhatsApp",
++  "inviteSms": "SMS",
++  "inviteEmail": "Email",
++  "invitePartager": "Share",
++  "inviteMessage": "Hi {{prenom}}, here is your invitation to help plan the wedding with us: {{lien}} — it is valid for 7 days and can only be used once.",
++  "inviteSujet": "Invitation to help plan our wedding",
++  "inviteAfficherLeQR": "Show QR code",
++  "inviteMasquerLeQR": "Hide QR code",
++  "inviteDelaiDepasse": "The server is not responding.",
++  "inviteOuvertureImpossible": "Couldn't open the sharing app.",
++  "compte": {
++    "titre": "My account",
++    "aucun": "No account: create one so you don't lose access",
++    "banniere": "Create your account to find your wedding on all your devices",
++    "banniereDeplace": "Your password was changed on another device. Sign in again.",
++    "sansCompte": "Without an account, your access exists only on this device: if you lose it or clear its data, you lose the wedding. Create an account to find it on all your devices.",
++    "creer": "Create my account",
++    "identifiant": "Username",
++    "changerLeMotDePasse": "Change password",
++    "coffre": {
++      "aJour": "Your access is saved.",
++      "enAttente": "Saving…",
++      "echec": "Your access could not be saved.",
++      "reessayer": "Try again",
++      "deplace": "The password was changed on another device. Sign in again."
++    },
++    "deconnexion": {
++      "bouton": "Sign out",
++      "titre": "Sign out?",
++      "message": "Your data stays on the server. To get it back, sign in again with your username and password.",
++      "poussee": "Some changes could not be sent. Sign out anyway?",
++      "quandMeme": "Sign out anyway"
++    }
++  }
  }
 diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
-index 8c90fdb..0ce885d 100644
+index 8c90fdb..87dbc02 100644
 --- a/apps/mobile/lib/invite-link.ts
 +++ b/apps/mobile/lib/invite-link.ts
-@@ -96,5 +119,58 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
+@@ -47,6 +75,25 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
+   const collaboratorName = name?.trim() || undefined;
+   const { token, link, inviteUserId } = await createSpaceInviteLink(cfg.session, spaceId, collaboratorName ?? entry.label, canWrite, origin);
+ 
++  // Le dépôt AVANT l'affectation et la poussée : s'il échoue, aucune affectation
++  // orpheline n'est laissée par la tentative.
++  const fragment = link.includes("#") ? link.slice(link.indexOf("#") + 1) : link;
++  let court: string;
++  try {
++    const { depot, cle } = await chiffrerLeJeton(
++      emballerLInvitation({ jeton: fragment, nomDuMariage: entry.label, nomDeLaPersonne: collaboratorName }),
++    );
++    const code = tirerUnCode();
++    await deposer(normalizeSyncBase(cfg.serverUrl), code, depot);
++    court = construireLeLienCourt(origin, code, cle);
++    enregistrerLeCodeDuLien(entry.id, code);
++  } catch (err) {
++    console.warn("[invite] dépôt du lien court impossible", err);
++    throw new Error(
++      `Le lien n'a pas pu être déposé sur le serveur (${err instanceof Error ? err.message : String(err)}).`,
++    );
++  }
++
+   // Persist the (in-memory) invite store so this link's revocation handle survives an app
+   // restart — revokeSpaceAccess needs getSpaceInviteEntry(spaceId, inviteUserId) to resolve.
+   try { writeCollection(SPACE_INVITE_STORE_KEY, serializeSpaceInviteStore()); } catch (err) {
+diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
+index 8c90fdb..87dbc02 100644
+--- a/apps/mobile/lib/invite-link.ts
++++ b/apps/mobile/lib/invite-link.ts
+@@ -96,5 +144,46 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
      console.warn("[invite] roster diagnostics failed", err);
    }
  
 -  return link;
-+  // MODIFICATION LOCALE — la forme courte. Le format long est conservé en repli :
-+  // un dépôt injoignable ne doit pas empêcher d'inviter quelqu'un.
-+  const fragment = link.includes("#") ? link.slice(link.indexOf("#") + 1) : link;
-+  try {
-+    const { depot, cle } = await chiffrerLeJeton(fragment);
-+    const code = tirerUnCode();
-+    await deposer(normalizeSyncBase(cfg.serverUrl), code, depot);
-+    const court = construireLeLienCourt(origin, code, cle);
-+    enregistrerLeCodeDuLien(entry.id, code);
-+    return court;
-+  } catch (err) {
-+    console.warn("[invite] dépôt du lien court impossible, repli sur le format long", err);
-+    return link;
-+  }
++  return court;
 +}
 +
 +/** Les codes de dépôt émis pour ce mariage, pour pouvoir les retirer plus tard. */
@@ -2646,13 +3220,14 @@ index 8c90fdb..0ce885d 100644
 +      ...connus,
 +      [entry.id]: (connus[entry.id] ?? []).filter((c) => c !== code),
 +    });
++    planifierLeCoffre();
 +  } catch { /* la mémoire des codes est un confort, pas une garantie */ }
  }
 diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
-index 07ec918..efd97e0 100644
+index 07ec918..f5ad5cb 100644
 --- a/apps/mobile/components/InviteQRSheet.tsx
 +++ b/apps/mobile/components/InviteQRSheet.tsx
-@@ -29,6 +51,8 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
+@@ -29,6 +62,8 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
    const [url, setUrl] = useState("");
    const [detail, setDetail] = useState("");
    const [name, setName] = useState("");
@@ -2662,19 +3237,139 @@ index 07ec918..efd97e0 100644
    const roleLabel = (r: RoleDefinition) => (r.isSystem ? t(r.name) : r.name);
    const surfaceLabel = (s: FeatureSurface) =>
 diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
-index 07ec918..efd97e0 100644
+index 07ec918..f5ad5cb 100644
 --- a/apps/mobile/components/InviteQRSheet.tsx
 +++ b/apps/mobile/components/InviteQRSheet.tsx
-@@ -241,6 +273,51 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
-                 {t("shareLink")}
+@@ -203,44 +320,141 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
+ 
+         {state === "ready" && (
+           <>
+-            {/* Header row */}
+-            <View style={{ marginBottom: 24 }}>
++            <View style={{ marginBottom: 16 }}>
+               <Text style={{ fontSize: 18, fontWeight: "700", color: theme.ink, letterSpacing: -0.3 }}>
+                 {t("shareInviteLink")}
                </Text>
-             </Pressable>
+-              <Text style={{ fontSize: 13, color: theme.mute, marginTop: 2 }}>
+-                {t("scanFromOtherDevice")}
++              <Text style={{ fontSize: 13, color: theme.mute, marginTop: 2, lineHeight: 18 }}>
++                {t("inviteLienAide")}
+               </Text>
+             </View>
+ 
+-            {/* QR code card */}
+-            <View style={{ alignItems: "center", marginBottom: 20 }}>
+-              <View style={{
+-                backgroundColor: "#ffffff",
+-                padding: 16,
+-                borderRadius: 20,
+-                borderWidth: 1,
+-                borderColor: theme.hair,
+-              }}>
+-                <QRCode value={url} size={qrSize} ecl="L" />
+-              </View>
++            <View style={{
++              backgroundColor: theme.paper,
++              borderRadius: 14,
++              borderWidth: 1,
++              borderColor: theme.hair,
++              paddingHorizontal: 14,
++              paddingVertical: 12,
++              marginBottom: 14,
++            }}>
++              <Text selectable style={{ fontSize: 14, color: theme.ink, lineHeight: 20 }}>
++                {url}
++              </Text>
+             </View>
+ 
+-            {/* Share button */}
+-            <Pressable
+-              onPress={handleShare}
+-              style={({ pressed }) => ({
+-                backgroundColor: theme.clay,
+-                borderRadius: 16,
+-                paddingVertical: 16,
+-                alignItems: "center",
+-                opacity: pressed ? 0.8 : 1,
+-              })}
+-            >
+-              <Text style={{ color: "#ffffff", fontWeight: "600", fontSize: 16 }}>
+-                {t("shareLink")}
+-              </Text>
+-            </Pressable>
++            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
++              {boutons.map((b) => (
++                <Pressable
++                  key={b.cle}
++                  accessibilityRole="button"
++                  onPress={b.onPress}
++                  style={({ pressed }) => ({
++                    flexGrow: 1,
++                    // 120 : deux boutons par ligne dès 360 px, jamais d'icône rognée.
++                    flexBasis: 120,
++                    minHeight: 44,
++                    flexDirection: "row",
++                    alignItems: "center",
++                    justifyContent: "center",
++                    gap: 7,
++                    borderRadius: 14,
++                    paddingHorizontal: 10,
++                    backgroundColor: b.plein ? theme.clay : theme.paper,
++                    borderWidth: 1,
++                    borderColor: b.plein ? theme.clay : theme.hair,
++                    opacity: pressed ? 0.75 : 1,
++                  })}
++                >
++                  <View style={{ flexShrink: 0 }}>{b.icone}</View>
++                  <Text style={{ color: b.plein ? "#ffffff" : theme.ink, fontWeight: "600", fontSize: 14, flexShrink: 1 }}>
++                    {b.libelle}
++                  </Text>
++                </Pressable>
++              ))}
++            </View>
++
++            {qrReplie && (
++              <Pressable
++                accessibilityRole="button"
++                onPress={() => setQrOuvert((o) => !o)}
++                style={({ pressed }) => ({
++                  minHeight: 44,
++                  flexDirection: "row",
++                  alignItems: "center",
++                  justifyContent: "center",
++                  gap: 7,
++                  opacity: pressed ? 0.6 : 1,
++                })}
++              >
++                <QrCode size={17} color={theme.mute} />
++                <Text style={{ fontSize: 14, color: theme.mute }}>
++                  {qrOuvert ? t("inviteMasquerLeQR") : t("inviteAfficherLeQR")}
++                </Text>
++              </Pressable>
++            )}
++
++            {(!qrReplie || qrOuvert) && (
++              <View style={{ alignItems: "center", marginTop: 4 }}>
++                <View style={{
++                  backgroundColor: "#ffffff",
++                  padding: 16,
++                  borderRadius: 20,
++                  borderWidth: 1,
++                  borderColor: theme.hair,
++                }}>
++                  <QRCode value={url} size={qrSize} ecl="M" />
++                </View>
++                <Text style={{ fontSize: 12, color: theme.mute, marginTop: 10, textAlign: "center" }}>
++                  {t("scanFromOtherDevice")}
++                </Text>
++              </View>
++            )}
 +
 +            {/* MODIFICATION LOCALE — le dépôt est borné dans le temps, et le
 +                propriétaire peut le retirer avant son terme. Un lien retiré
 +                présente le message d'EXPIRATION, distinct de « non reconnue ». */}
 +            {retirer && (
-+              <View style={{ marginTop: 14 }}>
++              <View style={{ marginTop: 20 }}>
 +                <Text style={{ fontSize: 12, color: theme.mute, textAlign: "center", marginBottom: 10 }}>
 +                  {t("depotDureeDeVie")}
 +                </Text>
@@ -2718,7 +3413,7 @@ index 07ec918..efd97e0 100644
          )}
  
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..74077a6 100644
+index 0c9b4af..1a6bd26 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
 @@ -87,8 +94,52 @@ import { useCeremonyStore } from '@/store/useCeremonyStore';
@@ -2776,10 +3471,10 @@ index 0c9b4af..74077a6 100644
  // ---------------------------------------------------------------------------
  // Debounced push scheduler
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..74077a6 100644
+index 0c9b4af..1a6bd26 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -393,6 +817,13 @@ async function pushCollectionDoc(
+@@ -393,6 +879,13 @@ async function pushCollectionDoc(
    merge: (cur: unknown, doc: CollectionDoc, now: number) => CollectionDoc = (cur, doc, now) =>
      mergeCollectionDoc(cur, doc, { now }),
  ): Promise<boolean> {
@@ -2794,10 +3489,10 @@ index 0c9b4af..74077a6 100644
      const handle = await getNodeAccess(spaceId, node.id, node, session, null);
      await handle.push(
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..74077a6 100644
+index 0c9b4af..1a6bd26 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -510,14 +1022,22 @@ async function pullNodeContent(
+@@ -510,14 +1084,22 @@ async function pullNodeContent(
    spaceId: string,
    node: ObjectNode,
  ): Promise<Record<string, unknown> | null> {
@@ -2826,10 +3521,10 @@ index 0c9b4af..74077a6 100644
      return null;
    }
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..74077a6 100644
+index 0c9b4af..1a6bd26 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -532,27 +1052,73 @@ async function pullCollectionDocs(
+@@ -532,27 +1114,73 @@ async function pullCollectionDocs(
  ): Promise<Map<string, CollectionDoc>> {
    const out = new Map<string, CollectionDoc>();
    if (!sentinels.length) return out;

@@ -1,0 +1,4151 @@
+diff --git a/apps/mobile/__tests__/accueil.test.ts b/apps/mobile/__tests__/accueil.test.ts
+new file mode 100644
+index 0000000..fa23058
+--- /dev/null
++++ b/apps/mobile/__tests__/accueil.test.ts
+@@ -0,0 +1,19 @@
++import { describe, expect, it } from "vitest";
++import { ecranInitialDeLAccueil } from "@/lib/accueil";
++
++describe("?mode= de l'accueil", () => {
++  it("connexion ouvre le formulaire de connexion", () => {
++    expect(ecranInitialDeLAccueil("connexion")).toBe("connexion");
++  });
++
++  it("un paramètre répété lit le premier", () => {
++    expect(ecranInitialDeLAccueil(["connexion", "autre"])).toBe("connexion");
++    expect(ecranInitialDeLAccueil(["autre", "connexion"])).toBe("accueil");
++  });
++
++  it("absent ou inconnu : l'accueil", () => {
++    expect(ecranInitialDeLAccueil(undefined)).toBe("accueil");
++    expect(ecranInitialDeLAccueil("")).toBe("accueil");
++    expect(ecranInitialDeLAccueil("Connexion")).toBe("accueil");
++  });
++});
+diff --git a/apps/mobile/__tests__/alerte-web.test.ts b/apps/mobile/__tests__/alerte-web.test.ts
+new file mode 100644
+index 0000000..a340eca
+--- /dev/null
++++ b/apps/mobile/__tests__/alerte-web.test.ts
+@@ -0,0 +1,61 @@
++import { describe, it, expect, vi } from "vitest";
++
++vi.mock("react-native", () => ({ Platform: { OS: "ios" }, Alert: { alert: vi.fn() } }));
++vi.mock("@/lib/toast/sonner", () => ({ toast: vi.fn() }));
++
++import { Alert } from "react-native";
++import { deciderLAlerte, installerLesAlertesWeb } from "@/lib/alerte-web";
++
++describe("deciderLAlerte", () => {
++  it("sans bouton : un simple message", () => {
++    expect(deciderLAlerte()).toEqual({ mode: "toast", accepter: undefined });
++  });
++
++  it("un bouton : un message, puis son action", () => {
++    const ok = vi.fn();
++    const d = deciderLAlerte([{ text: "OK", onPress: ok }]);
++    expect(d.mode).toBe("toast");
++    expect(d.accepter).toBe(ok);
++  });
++
++  it("annuler + confirmer : une confirmation", () => {
++    const annuler = vi.fn();
++    const supprimer = vi.fn();
++    const d = deciderLAlerte([
++      { text: "Annuler", style: "cancel", onPress: annuler },
++      { text: "Supprimer", style: "destructive", onPress: supprimer },
++    ]);
++    expect(d).toEqual({ mode: "confirmation", accepter: supprimer, refuser: annuler });
++  });
++
++  it("l'ordre des boutons n'importe pas pour trouver l'annulation", () => {
++    const annuler = vi.fn();
++    const ok = vi.fn();
++    const d = deciderLAlerte([{ text: "OK", onPress: ok }, { text: "Annuler", style: "cancel", onPress: annuler }]);
++    expect(d.accepter).toBe(ok);
++    expect(d.refuser).toBe(annuler);
++  });
++
++  it("trois boutons : l'action principale est le dernier bouton non annulant", () => {
++    const a = vi.fn();
++    const b = vi.fn();
++    const d = deciderLAlerte([{ text: "Annuler", style: "cancel" }, { text: "A", onPress: a }, { text: "B", onPress: b }]);
++    expect(d.accepter).toBe(b);
++    expect(d.refuser).toBeUndefined();
++  });
++
++  it("deux boutons sans annulation : refuser ne fait rien", () => {
++    const b = vi.fn();
++    const d = deciderLAlerte([{ text: "A" }, { text: "B", onPress: b }]);
++    expect(d.accepter).toBe(b);
++    expect(d.refuser).toBeUndefined();
++  });
++});
++
++describe("installerLesAlertesWeb", () => {
++  it("ne touche à rien hors du web", () => {
++    const origine = Alert.alert;
++    installerLesAlertesWeb();
++    expect(Alert.alert).toBe(origine);
++  });
++});
+diff --git a/apps/mobile/__tests__/compte-session.test.ts b/apps/mobile/__tests__/compte-session.test.ts
+new file mode 100644
+index 0000000..9263c35
+--- /dev/null
++++ b/apps/mobile/__tests__/compte-session.test.ts
+@@ -0,0 +1,434 @@
++/**
++ * La couche « session de compte » : le registre local devient le coffre, et le
++ * coffre redevient un registre sur un autre appareil.
++ */
++import { beforeEach, describe, expect, it, vi } from "vitest";
++
++vi.mock("@fiance/sdk", () => ({ getSyncNamespace: () => "dk", clearSpaceAccessStore: vi.fn() }));
++
++const mockSeConnecter = vi.fn();
++const mockCreerLeCompte = vi.fn();
++const mockEnregistrer = vi.fn();
++const mockLire = vi.fn(async (): Promise<unknown> => null);
++vi.mock("@/lib/compte", async (importOriginal) => ({
++  ...(await importOriginal<Record<string, unknown>>()),
++  seConnecter: (...a: unknown[]) => mockSeConnecter(...a),
++  creerLeCompte: (...a: unknown[]) => mockCreerLeCompte(...a),
++  enregistrerLeCoffre: (...a: unknown[]) => mockEnregistrer(...a),
++  changerLeMotDePasse: vi.fn(),
++  lireLeCoffre: () => mockLire(),
++}));
++
++vi.mock("@/lib/server", () => ({
++  resolveServerUrl: () => "https://mariage.didot.io/sync",
++  normalizeSyncBase: (u: string) => u,
++}));
++
++const kv = new Map<string, unknown>();
++vi.mock("@/lib/kv-storage", () => ({
++  readCollection: (c: string) => (kv.has(c) ? kv.get(c) : null),
++  writeCollection: (c: string, v: unknown) => { kv.set(c, v); },
++}));
++
++const mockPousser = vi.fn(async () => true);
++const mockTeardown = vi.fn();
++vi.mock("@/lib/space-sync", () => ({
++  pousserAvantDeQuitter: () => mockPousser(),
++  attendreLaFinDeLHydratation: async () => {},
++  resetDirtyPushBaseline: vi.fn(),
++}));
++vi.mock("@/lib/starfish", () => ({ teardownSync: () => mockTeardown() }));
++
++const secure = new Map<string, string>();
++vi.mock("@/lib/secure-store", () => ({
++  secureGet: async (k: string) => secure.get(k) ?? null,
++  secureSet: async (k: string, v: string) => { secure.set(k, v); },
++  secureDelete: async (k: string) => { secure.delete(k); },
++}));
++
++vi.mock("@/store/useRevenueCatStore", () => ({ useRevenueCatStore: { getState: () => ({ setPremium: vi.fn() }) } }));
++
++// Le registre persisté, sur une Map : le vrai module tire `expo-sqlite`.
++type Registre = { activeWeddingId: string | null; vides?: never; weddings: Array<Record<string, unknown> & { id: string }> };
++let persiste: Registre;
++const mockSupprimer = vi.fn(async (id: string) => {
++  persiste = { ...persiste, weddings: persiste.weddings.filter((w) => w.id !== id) };
++});
++vi.mock("@/lib/wedding-registry", () => ({
++  loadRegistry: async () => structuredClone(persiste),
++  saveRegistry: async (r: Registre) => { persiste = structuredClone(r); },
++  deleteWeddingEntry: (id: string) => mockSupprimer(id),
++  createWeddingEntry: vi.fn(),
++  setActiveWeddingEntry: vi.fn(),
++  updateWeddingEntry: vi.fn(),
++}));
++
++import { CompteError } from "@/lib/compte";
++import {
++  construireLeCoffre,
++  creerMonCompte,
++  installerLeSuiviDuCoffre,
++  ouvrirUneSession,
++  planifierLeCoffre,
++  restaurerLesAnnexes,
++  seDeconnecter,
++  verifierLeCoffre,
++} from "@/lib/compte-session";
++import { useCompteStore } from "@/store/useCompteStore";
++import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
++
++const COMPTE = { identifiant: "Marie", locator: "a".repeat(64), cle: "k" };
++
++const MARIAGE = {
++  id: "w1", label: "Notre mariage", dbFileName: "wedding_w1.db", createdAt: "2026-01-01T00:00:00Z",
++  seedPhrase: "a b c", spaceId: "sp-1", role: "owner",
++};
++const AUTRE = {
++  id: "w2", label: "Celui de Paul", dbFileName: "wedding_w2.db", createdAt: "2026-02-01T00:00:00Z",
++  seedPhrase: "d e f", spaceId: "sp-2", role: "member",
++};
++
++function unCoffre(weddings: Array<Record<string, unknown>>, annexes: Record<string, unknown> = {}) {
++  return { v: 1, identifiant: "Marie", registre: { activeWeddingId: weddings[0]?.id ?? null, weddings }, annexes, majLe: "2026-10-01T00:00:00Z" };
++}
++
++beforeEach(async () => {
++  vi.useRealTimers();
++  vi.clearAllMocks();
++  kv.clear();
++  secure.clear();
++  persiste = { activeWeddingId: null, weddings: [] };
++  mockPousser.mockResolvedValue(true);
++  mockLire.mockResolvedValue(null);
++  mockEnregistrer.mockResolvedValue(undefined);
++  useCompteStore.setState({ compte: null, charge: true, coffre: "a-jour" });
++  await useWeddingRegistryStore.getState().load();
++});
++
++describe("construireLeCoffre", () => {
++  it("range le registre tel quel, sans le marqueur de première hydratation", async () => {
++    persiste = { activeWeddingId: "w1", weddings: [{ ...MARIAGE, premiereHydratationAttendue: true }, AUTRE] };
++
++    const coffre = await construireLeCoffre("Marie");
++
++    expect(coffre.v).toBe(1);
++    expect(coffre.identifiant).toBe("Marie");
++    expect(coffre.registre).toEqual({ activeWeddingId: "w1", weddings: [MARIAGE, AUTRE] });
++    expect(JSON.stringify(coffre)).not.toContain("premiereHydratationAttendue");
++  });
++
++  it("emporte les annexes du mariage actif, et garde celles déjà connues des autres", async () => {
++    mockSeConnecter.mockResolvedValue({
++      compte: COMPTE,
++      coffre: unCoffre([AUTRE], { w2: { inviteDepotCodes: ["CODE2"] } }),
++    });
++    await ouvrirUneSession("Marie", "un-mot-de-passe");
++    persiste = { activeWeddingId: "w1", weddings: [MARIAGE, AUTRE] };
++    kv.set("spaceInviteStore", "{revocation}");
++    kv.set("inviteDepotCodes", { w1: ["CODE1"] });
++
++    const coffre = await construireLeCoffre("Marie");
++
++    expect(coffre.annexes).toEqual({
++      w1: { spaceInviteStore: "{revocation}", inviteDepotCodes: ["CODE1"] },
++      w2: { inviteDepotCodes: ["CODE2"] },
++    });
++  });
++});
++
++describe("ouvrirUneSession", () => {
++  it("sur un appareil vierge : écrit le registre, pose le marqueur et le compte local", async () => {
++    mockSeConnecter.mockResolvedValue({ compte: COMPTE, coffre: unCoffre([MARIAGE, AUTRE], { w1: { inviteDepotCodes: ["CODE1"] } }) });
++
++    await ouvrirUneSession("Marie", "un-mot-de-passe");
++
++    expect(persiste.activeWeddingId).toBe("w1");
++    expect(persiste.weddings.map((w) => w.id)).toEqual(["w1", "w2"]);
++    expect(persiste.weddings.every((w) => w.premiereHydratationAttendue === true)).toBe(true);
++    expect(useCompteStore.getState().compte).toEqual(COMPTE);
++    expect(JSON.parse(secure.get("fiance_compte")!)).toEqual(COMPTE);
++    expect(useWeddingRegistryStore.getState().registry?.weddings).toHaveLength(2);
++  });
++
++  it("sans synchronisation possible, le marqueur ne se pose pas : il ne lèverait jamais", async () => {
++    mockSeConnecter.mockResolvedValue({ compte: COMPTE, coffre: unCoffre([{ ...MARIAGE, syncDisabled: true }]) });
++
++    await ouvrirUneSession("Marie", "un-mot-de-passe");
++
++    expect(persiste.weddings[0].premiereHydratationAttendue).toBeUndefined();
++  });
++
++  it("sur un appareil non vierge : fusionne sans rien retirer ni toucher à l'existant", async () => {
++    const local = { ...MARIAGE, label: "Renommé ici" };
++    persiste = { activeWeddingId: "w1", weddings: [local] };
++    // Le même mariage sous un autre `id` local mais le même espace, et un mariage inconnu.
++    const memeEspace = { ...MARIAGE, id: "autre-id", label: "Du coffre" };
++    mockSeConnecter.mockResolvedValue({ compte: COMPTE, coffre: unCoffre([memeEspace, AUTRE]) });
++
++    await ouvrirUneSession("Marie", "un-mot-de-passe");
++
++    expect(persiste.activeWeddingId).toBe("w1");
++    expect(persiste.weddings.map((w) => w.id)).toEqual(["w1", "w2"]);
++    expect(persiste.weddings[0]).toEqual(local);
++    expect(persiste.weddings[1].premiereHydratationAttendue).toBe(true);
++  });
++
++  it("un identifiant refusé ne touche à rien", async () => {
++    mockSeConnecter.mockRejectedValue(new CompteError("identifiants", "non"));
++    persiste = { activeWeddingId: "w1", weddings: [MARIAGE] };
++
++    await expect(ouvrirUneSession("Marie", "mauvais-mot-de-passe")).rejects.toMatchObject({ cas: "identifiants" });
++
++    expect(persiste.weddings).toEqual([MARIAGE]);
++    expect(useCompteStore.getState().compte).toBeNull();
++  });
++});
++
++describe("restaurerLesAnnexes", () => {
++  it("pose les annexes du dernier coffre lu, seulement si la clé locale est absente", async () => {
++    mockSeConnecter.mockResolvedValue({
++      compte: COMPTE,
++      coffre: unCoffre([MARIAGE], { w1: { spaceInviteStore: "{revocation}", inviteDepotCodes: ["CODE1"] } }),
++    });
++    await ouvrirUneSession("Marie", "un-mot-de-passe");
++
++    restaurerLesAnnexes("w1");
++    expect(kv.get("spaceInviteStore")).toBe("{revocation}");
++    expect(kv.get("inviteDepotCodes")).toEqual({ w1: ["CODE1"] });
++
++    kv.set("spaceInviteStore", "{local}");
++    restaurerLesAnnexes("w1");
++    expect(kv.get("spaceInviteStore")).toBe("{local}");
++  });
++});
++
++describe("seDeconnecter", () => {
++  it("est refusée sans compte, et n'efface rien", async () => {
++    persiste = { activeWeddingId: "w1", weddings: [MARIAGE] };
++
++    expect(await seDeconnecter()).toBe("sans-compte");
++
++    expect(persiste.weddings).toHaveLength(1);
++    expect(mockSupprimer).not.toHaveBeenCalled();
++    expect(mockTeardown).not.toHaveBeenCalled();
++  });
++
++  it("une poussée en échec arrête la déconnexion, sauf si l'écran a confirmé", async () => {
++    useCompteStore.setState({ compte: COMPTE });
++    persiste = { activeWeddingId: "w1", weddings: [MARIAGE] };
++    mockPousser.mockResolvedValue(false);
++
++    expect(await seDeconnecter()).toBe("poussee-en-echec");
++    expect(persiste.weddings).toHaveLength(1);
++    expect(useCompteStore.getState().compte).toEqual(COMPTE);
++
++    expect(await seDeconnecter({ forcer: true })).toBe("ok");
++    expect(persiste.weddings).toHaveLength(0);
++    expect(useCompteStore.getState().compte).toBeNull();
++  });
++
++  it("enregistre le coffre une dernière fois, puis efface registre, compte et accès", async () => {
++    useCompteStore.setState({ compte: COMPTE });
++    secure.set("fiance_compte", JSON.stringify(COMPTE));
++    persiste = { activeWeddingId: "w1", weddings: [MARIAGE, AUTRE] };
++
++    expect(await seDeconnecter()).toBe("ok");
++
++    expect(mockEnregistrer).toHaveBeenCalledTimes(1);
++    expect(mockEnregistrer.mock.calls[0][2].registre.weddings).toHaveLength(2);
++    expect(mockSupprimer).toHaveBeenCalledTimes(2);
++    expect(persiste).toEqual({ activeWeddingId: null, weddings: [] });
++    expect(secure.has("fiance_compte")).toBe(false);
++    expect(mockTeardown).toHaveBeenCalled();
++    expect(useWeddingRegistryStore.getState().registry?.weddings).toEqual([]);
++  });
++
++  it("efface les entrées dk.spaceaccess.* du stockage local, et elles seules", async () => {
++    const ls = new Map<string, string>([["dk.spaceaccess.u1", "x"], ["dk.spaceaccess.u2", "y"], ["autre", "z"]]);
++    vi.stubGlobal("localStorage", {
++      get length() { return ls.size; },
++      key: (i: number) => [...ls.keys()][i] ?? null,
++      removeItem: (k: string) => { ls.delete(k); },
++    });
++    useCompteStore.setState({ compte: COMPTE });
++    persiste = { activeWeddingId: "w1", weddings: [MARIAGE] };
++
++    try {
++      expect(await seDeconnecter()).toBe("ok");
++      expect([...ls.keys()]).toEqual(["autre"]);
++    } finally {
++      vi.unstubAllGlobals();
++    }
++  });
++
++  it("sur le web, balaie juste avant le rechargement les bases de mariage, le cache de lecture et les accès", async () => {
++    const ls = new Map<string, string>([
++      ["wedding_w1.db::entitlements", "x"],
++      ["wedding_w1.db::optimisticPurchase", "x"],
++      ["starfish.pullcache./v1/dk/pull/spaces/abc", "x"],
++      ["dk.spaceaccess.u1", "x"],
++      ["wedding_registry", "garde"],
++      ["autre", "garde"],
++    ]);
++    const stockage = {
++      get length() { return ls.size; },
++      key: (i: number) => [...ls.keys()][i] ?? null,
++      removeItem: (k: string) => { ls.delete(k); },
++    };
++    vi.stubGlobal("localStorage", stockage);
++    vi.stubGlobal("sessionStorage", { clear: vi.fn() });
++    const replace = vi.fn(() => {
++      expect([...ls.keys()]).toEqual(["wedding_registry", "autre"]);
++    });
++    vi.stubGlobal("location", { replace });
++    useCompteStore.setState({ compte: COMPTE });
++    persiste = { activeWeddingId: "w1", weddings: [MARIAGE] };
++    // Un magasin réécrit sa clé pendant la purge : seul le balayage final la retire.
++    mockSupprimer.mockImplementationOnce(async () => { ls.set("wedding_w1.db::entitlements", "revenu"); });
++
++    try {
++      expect(await seDeconnecter()).toBe("ok");
++      expect(replace).toHaveBeenCalledWith("/onboarding");
++    } finally {
++      vi.unstubAllGlobals();
++    }
++  });
++
++  it("un coffre déplacé par un changement de mot de passe ne bloque pas la déconnexion", async () => {
++    useCompteStore.setState({ compte: COMPTE });
++    persiste = { activeWeddingId: "w1", weddings: [MARIAGE] };
++    mockEnregistrer.mockRejectedValue(new CompteError("deplace", "déplacé"));
++
++    expect(await seDeconnecter()).toBe("ok");
++    expect(persiste.weddings).toHaveLength(0);
++  });
++});
++
++describe("planifierLeCoffre", () => {
++  it("est muette sans compte : ni état, ni écriture", async () => {
++    vi.useFakeTimers();
++
++    planifierLeCoffre();
++    await vi.advanceTimersByTimeAsync(5000);
++
++    expect(useCompteStore.getState().coffre).toBe("a-jour");
++    expect(mockEnregistrer).not.toHaveBeenCalled();
++  });
++
++  it("avec un compte : en attente, puis à jour après 1,5 s, en une seule écriture", async () => {
++    vi.useFakeTimers();
++    useCompteStore.setState({ compte: COMPTE });
++    persiste = { activeWeddingId: "w1", weddings: [MARIAGE] };
++
++    planifierLeCoffre();
++    planifierLeCoffre();
++    expect(useCompteStore.getState().coffre).toBe("en-attente");
++    await vi.advanceTimersByTimeAsync(1400);
++    expect(mockEnregistrer).not.toHaveBeenCalled();
++    await vi.advanceTimersByTimeAsync(200);
++
++    expect(mockEnregistrer).toHaveBeenCalledTimes(1);
++    expect(useCompteStore.getState().coffre).toBe("a-jour");
++  });
++
++  it("un échec réseau pose « echec » sans lever", async () => {
++    vi.useFakeTimers();
++    useCompteStore.setState({ compte: COMPTE });
++    mockEnregistrer.mockRejectedValue(new CompteError("reseau", "hors ligne"));
++
++    planifierLeCoffre();
++    await vi.advanceTimersByTimeAsync(2000);
++
++    expect(useCompteStore.getState().coffre).toBe("echec");
++  });
++
++  it("un coffre déplacé pose « deplace » et ne réessaie pas", async () => {
++    vi.useFakeTimers();
++    useCompteStore.setState({ compte: COMPTE });
++    mockEnregistrer.mockRejectedValue(new CompteError("deplace", "déplacé"));
++
++    planifierLeCoffre();
++    await vi.advanceTimersByTimeAsync(10_000);
++
++    expect(useCompteStore.getState().coffre).toBe("deplace");
++    expect(mockEnregistrer).toHaveBeenCalledTimes(1);
++  });
++});
++
++describe("verifierLeCoffre", () => {
++  it("coffre absent : pose « deplace »", async () => {
++    useCompteStore.setState({ compte: COMPTE });
++    mockLire.mockResolvedValue(null);
++
++    await verifierLeCoffre();
++
++    expect(useCompteStore.getState().coffre).toBe("deplace");
++  });
++
++  it("coffre présent : ne change rien", async () => {
++    useCompteStore.setState({ compte: COMPTE });
++    mockLire.mockResolvedValue(unCoffre([MARIAGE]));
++
++    await verifierLeCoffre();
++
++    expect(useCompteStore.getState().coffre).toBe("a-jour");
++  });
++
++  it("erreur réseau ou coffre illisible : ne change rien et ne lève pas", async () => {
++    useCompteStore.setState({ compte: COMPTE });
++    mockLire.mockRejectedValue(new CompteError("reseau", "hors ligne"));
++    await expect(verifierLeCoffre()).resolves.toBeUndefined();
++    mockLire.mockRejectedValue(new CompteError("illisible", "abîmé"));
++    await expect(verifierLeCoffre()).resolves.toBeUndefined();
++
++    expect(useCompteStore.getState().coffre).toBe("a-jour");
++  });
++
++  it("sans compte : ne lit rien", async () => {
++    await verifierLeCoffre();
++
++    expect(mockLire).not.toHaveBeenCalled();
++    expect(useCompteStore.getState().coffre).toBe("a-jour");
++  });
++
++  it("une reconnexion réussie ramène l'état à « a-jour »", async () => {
++    useCompteStore.setState({ compte: COMPTE, coffre: "deplace" });
++    mockSeConnecter.mockResolvedValue({ compte: { ...COMPTE, locator: "b".repeat(64) }, coffre: unCoffre([MARIAGE]) });
++
++    await ouvrirUneSession("Marie", "nouveau-mot-de-passe");
++
++    expect(useCompteStore.getState().coffre).toBe("a-jour");
++  });
++});
++
++describe("le suivi du registre", () => {
++  it("replanifie le coffre quand le registre change, pas quand seul le marqueur tombe", async () => {
++    vi.useFakeTimers();
++    useCompteStore.setState({ compte: COMPTE });
++    persiste = { activeWeddingId: "w1", weddings: [{ ...MARIAGE, premiereHydratationAttendue: true }] };
++    await useWeddingRegistryStore.getState().load();
++    installerLeSuiviDuCoffre();
++
++    persiste = { activeWeddingId: "w1", weddings: [MARIAGE] };
++    await useWeddingRegistryStore.getState().load();
++    await vi.advanceTimersByTimeAsync(3000);
++    expect(mockEnregistrer).not.toHaveBeenCalled();
++
++    persiste = { activeWeddingId: "w1", weddings: [{ ...MARIAGE, label: "Renommé" }] };
++    await useWeddingRegistryStore.getState().load();
++    await vi.advanceTimersByTimeAsync(3000);
++    expect(mockEnregistrer).toHaveBeenCalledTimes(1);
++  });
++});
++
++describe("creerMonCompte", () => {
++  it("construit le coffre, le dépose, puis mémorise le compte", async () => {
++    persiste = { activeWeddingId: "w1", weddings: [MARIAGE] };
++    mockCreerLeCompte.mockResolvedValue(COMPTE);
++
++    await creerMonCompte("Marie", "un-mot-de-passe");
++
++    expect(mockCreerLeCompte.mock.calls[0][3].registre.weddings).toEqual([MARIAGE]);
++    expect(useCompteStore.getState().compte).toEqual(COMPTE);
++  });
++});
+diff --git a/apps/mobile/__tests__/compte.test.ts b/apps/mobile/__tests__/compte.test.ts
+new file mode 100644
+index 0000000..ab03438
+--- /dev/null
++++ b/apps/mobile/__tests__/compte.test.ts
+@@ -0,0 +1,369 @@
++/**
++ * Le compte : un coffre chiffré sous mot de passe. Le serveur d'essai exige
++ * `baseHash`, applique le CAS, et lit un document absent `{hash:"",data:{}}`.
++ */
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++
++vi.mock("@fiance/sdk", () => ({ getSyncNamespace: () => "dk" }));
++
++import {
++  PARAMETRES_ARGON2,
++  changerLeMotDePasse,
++  creerLeCompte,
++  deriverLesCles,
++  enregistrerLeCoffre,
++  lireLeCoffre,
++  motDePasseAcceptable,
++  normaliserLIdentifiant,
++  seConnecter,
++  type Coffre,
++  type ParametresArgon2,
++} from "@/lib/compte";
++import { decoderBase64Url, encoderBase64Url } from "@/lib/invitation-courte";
++
++const BASE = "https://mariage.didot.io/sync";
++const RAPIDE: ParametresArgon2 = { memorySize: 8, iterations: 1, parallelism: 1 };
++const MDP = "un-mot-de-passe-long";
++
++function unCoffre(identifiant = "Marie", label = "Notre mariage"): Coffre {
++  return {
++    v: 1,
++    identifiant,
++    registre: {
++      activeWeddingId: "w1",
++      weddings: [{ id: "w1", label, dbFileName: "w1.db", createdAt: "2026-01-01T00:00:00Z", seedPhrase: "a b c" }],
++    },
++    annexes: { w1: { inviteDepotCodes: ["K7M2P9QWX3"] } },
++    majLe: "2026-10-01T00:00:00Z",
++  };
++}
++
++interface Document {
++  hash: string;
++  data: unknown;
++}
++
++let docs: Record<string, Document> = {};
++let compteur = 0;
++let requetes: { url: string; methode: string; corps?: { data: unknown; baseHash: string | null } }[] = [];
++let avantPush: ((locator: string) => void) | null = null;
++
++const locatorDe = (url: string) => url.match(/_compte\/([^/?#]+)/)?.[1] ?? "";
++
++beforeEach(() => {
++  docs = {};
++  compteur = 0;
++  requetes = [];
++  avantPush = null;
++  vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
++    const locator = locatorDe(url);
++    if (init?.method === "POST") {
++      const corps = JSON.parse(String(init.body)) as { data: unknown; baseHash?: string | null };
++      requetes.push({ url, methode: "POST", corps: corps as never });
++      // Le vrai serveur lit `baseHash` et ignore tout autre nom : un faux plus indulgent masquerait l'échec.
++      if (!("baseHash" in corps)) return { ok: false, status: 400, json: async () => ({ error: "baseHash attendu" }) };
++      avantPush?.(locator);
++      const existant = docs[locator];
++      const attendu = existant ? existant.hash : null;
++      if ((corps.baseHash || null) !== attendu) {
++        return { ok: false, status: 409, json: async () => ({ error: "hash_mismatch", currentHash: existant?.hash ?? "" }) };
++      }
++      compteur += 1;
++      docs[locator] = { hash: `h${compteur}`, data: corps.data };
++      return { ok: true, status: 200, json: async () => ({ hash: docs[locator].hash }) };
++    }
++    requetes.push({ url, methode: "GET" });
++    const d = docs[locator];
++    return { ok: true, status: 200, json: async () => (d ? { hash: d.hash, data: d.data } : { hash: "", data: {} }) };
++  });
++});
++
++afterEach(() => vi.unstubAllGlobals());
++
++const pousses = () => requetes.filter((r) => r.methode === "POST");
++
++describe("l'identifiant et le mot de passe", () => {
++  it("normalise la casse, les espaces et la forme Unicode", () => {
++    expect(normaliserLIdentifiant("  Marie   DUPONT ")).toBe("marie dupont");
++    expect(normaliserLIdentifiant("ＭＡＲＩＥ")).toBe("marie");
++    expect(normaliserLIdentifiant("é")).toBe(normaliserLIdentifiant("é"));
++  });
++
++  it("exige huit caractères", () => {
++    expect(motDePasseAcceptable("1234567")).toBe(false);
++    expect(motDePasseAcceptable("12345678")).toBe(true);
++  });
++});
++
++describe("la dérivation", () => {
++  it("est déterministe et insensible à la saisie de l'identifiant", async () => {
++    const a = await deriverLesCles("Marie", MDP, RAPIDE);
++    const b = await deriverLesCles("  MARIE ", MDP, RAPIDE);
++    expect(b).toEqual(a);
++    expect(a.locator).toMatch(/^[0-9a-f]{64}$/);
++    expect(decoderBase64Url(a.cle)).toHaveLength(32);
++  });
++
++  it("change dès que l'identifiant ou le mot de passe change", async () => {
++    const a = await deriverLesCles("marie", MDP, RAPIDE);
++    const autreId = await deriverLesCles("pierre", MDP, RAPIDE);
++    const autreMdp = await deriverLesCles("marie", MDP + "!", RAPIDE);
++    expect(autreId.locator).not.toBe(a.locator);
++    expect(autreId.cle).not.toBe(a.cle);
++    expect(autreMdp.locator).not.toBe(a.locator);
++    expect(autreMdp.cle).not.toBe(a.cle);
++  });
++
++  it("le locator et la clé ne se recoupent pas", async () => {
++    const { locator, cle } = await deriverLesCles("marie", MDP, RAPIDE);
++    expect(locator).not.toContain(cle);
++  });
++
++  it("aux paramètres réels, rend 64 octets scindés en adresse et clé", async () => {
++    expect(PARAMETRES_ARGON2).toEqual({ memorySize: 47104, iterations: 3, parallelism: 1 });
++    const { locator, cle } = await deriverLesCles("marie", MDP);
++    expect(locator).toMatch(/^[0-9a-f]{64}$/);
++    expect(decoderBase64Url(cle)).toHaveLength(32);
++    expect(locator).not.toBe((await deriverLesCles("marie", MDP, RAPIDE)).locator);
++  }, 30_000);
++});
++
++describe("créer puis se connecter", () => {
++  it("fait l'aller-retour du coffre", async () => {
++    const coffre = unCoffre();
++    const compte = await creerLeCompte(BASE, " Marie ", MDP, coffre, RAPIDE);
++    expect(compte.identifiant).toBe("Marie");
++
++    const { compte: relu, coffre: restitué } = await seConnecter(BASE, "marie", MDP, RAPIDE);
++    expect(restitué).toEqual(coffre);
++    expect(relu.locator).toBe(compte.locator);
++    expect(relu.cle).toBe(compte.cle);
++  });
++
++  it("le serveur ne détient que du chiffré, à l'adresse dérivée", async () => {
++    const compte = await creerLeCompte(BASE, "marie", MDP, unCoffre(), RAPIDE);
++    expect(Object.keys(docs)).toEqual([compte.locator]);
++    const détenu = JSON.stringify(requetes);
++    expect(détenu).not.toContain("a b c");
++    expect(détenu).not.toContain("Notre mariage");
++    expect(détenu).not.toContain(compte.cle);
++    expect(clesDe(docs[compte.locator].data)).toEqual(["ct", "iv"]);
++  });
++
++  it("refuse de créer sur un coffre existant", async () => {
++    await creerLeCompte(BASE, "marie", MDP, unCoffre(), RAPIDE);
++    await expect(creerLeCompte(BASE, "Marie", MDP, unCoffre(), RAPIDE)).rejects.toMatchObject({ cas: "existe-deja" });
++  });
++
++  it("refuse en « existe-deja » une création qui perd la course", async () => {
++    const { locator } = await deriverLesCles("marie", MDP, RAPIDE);
++    avantPush = () => {
++      docs[locator] = { hash: "h-autre", data: { iv: "x", ct: "y" } };
++    };
++    await expect(creerLeCompte(BASE, "marie", MDP, unCoffre(), RAPIDE)).rejects.toMatchObject({ cas: "existe-deja" });
++  });
++
++  it("deux personnes peuvent porter le même identifiant", async () => {
++    await creerLeCompte(BASE, "marie", MDP, unCoffre("marie", "A"), RAPIDE);
++    await creerLeCompte(BASE, "marie", MDP + "2", unCoffre("marie", "B"), RAPIDE);
++    expect((await seConnecter(BASE, "marie", MDP + "2", RAPIDE)).coffre.registre.weddings[0].label).toBe("B");
++    expect((await seConnecter(BASE, "marie", MDP, RAPIDE)).coffre.registre.weddings[0].label).toBe("A");
++  });
++});
++
++describe("les échecs de connexion", () => {
++  it("un mauvais mot de passe et un identifiant inconnu rendent le même cas", async () => {
++    await creerLeCompte(BASE, "marie", MDP, unCoffre(), RAPIDE);
++    const mauvais = await seConnecter(BASE, "marie", MDP + "x", RAPIDE).catch((e) => e);
++    const inconnu = await seConnecter(BASE, "personne", MDP, RAPIDE).catch((e) => e);
++    expect(mauvais.cas).toBe("identifiants");
++    expect(inconnu.cas).toBe("identifiants");
++    expect(mauvais.message).toBe(inconnu.message);
++  });
++
++  it("un coffre substitué est « illisible », pas « identifiants »", async () => {
++    const marie = await creerLeCompte(BASE, "marie", MDP, unCoffre(), RAPIDE);
++    await creerLeCompte(BASE, "pierre", MDP, unCoffre("pierre"), RAPIDE);
++    const { locator: autre } = await deriverLesCles("pierre", MDP, RAPIDE);
++    docs[marie.locator].data = docs[autre].data;
++    await expect(seConnecter(BASE, "marie", MDP, RAPIDE)).rejects.toMatchObject({ cas: "illisible" });
++    await expect(lireLeCoffre(BASE, marie)).rejects.toMatchObject({ cas: "illisible" });
++  });
++
++  it("un coffre altéré d'un octet est « illisible »", async () => {
++    const marie = await creerLeCompte(BASE, "marie", MDP, unCoffre(), RAPIDE);
++    const dépôt = docs[marie.locator].data as { iv: string; ct: string };
++    const octets = decoderBase64Url(dépôt.ct);
++    octets[0] ^= 0xff;
++    docs[marie.locator].data = { iv: dépôt.iv, ct: encoderBase64Url(octets) };
++    await expect(seConnecter(BASE, "marie", MDP, RAPIDE)).rejects.toMatchObject({ cas: "illisible" });
++  });
++
++  it("une panne du serveur est « reseau », jamais « identifiants »", async () => {
++    vi.stubGlobal("fetch", async () => {
++      throw new Error("fetch failed");
++    });
++    await expect(seConnecter(BASE, "marie", MDP, RAPIDE)).rejects.toMatchObject({ cas: "reseau" });
++    await expect(creerLeCompte(BASE, "marie", MDP, unCoffre(), RAPIDE)).rejects.toMatchObject({ cas: "reseau" });
++    await expect(
++      enregistrerLeCoffre(BASE, { identifiant: "marie", locator: "ab", cle: encoderBase64Url(new Uint8Array(32)) }, unCoffre()),
++    ).rejects.toMatchObject({ cas: "reseau" });
++  });
++
++  it("une réponse HTTP en erreur est « reseau »", async () => {
++    vi.stubGlobal("fetch", async () => ({ ok: false, status: 503, json: async () => ({}) }));
++    await expect(seConnecter(BASE, "marie", MDP, RAPIDE)).rejects.toMatchObject({ cas: "reseau" });
++  });
++});
++
++describe("les refus avant tout appel réseau", () => {
++  it("un mot de passe trop court", async () => {
++    await expect(creerLeCompte(BASE, "marie", "court", unCoffre(), RAPIDE)).rejects.toMatchObject({
++      cas: "mot-de-passe-faible",
++    });
++    expect(requetes).toHaveLength(0);
++  });
++
++  it("un identifiant vide ou blanc", async () => {
++    for (const vide of ["", "   ", " \t"]) {
++      await expect(creerLeCompte(BASE, vide, MDP, unCoffre(), RAPIDE)).rejects.toMatchObject({ cas: "identifiant-vide" });
++      await expect(seConnecter(BASE, vide, MDP, RAPIDE)).rejects.toMatchObject({ cas: "identifiant-vide" });
++    }
++    expect(requetes).toHaveLength(0);
++  });
++
++  it("un changement vers un mot de passe trop court", async () => {
++    const compte = await creerLeCompte(BASE, "marie", MDP, unCoffre(), RAPIDE);
++    requetes.length = 0;
++    await expect(changerLeMotDePasse(BASE, compte, "court", unCoffre(), RAPIDE)).rejects.toMatchObject({
++      cas: "mot-de-passe-faible",
++    });
++    expect(requetes).toHaveLength(0);
++  });
++
++  it("une connexion avec un mot de passe trop court rend « identifiants »", async () => {
++    await expect(seConnecter(BASE, "marie", "court", RAPIDE)).rejects.toMatchObject({ cas: "identifiants" });
++    expect(requetes).toHaveLength(0);
++  });
++});
++
++describe("enregistrer le coffre", () => {
++  it("écrase le coffre existant en repartant du hash rendu par le serveur", async () => {
++    const compte = await creerLeCompte(BASE, "marie", MDP, unCoffre(), RAPIDE);
++    await enregistrerLeCoffre(BASE, compte, unCoffre("Marie", "Renommé"));
++    expect((await seConnecter(BASE, "marie", MDP, RAPIDE)).coffre.registre.weddings[0].label).toBe("Renommé");
++  });
++
++  it("réessaie après un 409 provoqué par un écrivain concurrent", async () => {
++    const compte = await creerLeCompte(BASE, "marie", MDP, unCoffre(), RAPIDE);
++    let fois = 0;
++    avantPush = (locator) => {
++      fois += 1;
++      if (fois === 1) docs[locator] = { ...docs[locator], hash: "h-concurrent" };
++    };
++    requetes.length = 0;
++    await enregistrerLeCoffre(BASE, compte, unCoffre("Marie", "Après conflit"));
++    expect(pousses().length).toBe(2);
++    expect(pousses().at(-1)?.corps?.baseHash).toBe("h-concurrent");
++    expect((await lireLeCoffre(BASE, compte))?.registre.weddings[0].label).toBe("Après conflit");
++  });
++
++  it("signale un conflit sans hash courant, sans boucler", async () => {
++    vi.stubGlobal("fetch", async () => ({ ok: false, status: 409, json: async () => ({ error: "hash_mismatch" }) }));
++    const compte = { identifiant: "marie", locator: "ab", cle: encoderBase64Url(new Uint8Array(32)) };
++    await expect(enregistrerLeCoffre(BASE, compte, unCoffre())).rejects.toMatchObject({ cas: "reseau" });
++  });
++
++  it("renonce après des conflits répétés", async () => {
++    const compte = await creerLeCompte(BASE, "marie", MDP, unCoffre(), RAPIDE);
++    let n = 0;
++    avantPush = (locator) => {
++      n += 1;
++      docs[locator] = { ...docs[locator], hash: `h-course-${n}` };
++    };
++    await expect(enregistrerLeCoffre(BASE, compte, unCoffre())).rejects.toMatchObject({ cas: "reseau" });
++  });
++
++  it("lit null quand il n'y a pas de coffre", async () => {
++    expect(await lireLeCoffre(BASE, { identifiant: "x", locator: "00", cle: encoderBase64Url(new Uint8Array(32)) })).toBeNull();
++  });
++});
++
++describe("changer le mot de passe", () => {
++  it("un appareil resté sur l'ancien mot de passe ne ressuscite pas le coffre vidé", async () => {
++    const ancien = await creerLeCompte(BASE, "marie", MDP, unCoffre(), RAPIDE);
++    await changerLeMotDePasse(BASE, ancien, "tout-autre-mot-de-passe", unCoffre(), RAPIDE);
++
++    await expect(enregistrerLeCoffre(BASE, ancien, unCoffre("Marie", "Périmé"))).rejects.toMatchObject({ cas: "deplace" });
++    await expect(seConnecter(BASE, "marie", MDP, RAPIDE)).rejects.toMatchObject({ cas: "identifiants" });
++  });
++
++  it("l'ancien ne connecte plus, le nouveau oui, l'ancien dépôt est vidé", async () => {
++    const ancien = await creerLeCompte(BASE, "marie", MDP, unCoffre(), RAPIDE);
++    const nouveau = await changerLeMotDePasse(BASE, ancien, "tout-autre-mot-de-passe", unCoffre("Marie", "Après"), RAPIDE);
++
++    expect(nouveau.locator).not.toBe(ancien.locator);
++    expect(nouveau.identifiant).toBe("marie");
++    await expect(seConnecter(BASE, "marie", MDP, RAPIDE)).rejects.toMatchObject({ cas: "identifiants" });
++    const { coffre } = await seConnecter(BASE, "marie", "tout-autre-mot-de-passe", RAPIDE);
++    expect(coffre.registre.weddings[0].label).toBe("Après");
++    expect(docs[ancien.locator].data).toEqual({});
++  });
++
++  it("écrit le neuf AVANT de vider l'ancien", async () => {
++    const ancien = await creerLeCompte(BASE, "marie", MDP, unCoffre(), RAPIDE);
++    requetes.length = 0;
++    const nouveau = await changerLeMotDePasse(BASE, ancien, "tout-autre-mot-de-passe", unCoffre(), RAPIDE);
++    const adresses = pousses().map((r) => locatorDe(r.url));
++    expect(adresses[0]).toBe(nouveau.locator);
++    expect(adresses.slice(1).every((a) => a === ancien.locator)).toBe(true);
++    expect(adresses.length).toBeGreaterThan(1);
++  });
++
++  it("un échec du vidage ne fait pas échouer le changement", async () => {
++    const ancien = await creerLeCompte(BASE, "marie", MDP, unCoffre(), RAPIDE);
++    const rép = globalThis.fetch;
++    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
++      if (init?.method === "POST" && locatorDe(url) === ancien.locator) throw new Error("fetch failed");
++      return rép(url, init);
++    });
++    const nouveau = await changerLeMotDePasse(BASE, ancien, "tout-autre-mot-de-passe", unCoffre(), RAPIDE);
++    expect((await seConnecter(BASE, "marie", "tout-autre-mot-de-passe", RAPIDE)).compte.locator).toBe(nouveau.locator);
++  });
++
++  it("un vidage refusé en 409 repart du hash courant", async () => {
++    const ancien = await creerLeCompte(BASE, "marie", MDP, unCoffre(), RAPIDE);
++    await changerLeMotDePasse(BASE, ancien, "tout-autre-mot-de-passe", unCoffre(), RAPIDE);
++    expect(docs[ancien.locator].data).toEqual({});
++    expect(pousses().some((r) => r.corps?.baseHash === null && locatorDe(r.url) === ancien.locator)).toBe(true);
++  });
++
++  it("revenir à un ancien mot de passe vidé recrée le compte", async () => {
++    const ancien = await creerLeCompte(BASE, "marie", MDP, unCoffre(), RAPIDE);
++    const milieu = await changerLeMotDePasse(BASE, ancien, "tout-autre-mot-de-passe", unCoffre(), RAPIDE);
++    const retour = await changerLeMotDePasse(BASE, milieu, MDP, unCoffre("Marie", "Retour"), RAPIDE);
++    expect(retour.locator).toBe(ancien.locator);
++    expect((await seConnecter(BASE, "marie", MDP, RAPIDE)).coffre.registre.weddings[0].label).toBe("Retour");
++  });
++
++  it("garder le même mot de passe ne vide rien", async () => {
++    const compte = await creerLeCompte(BASE, "marie", MDP, unCoffre(), RAPIDE);
++    const idem = await changerLeMotDePasse(BASE, compte, MDP, unCoffre("Marie", "Mis à jour"), RAPIDE);
++    expect(idem).toEqual(compte);
++    expect((await seConnecter(BASE, "marie", MDP, RAPIDE)).coffre.registre.weddings[0].label).toBe("Mis à jour");
++  });
++
++  it("refuse un mot de passe déjà pris par un autre compte du même identifiant", async () => {
++    const a = await creerLeCompte(BASE, "marie", MDP, unCoffre(), RAPIDE);
++    await creerLeCompte(BASE, "marie", "tout-autre-mot-de-passe", unCoffre(), RAPIDE);
++    await expect(changerLeMotDePasse(BASE, a, "tout-autre-mot-de-passe", unCoffre(), RAPIDE)).rejects.toMatchObject({
++      cas: "existe-deja",
++    });
++    expect(docs[a.locator].data).not.toEqual({});
++  });
++});
++
++/** Les clés d'un dépôt, triées. */
++function clesDe(data: unknown): string[] {
++  return Object.keys(data as object).sort();
++}
+diff --git a/apps/mobile/__tests__/envoi-d-invitation.test.ts b/apps/mobile/__tests__/envoi-d-invitation.test.ts
+new file mode 100644
+index 0000000..decb61d
+--- /dev/null
++++ b/apps/mobile/__tests__/envoi-d-invitation.test.ts
+@@ -0,0 +1,93 @@
++/** Le message d'invitation et les trois adresses d'envoi. */
++import { describe, expect, it } from "vitest";
++
++import fr from "@/i18n/locales/fr/settings.json";
++import en from "@/i18n/locales/en/settings.json";
++import {
++  LARGEUR_MINIMALE_POUR_LE_QR,
++  prenomDe,
++  tailleDuQR,
++  urlEmail,
++  urlSms,
++  urlWhatsApp,
++} from "@/lib/envoi-d-invitation";
++
++const LIEN = "https://mariage.didot.io/i/K7M2P9QWX3#aB3-_xY9";
++
++/** Ce que i18next fait de `{{prenom}}` et `{{lien}}`. */
++const garnir = (modele: string, prenom: string, lien: string) =>
++  modele.replace("{{prenom}}", () => prenom).replace("{{lien}}", () => lien);
++
++describe("prenomDe", () => {
++  it("garde le premier mot", () => {
++    expect(prenomDe("  Léa   Martin ")).toBe("Léa");
++    expect(prenomDe("Léa")).toBe("Léa");
++  });
++  it("rend une chaîne vide sans nom", () => {
++    expect(prenomDe("")).toBe("");
++    expect(prenomDe(undefined)).toBe("");
++  });
++});
++
++describe("le message", () => {
++  it("dit ce que la maquette dit, lien compris", () => {
++    expect(garnir(fr.inviteMessage, "Léa", LIEN)).toBe(
++      `Bonjour Léa, voici ton invitation pour préparer le mariage avec nous : ${LIEN} — elle est valable 7 jours et ne sert qu'une fois.`,
++    );
++  });
++
++  it("existe dans les deux langues, avec les deux variables", () => {
++    for (const modele of [fr.inviteMessage, en.inviteMessage]) {
++      expect(modele).toContain("{{prenom}}");
++      expect(modele).toContain("{{lien}}");
++    }
++  });
++});
++
++describe("les adresses d'envoi", () => {
++  const message = garnir(fr.inviteMessage, "Léa", LIEN);
++
++  it("WhatsApp : wa.me, message encodé", () => {
++    const url = urlWhatsApp(message);
++    expect(url.startsWith("https://wa.me/?text=")).toBe(true);
++    expect(decodeURIComponent(url.slice("https://wa.me/?text=".length))).toBe(message);
++  });
++
++  it("SMS : sms:?&body=", () => {
++    const url = urlSms(message);
++    expect(url.startsWith("sms:?&body=")).toBe(true);
++    expect(decodeURIComponent(url.slice("sms:?&body=".length))).toBe(message);
++  });
++
++  it("e-mail : sujet et corps encodés séparément", () => {
++    const url = urlEmail("Invitation & mariage", message);
++    const [, sujet, corps] = url.match(/^mailto:\?subject=([^&]*)&body=(.*)$/) ?? [];
++    expect(decodeURIComponent(sujet)).toBe("Invitation & mariage");
++    expect(decodeURIComponent(corps)).toBe(message);
++  });
++
++  it("le # du lien est encodé : il ne coupe pas le message", () => {
++    for (const url of [urlWhatsApp(message), urlSms(message), urlEmail("s", message)]) {
++      expect(url).not.toContain("#");
++      expect(url).toContain("%23aB3-_xY9");
++    }
++  });
++
++  it("aucun espace ni retour à la ligne brut", () => {
++    for (const url of [urlWhatsApp(message), urlSms(message), urlEmail("a b", message)]) {
++      expect(url).not.toMatch(/\s/);
++    }
++  });
++});
++
++describe("le QR", () => {
++  it("reste dans ses bornes", () => {
++    expect(tailleDuQR(320)).toBe(224);
++    expect(tailleDuQR(200)).toBe(180);
++    expect(tailleDuQR(1200)).toBe(240);
++  });
++
++  it("le seuil de repli est de 400 px", () => {
++    expect(LARGEUR_MINIMALE_POUR_LE_QR).toBe(400);
++  });
++});
+diff --git a/apps/mobile/__tests__/erreurs-d-hydratation.test.ts b/apps/mobile/__tests__/erreurs-d-hydratation.test.ts
+new file mode 100644
+index 0000000..26cd454
+--- /dev/null
++++ b/apps/mobile/__tests__/erreurs-d-hydratation.test.ts
+@@ -0,0 +1,21 @@
++import { describe, it, expect } from "vitest";
++import { estUnEcartDHydratation } from "@/lib/erreurs-d-hydratation";
++
++describe("estUnEcartDHydratation", () => {
++  it("reconnaît les erreurs React minifiées d'hydratation", () => {
++    expect(estUnEcartDHydratation("Uncaught Error: Minified React error #418; visit https://react.dev/errors/418?args[]=text")).toBe(true);
++    expect(estUnEcartDHydratation("Minified React error #423")).toBe(true);
++    expect(estUnEcartDHydratation("Minified React error #425")).toBe(true);
++  });
++
++  it("reconnaît la forme non minifiée", () => {
++    expect(estUnEcartDHydratation("Hydration failed because the server rendered text didn't match the client.")).toBe(true);
++  });
++
++  it("laisse passer toute autre erreur", () => {
++    expect(estUnEcartDHydratation("Minified React error #4180")).toBe(false);
++    expect(estUnEcartDHydratation("Minified React error #310")).toBe(false);
++    expect(estUnEcartDHydratation("TypeError: x is not a function")).toBe(false);
++    expect(estUnEcartDHydratation(undefined)).toBe(false);
++  });
++});
+diff --git a/apps/mobile/__tests__/invite-qr-density.test.ts b/apps/mobile/__tests__/invite-qr-density.test.ts
+index b6ba8ef..0622b98 100644
+--- a/apps/mobile/__tests__/invite-qr-density.test.ts
++++ b/apps/mobile/__tests__/invite-qr-density.test.ts
+@@ -1,93 +1,38 @@
+ import { describe, it, expect } from "vitest";
+ import QRCode from "qrcode";
+ 
++import { tailleDuQR } from "@/lib/envoi-d-invitation";
++
+ /**
+- * Regression test for the unscannable invite QR (InviteQRSheet.tsx).
+- *
+- * Root cause: the invite URL embeds a signed capability cert + ephemeral
+- * keys (~1.4KB), which forces a high-density QR. Two prior commits "fixed"
+- * cosmetic issues by shrinking the render size (200 -> 160 -> 184px)
+- * without checking module density, making the code physically unscannable
+- * (real camera decoders need roughly >=2px per module).
++ * Le QR de la feuille d'invitation doit rester scannable.
+  *
+- * This test doesn't render the component (react-native-qrcode-svg needs an
+- * RN environment) — it exercises the same underlying `qrcode` encoder
+- * (react-native-qrcode-svg's genMatrix calls `QRCode.create` directly, and
+- * maps its `size` prop 1:1 to the module grid — see transformMatrixIntoPath.js
+- * `cellSize = size / matrix.length`, no added quiet zone) to pin the real
+- * px-per-module math so a future edit can't silently regress it.
++ * Il encode le lien court (~81 caractères). Les lecteurs de caméra demandent
++ * environ 2 px par module : on épingle ce rapport avec le VRAI encodeur
++ * (react-native-qrcode-svg appelle `QRCode.create` et divise `size` par la
++ * taille de la grille, sans marge ajoutée).
+  */
+ 
+-// Same clamp as InviteQRSheet.tsx: qrSize = max(250, min(320, width - 64))
+-function qrSizeForWidth(width: number): number {
+-  return Math.max(250, Math.min(320, Math.round(width - 64)));
+-}
+-
+-// Representative invite token shape/length (~1.4KB URL), matching what
+-// createSpaceInviteLink/encodeLinkFragment actually produce: a base64url
+-// JSON blob with a signed cap cert + hex-encoded ephemeral keys.
+-function buildRepresentativeInviteUrl(): string {
+-  const hex = (n: number) => "a".repeat(n * 2);
+-  const b64 = (n: number) => "A".repeat(Math.ceil((n * 4) / 3));
+-  const cap = {
+-    v: 1,
+-    kind: "member",
+-    iss: hex(32),
+-    issUserId: hex(20),
+-    sub: hex(32),
+-    subKem: hex(32),
+-    subUserId: hex(20),
+-    scope: { collections: ["content"], paths: [`spaces/${hex(16)}/members/*`], ops: ["read", "write"] },
+-    nbf: 1750000000,
+-    exp: 1780000000,
+-    nonce: b64(16),
+-    sig: hex(64),
+-  };
+-  const token = {
+-    v: 1,
+-    spaceId: hex(16),
+-    spaceName: "Mariage Marie & Paul",
+-    cap,
+-    key: hex(32),
+-    kemPriv: hex(32),
+-    kemPub: hex(32),
+-    write: true,
+-  };
+-  const json = JSON.stringify(token);
+-  const b64url = Buffer.from(json).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+-  return `https://fiance.drakkar.software/join#${b64url}`;
+-}
+-
+-// Camera decoders reliably resolve QR modules at ~2px/module or above;
+-// below that, modules blur together and scanning fails (this is exactly
+-// what broke in production: 184px / 141 modules = 1.23px/module).
+ const MIN_SCANNABLE_PX_PER_MODULE = 2.0;
+ 
+-describe("invite QR scannability", () => {
+-  const url = buildRepresentativeInviteUrl();
++const lienCourt = (origine: string) => `${origine}/i/K7M2P9QWX3#${"A".repeat(43)}`;
+ 
+-  it("matches the real invite payload order of magnitude", () => {
+-    expect(url.length).toBeGreaterThan(1000);
+-    expect(url.length).toBeLessThan(2000);
++describe("invite QR scannability", () => {
++  it("encode un lien de l'ordre de 81 caractères", () => {
++    expect(lienCourt("https://mariage.didot.io")).toHaveLength(81);
+   });
+ 
+   it.each([
+-    ["small phone (iPhone SE, 320)", 320],
++    ["small phone (320)", 320],
+     ["standard phone (375)", 375],
+-    ["large phone (414)", 414],
+     ["tablet/web (768)", 768],
+-  ])("stays above the scannable px/module threshold on %s", (_label, width) => {
+-    const qrSize = qrSizeForWidth(width);
+-    const matrix = QRCode.create(url, { errorCorrectionLevel: "L" });
+-    const pxPerModule = qrSize / matrix.modules.size;
+-
+-    expect(pxPerModule).toBeGreaterThanOrEqual(MIN_SCANNABLE_PX_PER_MODULE);
++  ])("reste au-dessus du seuil de px par module sur %s", (_label, width) => {
++    const matrix = QRCode.create(lienCourt("https://mariage.didot.io"), { errorCorrectionLevel: "M" });
++    expect(tailleDuQR(width) / matrix.modules.size).toBeGreaterThanOrEqual(MIN_SCANNABLE_PX_PER_MODULE);
+   });
+ 
+-  it("would have failed under the old fixed size (184px) + default ECL (M)", () => {
+-    const matrix = QRCode.create(url, { errorCorrectionLevel: "M" });
+-    const pxPerModule = 184 / matrix.modules.size;
+-
+-    expect(pxPerModule).toBeLessThan(MIN_SCANNABLE_PX_PER_MODULE);
++  it("tient encore avec une origine bien plus longue", () => {
++    const origine = `https://un-sous-domaine-de-mariage.exemple-de-famille.example.org/${"x".repeat(30)}`;
++    const matrix = QRCode.create(lienCourt(origine), { errorCorrectionLevel: "M" });
++    expect(tailleDuQR(320) / matrix.modules.size).toBeGreaterThanOrEqual(MIN_SCANNABLE_PX_PER_MODULE);
+   });
+ });
+diff --git a/apps/mobile/__tests__/messages-de-compte.test.ts b/apps/mobile/__tests__/messages-de-compte.test.ts
+new file mode 100644
+index 0000000..f49ba8d
+--- /dev/null
++++ b/apps/mobile/__tests__/messages-de-compte.test.ts
+@@ -0,0 +1,117 @@
++import { describe, expect, it, vi } from "vitest";
++
++vi.mock("@fiance/sdk", () => ({ getSyncNamespace: () => "dk" }));
++
++import { CompteError, type EchecDeCompte } from "@/lib/compte";
++import {
++  cleDuMessageDeCompte,
++  cleDuMessageDInvitation,
++  messageDeLErreur,
++  validerLaCreation,
++  validerLeMotDePasse,
++} from "@/lib/messages-de-compte";
++import fr from "@/i18n/locales/fr/common.json";
++import en from "@/i18n/locales/en/common.json";
++
++const CAS: EchecDeCompte[] = [
++  "identifiants",
++  "existe-deja",
++  "illisible",
++  "reseau",
++  "mot-de-passe-faible",
++  "identifiant-vide",
++  "deplace",
++];
++
++function lire(langue: unknown, cle: string): unknown {
++  return cle.split(".").reduce<unknown>((o, k) => (o as Record<string, unknown> | undefined)?.[k], langue);
++}
++
++describe("cas d'échec → clé de message", () => {
++  it.each(CAS)("%s a une clé traduite en français et en anglais", (cas) => {
++    const cle = cleDuMessageDeCompte(cas);
++    expect(typeof lire(fr, cle)).toBe("string");
++    expect(typeof lire(en, cle)).toBe("string");
++  });
++
++  it("deux cas distincts ne partagent jamais la même clé", () => {
++    expect(new Set(CAS.map(cleDuMessageDeCompte)).size).toBe(CAS.length);
++  });
++
++  it("les messages de la connexion sont ceux demandés", () => {
++    expect(lire(fr, cleDuMessageDeCompte("identifiants"))).toBe("Identifiant ou mot de passe incorrect.");
++    expect(lire(fr, cleDuMessageDeCompte("reseau"))).toBe("Le serveur ne répond pas. Vérifiez votre connexion et réessayez.");
++    expect(lire(fr, cleDuMessageDeCompte("illisible"))).toBe(
++      "Ce compte ne peut pas être lu. Demandez une nouvelle invitation aux mariés.",
++    );
++  });
++});
++
++describe("messageDeLErreur", () => {
++  const traduire = (cle: string) => `<${cle}>`;
++
++  it("traduit une CompteError selon son cas", () => {
++    expect(messageDeLErreur(new CompteError("reseau", "serveur injoignable (HTTP 500)"), traduire)).toBe(
++      "<compte.erreurs.reseau>",
++    );
++  });
++
++  it("garde le message d'une autre erreur", () => {
++    expect(messageDeLErreur(new Error("Le lien n'a pas pu être déposé"), traduire)).toBe("Le lien n'a pas pu être déposé");
++  });
++
++  it("retombe sur un message générique quand il n'y a rien à dire", () => {
++    expect(messageDeLErreur(new Error("  "), traduire)).toBe("<compte.erreurs.inconnue>");
++    expect(messageDeLErreur(undefined, traduire)).toBe("<compte.erreurs.inconnue>");
++  });
++});
++
++describe("cause d'une invitation non reconnue → clé de message", () => {
++  it.each(["incomplete", "expiree", "invalide", "utilisee"] as const)("%s est traduite", (cause) => {
++    const cle = cleDuMessageDInvitation(cause);
++    expect(typeof lire(fr, cle)).toBe("string");
++    expect(typeof lire(en, cle)).toBe("string");
++  });
++});
++
++describe("validation de la création", () => {
++  const valide = { identifiant: "Léa", motDePasse: "huit-car", confirmation: "huit-car" };
++
++  it("accepte une saisie complète", () => {
++    expect(validerLaCreation(valide)).toEqual({});
++  });
++
++  it("refuse un identifiant vide ou fait d'espaces", () => {
++    expect(validerLaCreation({ ...valide, identifiant: "   " })).toEqual({ identifiant: "compte.validation.identifiantVide" });
++  });
++
++  it("refuse un mot de passe de moins de 8 caractères", () => {
++    expect(validerLaCreation({ ...valide, motDePasse: "1234567", confirmation: "1234567" })).toEqual({
++      motDePasse: "compte.validation.motDePasseCourt",
++    });
++  });
++
++  it("refuse une confirmation différente", () => {
++    expect(validerLaCreation({ ...valide, confirmation: "huit-cax" })).toEqual({
++      confirmation: "compte.validation.confirmationDifferente",
++    });
++  });
++
++  it("signale tout à la fois, champ par champ", () => {
++    expect(validerLaCreation({ identifiant: "", motDePasse: "court", confirmation: "autre" })).toEqual({
++      identifiant: "compte.validation.identifiantVide",
++      motDePasse: "compte.validation.motDePasseCourt",
++    });
++  });
++
++  it("ne reproche pas la confirmation tant que le mot de passe est trop court", () => {
++    expect(validerLeMotDePasse("court", "")).toEqual({ motDePasse: "compte.validation.motDePasseCourt" });
++  });
++
++  it("toutes les clés de validation existent dans les deux langues", () => {
++    for (const cle of ["identifiantVide", "motDePasseCourt", "confirmationDifferente"]) {
++      expect(typeof lire(fr, `compte.validation.${cle}`)).toBe("string");
++      expect(typeof lire(en, `compte.validation.${cle}`)).toBe("string");
++    }
++  });
++});
+diff --git a/apps/mobile/__tests__/mutation-sans-ecouteur.test.ts b/apps/mobile/__tests__/mutation-sans-ecouteur.test.ts
+new file mode 100644
+index 0000000..9455b49
+--- /dev/null
++++ b/apps/mobile/__tests__/mutation-sans-ecouteur.test.ts
+@@ -0,0 +1,216 @@
++/**
++ * Une saisie faite pendant que la sync n'est pas (ou plus) branchée — entre le montage de
++ * `SyncInitializer` et `registerPull("*")`, ou entre `teardownSync` et la ré-activation —
++ * ne doit être ni recouverte par l'hydratation qui suit ni oubliée.
++ *
++ * Fichier à part : même raison que `premiere-hydratation.test.ts`.
++ */
++import { beforeEach, describe, expect, it, vi } from "vitest";
++
++const mockHandlePush = vi.fn(async (..._args: unknown[]) => undefined);
++
++vi.mock("@fiance/sdk", async (importOriginal) => ({
++  ...(await importOriginal<Record<string, unknown>>()),
++  readObjectTree: async () => ARBRE,
++  updateObjectIndex: vi.fn(),
++  clearNodeAccessCache: vi.fn(),
++  getSpaceAccessEntry: () => null,
++  getSpacesConfig: () => ({ kvAdapter: { getItem: () => null, setItem: () => {}, removeItem: () => {} } }),
++  getSyncNamespace: () => "dk",
++  getNodeAccess: async () => ({
++    isOwnerOpen: false,
++    push: mockHandlePush,
++    encryptor: null,
++    client: {
++      push: vi.fn(async () => ({ hash: "H" })),
++      pull: async () => ({ hash: "", data: null }),
++      batchPullMany: async (_collection: string, params: { objectId: string }[]) =>
++        params.map((p) =>
++          p.objectId === "col:guest:w1"
++            ? { data: { fmt: 2, items: { "g-serveur": { id: "g-serveur" } }, rev: { "g-serveur": 5 }, tombstones: {} } }
++            : { data: null },
++        ),
++    },
++  }),
++}));
++
++const SESSION = { userId: "u1" };
++// `notifySync` et son crochet restent les vrais : c'est ce qu'on éprouve.
++vi.mock("@/lib/starfish", async (importOriginal) => ({
++  ...(await importOriginal<Record<string, unknown>>()),
++  getActiveSession: () => SESSION,
++  getActiveSpaceId: () => "sp-1",
++  getActiveWeddingNodeId: () => "w1",
++}));
++
++const kv = new Map<string, unknown>();
++vi.mock("@/lib/kv-storage", () => ({
++  readCollection: (clé: string) => (kv.has(clé) ? kv.get(clé) : null),
++  writeCollection: (clé: string, données: unknown) => { kv.set(clé, données); },
++  getStorage: () => ({}),
++}));
++vi.mock("@/lib/rsvp-sync", () => ({ applyHouseholdRsvpDocs: vi.fn() }));
++
++let invites: Array<{ id: string }> = [];
++const magasin = {
++  getState: () => ({
++    wedding: null, guests: invites, tables: [], groups: [], households: [], vendors: [],
++    quotePricings: [], vendorPayments: [], accommodations: [], gifts: [],
++    invitationTypes: [], communications: [], weddingRoles: [], weddingRoleAssignments: [],
++    seatingConstraints: [], weddingEvents: [], mealSelections: [], communicationTemplates: [],
++    documents: [], legalMilestones: [], honeymoonPlans: [], categories: [], tasks: [],
++    agendaEvents: [], dayOfItems: [], collections: [], ideas: [], ceremonyItems: [],
++    speeches: [], playlistTracks: [], roles: [], assignments: [], contributors: [],
++    setWedding: vi.fn(), setGroups: vi.fn(), setTables: vi.fn(),
++    setGuests: (v: Array<{ id: string }>) => { invites = v; },
++    setHouseholds: vi.fn(), setVendors: vi.fn(), setQuotePricings: vi.fn(), setVendorPayments: vi.fn(),
++    setAccommodations: vi.fn(), setGifts: vi.fn(), setInvitationTypes: vi.fn(),
++    setCommunications: vi.fn(), setWeddingRoles: vi.fn(), setWeddingRoleAssignments: vi.fn(),
++    setSeatingConstraints: vi.fn(), setWeddingEvents: vi.fn(), setMealSelections: vi.fn(),
++    setCommunicationTemplates: vi.fn(), setDocuments: vi.fn(), setLegalMilestones: vi.fn(),
++    setHoneymoonPlans: vi.fn(), setCategories: vi.fn(), setTasks: vi.fn(),
++    setAgendaEvents: vi.fn(), setDayOfItems: vi.fn(), setCollections: vi.fn(),
++    setIdeas: vi.fn(), setCeremonyItems: vi.fn(), setSpeeches: vi.fn(),
++    setPlaylistTracks: vi.fn(), setRoles: vi.fn(), setAssignments: vi.fn(),
++  }),
++};
++for (const nom of [
++  "useWeddingStore", "useGuestsStore", "useVendorsStore", "usePlanningStore", "useIdeasStore",
++  "useAccommodationsStore", "useGiftsStore", "useInvitationTypesStore", "useCommunicationsStore",
++  "useWeddingPartyStore", "useSeatingConstraintsStore", "useWeddingEventsStore", "useMealSelectionsStore",
++  "useCommunicationTemplatesStore", "useDocumentsStore", "useLegalStore", "useHoneymoonStore",
++  "useCeremonyStore", "useSpeechesMusicStore", "usePermissionsStore", "useContributorsStore",
++]) {
++  vi.doMock(`@/store/${nom}`, () => ({ [nom]: magasin }));
++}
++vi.mock("@/store/useSyncAccessStore", () => ({
++  useSyncAccessStore: { getState: () => ({ writeDenied: false, setWriteDenied: vi.fn() }) },
++}));
++vi.mock("@/store/useSyncPendingStore", () => ({
++  useSyncPendingStore: { getState: () => ({ setUnsavedChanges: vi.fn() }) },
++}));
++
++let registre: { activeWeddingId: string; weddings: Array<{ id: string; role: string; seedPhrase?: string; syncDisabled?: boolean }> };
++vi.mock("@/store/useWeddingRegistryStore", () => ({
++  useWeddingRegistryStore: { getState: () => ({ registry: registre, updateWedding: vi.fn() }) },
++}));
++
++const ARBRE = [
++  { id: "w1", type: "wedding", parentId: null, updatedAt: 1000, contentKind: "merge", access: "space", enc: false },
++  { id: "col:guest:w1", type: "guest", parentId: "w1", updatedAt: 1000, contentKind: "merge", access: "space", enc: false },
++];
++
++const MARQUEUR = "sync.pousseeEnAttente";
++/** Une poussée a écrit la collection des invités, porteuse de l'invité local (le 3e argument est le mutateur de fusion). */
++const inviteLocalPoussé = () =>
++  mockHandlePush.mock.calls
++    .filter((appel) => String(appel[1]).includes("col:guest:w1"))
++    .some((appel) => JSON.stringify((appel[2] as (cur: unknown) => unknown)(null)).includes("g-local"));
++
++describe("une saisie faite sans écouteur branché", () => {
++  beforeEach(() => {
++    vi.resetModules();
++    vi.useFakeTimers();
++    kv.clear();
++    invites = [{ id: "g-serveur" }];
++    mockHandlePush.mockClear();
++    registre = { activeWeddingId: "w1", weddings: [{ id: "w1", role: "member", seedPhrase: "graine" }] };
++  });
++
++  /** Ce que `configureOnBoot` fait au démarrage. */
++  async function brancherLeCrochet() {
++    const { auxModificationsSansEcouteur } = await import("@/lib/starfish");
++    const { noterModificationLocale } = await import("@/lib/space-sync");
++    auxModificationsSansEcouteur(noterModificationLocale);
++  }
++
++  it("notifySync sans écouteur pose le marqueur durable", async () => {
++    await brancherLeCrochet();
++    const { notifySync } = await import("@/lib/starfish");
++
++    invites = [{ id: "g-serveur" }, { id: "g-local" }];
++    notifySync();
++
++    expect(kv.get(MARQUEUR)).toBe(true);
++  });
++
++  it("sans synchronisation voulue, aucun marqueur ne reste posé", async () => {
++    registre.weddings[0].syncDisabled = true;
++    await brancherLeCrochet();
++    const { notifySync } = await import("@/lib/starfish");
++
++    notifySync();
++
++    expect(kv.has(MARQUEUR)).toBe(false);
++  });
++
++  it("la ré-activation du même mariage ne l'efface pas, et le rattrapage la pousse avant l'hydratation", async () => {
++    await brancherLeCrochet();
++    const { notifySync, teardownSync } = await import("@/lib/starfish");
++    const { resetDirtyPushBaseline, rejouerPousséeEnAttente } = await import("@/lib/space-sync");
++
++    // Début de la ré-activation : ce que fait SyncInitializer avant de dériver la session.
++    teardownSync();
++    resetDirtyPushBaseline({ garderLArriéré: true });
++
++    // La saisie tombe dans la fenêtre : plus aucun écouteur.
++    invites = [{ id: "g-serveur" }, { id: "g-local" }];
++    notifySync();
++    expect(kv.get(MARQUEUR)).toBe(true);
++
++    // La suite du démarrage : le rattrapage pousse la saisie, avant que l'hydratation puisse la recouvrir.
++    await rejouerPousséeEnAttente(SESSION as never, "sp-1", "w1");
++    expect(inviteLocalPoussé()).toBe(true);
++  });
++
++  it("une saisie déjà en attente de poussée au moment de la ré-activation reste à rejouer", async () => {
++    const { teardownSync } = await import("@/lib/starfish");
++    const { scheduleSyncPush, resetDirtyPushBaseline, rejouerPousséeEnAttente } = await import("@/lib/space-sync");
++
++    invites = [{ id: "g-serveur" }, { id: "g-local" }];
++    scheduleSyncPush(); // débouncée : pas encore partie
++    expect(kv.get(MARQUEUR)).toBe(true);
++
++    teardownSync();
++    resetDirtyPushBaseline({ garderLArriéré: true });
++    expect(kv.get(MARQUEUR)).toBe(true);
++
++    await rejouerPousséeEnAttente(SESSION as never, "sp-1", "w1");
++    expect(inviteLocalPoussé()).toBe(true);
++  });
++
++  it("sans l'option, la remise à zéro d'un changement de mariage efface bien le marqueur", async () => {
++    kv.set(MARQUEUR, true);
++    const { resetDirtyPushBaseline } = await import("@/lib/space-sync");
++
++    resetDirtyPushBaseline();
++
++    expect(kv.get(MARQUEUR)).toBe(false);
++  });
++});
++
++describe("une saisie faite pendant le rattrapage du démarrage", () => {
++  beforeEach(() => {
++    vi.resetModules();
++    vi.useFakeTimers();
++    kv.clear();
++    invites = [{ id: "g-serveur" }];
++    mockHandlePush.mockClear();
++    registre = { activeWeddingId: "w1", weddings: [{ id: "w1", role: "owner", seedPhrase: "graine" }] };
++  });
++
++  it("n'est pas recouverte par l'hydratation qui suit, puis part", async () => {
++    const { scheduleSyncPush, hydrateFromSpace, époqueLocale } = await import("@/lib/space-sync");
++
++    // SyncInitializer relève l'époque avant le rattrapage, qui s'attend sur le réseau.
++    const depuis = époqueLocale();
++    invites = [{ id: "g-serveur" }, { id: "g-local" }];
++    scheduleSyncPush();
++    await hydrateFromSpace(SESSION as never, "sp-1", "w1", { depuisÉpoque: depuis });
++
++    expect(invites.map((i) => i.id)).toContain("g-local");
++
++    await vi.advanceTimersByTimeAsync(2500);
++    expect(inviteLocalPoussé()).toBe(true);
++  });
++});
+diff --git a/apps/mobile/__tests__/page-publique-hydratation.test.ts b/apps/mobile/__tests__/page-publique-hydratation.test.ts
+new file mode 100644
+index 0000000..ce840f1
+--- /dev/null
++++ b/apps/mobile/__tests__/page-publique-hydratation.test.ts
+@@ -0,0 +1,39 @@
++import { readFileSync } from "node:fs";
++import { join } from "node:path";
++import { createElement } from "react";
++// @ts-ignore — pas de types pour react-dom/server
++import { renderToString } from "react-dom/server";
++import { describe, it, expect } from "vitest";
++import { useApresHydratation } from "@/lib/useApresHydratation";
++
++/**
++ * Le prérendu de `/wedding/<jeton>` est en anglais (pas de navigateur au build) ;
++ * le premier rendu client suit la langue du visiteur. Tout texte localisé de ce
++ * premier rendu fait diverger l'hydratation (erreur React #418), que le repli
++ * d'erreur de `_layout.tsx` affiche ensuite comme un plantage.
++ */
++
++const libelles: Record<string, string> = { en: "Loading...", fr: "Chargement..." };
++
++function Chargement({ langue }: { langue: string }) {
++  const apres = useApresHydratation();
++  return createElement("span", null, apres ? libelles[langue] : null);
++}
++
++describe("useApresHydratation", () => {
++  it("est faux au prérendu : le premier rendu ne dépend pas de la langue", () => {
++    const fr = renderToString(createElement(Chargement, { langue: "fr" }));
++    const en = renderToString(createElement(Chargement, { langue: "en" }));
++    expect(fr).toBe(en);
++    expect(fr).not.toMatch(/Chargement|Loading/);
++  });
++});
++
++describe("page publique du mariage", () => {
++  const source = readFileSync(join(__dirname, "..", "app", "wedding", "[id].tsx"), "utf8");
++
++  it("ne localise pas l'écran de chargement avant l'hydratation", () => {
++    expect(source).toMatch(/apresHydratation\s*\?\s*t\("loading"\)\s*:\s*null/);
++    expect(source.match(/t\("loading"\)/g)).toHaveLength(1);
++  });
++});
+diff --git a/apps/mobile/__tests__/parcours-d-invitation.test.ts b/apps/mobile/__tests__/parcours-d-invitation.test.ts
+new file mode 100644
+index 0000000..746a7fc
+--- /dev/null
++++ b/apps/mobile/__tests__/parcours-d-invitation.test.ts
+@@ -0,0 +1,115 @@
++import { describe, expect, it, vi } from "vitest";
++
++vi.mock("@fiance/sdk", () => ({ getSyncNamespace: () => "dk" }));
++
++import { CompteError } from "@/lib/compte";
++import {
++  etapeDuParcours,
++  sequenceDeCreationDeCompte,
++  sequenceDeJonction,
++  type ActionsDeLaSequence,
++} from "@/lib/parcours-d-invitation";
++
++const entree = (spaceId?: string) => ({ id: "w", label: "Mariage", dbFileName: "w.db", createdAt: "", spaceId });
++
++describe("étape du parcours", () => {
++  it("espace déjà au registre : déjà acceptée, même avec d'autres mariages", () => {
++    expect(etapeDuParcours({ weddings: [entree("sp-a"), entree("sp-b")] }, "sp-b")).toBe("deja-acceptee");
++  });
++
++  it("registre non vide, espace inconnu : confirmer", () => {
++    expect(etapeDuParcours({ weddings: [entree("sp-a")] }, "sp-b")).toBe("confirmer");
++    expect(etapeDuParcours({ weddings: [entree()] }, "sp-b")).toBe("confirmer");
++  });
++
++  it("appareil vierge : créer un compte", () => {
++    expect(etapeDuParcours({ weddings: [] }, "sp-b")).toBe("creer-un-compte");
++    expect(etapeDuParcours(null, "sp-b")).toBe("creer-un-compte");
++    expect(etapeDuParcours(undefined, "sp-b")).toBe("creer-un-compte");
++  });
++
++  it("après une connexion, le registre rempli oriente vers l'une des deux premières branches", () => {
++    expect(etapeDuParcours({ weddings: [entree("sp-b")] }, "sp-b")).toBe("deja-acceptee");
++    expect(etapeDuParcours({ weddings: [entree("sp-a")] }, "sp-b")).toBe("confirmer");
++  });
++});
++
++function actions(surcharge: Partial<ActionsDeLaSequence> = {}) {
++  const journal: string[] = [];
++  const a: ActionsDeLaSequence = {
++    joindre: vi.fn(async () => void journal.push("joindre")),
++    creerLeCompte: vi.fn(async () => void journal.push("creer")),
++    ouvrirUneSession: vi.fn(async () => void journal.push("ouvrir")),
++    consommer: vi.fn(async () => void journal.push("consommer")),
++    ...surcharge,
++  };
++  return { a, journal };
++}
++
++describe("séquence d'un appareil vierge", () => {
++  it("jonction, puis compte, puis dépôt consommé — dans cet ordre", async () => {
++    const { a, journal } = actions();
++    expect(await sequenceDeCreationDeCompte(a, "Léa", "mot-de-passe")).toBe("compte-cree");
++    expect(journal).toEqual(["joindre", "creer", "consommer"]);
++    expect(a.creerLeCompte).toHaveBeenCalledWith("Léa", "mot-de-passe");
++  });
++
++  it("une jonction qui échoue arrête tout et laisse l'erreur remonter", async () => {
++    const { a, journal } = actions({ joindre: vi.fn(async () => { throw new Error("jonction"); }) });
++    await expect(sequenceDeCreationDeCompte(a, "Léa", "mot-de-passe")).rejects.toThrow("jonction");
++    expect(journal).toEqual([]);
++  });
++
++  it("compte déjà existant : on ouvre une session avec les mêmes identifiants, puis on continue", async () => {
++    const { a, journal } = actions({
++      creerLeCompte: vi.fn(async () => { throw new CompteError("existe-deja", "déjà"); }),
++    });
++    expect(await sequenceDeCreationDeCompte(a, "Léa", "mot-de-passe")).toBe("compte-cree");
++    expect(a.ouvrirUneSession).toHaveBeenCalledWith("Léa", "mot-de-passe");
++    expect(journal).toEqual(["joindre", "ouvrir", "consommer"]);
++  });
++
++  it("une autre erreur de compte après la jonction n'échoue pas : l'appareil est dans l'app, sans compte", async () => {
++    const { a, journal } = actions({
++      creerLeCompte: vi.fn(async () => { throw new CompteError("reseau", "coupé"); }),
++    });
++    vi.spyOn(console, "warn").mockImplementation(() => {});
++    expect(await sequenceDeCreationDeCompte(a, "Léa", "mot-de-passe")).toBe("sans-compte");
++    expect(a.ouvrirUneSession).not.toHaveBeenCalled();
++    expect(journal).toEqual(["joindre"]);
++  });
++
++  it("existe-deja puis session impossible : même issue, lien non consommé", async () => {
++    const { a, journal } = actions({
++      creerLeCompte: vi.fn(async () => { throw new CompteError("existe-deja", "déjà"); }),
++      ouvrirUneSession: vi.fn(async () => { throw new CompteError("reseau", "coupé"); }),
++    });
++    vi.spyOn(console, "warn").mockImplementation(() => {});
++    expect(await sequenceDeCreationDeCompte(a, "Léa", "mot-de-passe")).toBe("sans-compte");
++    expect(journal).toEqual(["joindre"]);
++  });
++
++  it("un dépôt qu'on ne parvient pas à consommer n'arrête rien", async () => {
++    const { a } = actions({ consommer: vi.fn(async () => { throw new Error("réseau"); }) });
++    expect(await sequenceDeCreationDeCompte(a, "Léa", "mot-de-passe")).toBe("compte-cree");
++  });
++});
++
++describe("séquence d'un appareil déjà connecté", () => {
++  it("jonction puis consommation", async () => {
++    const { a, journal } = actions();
++    await sequenceDeJonction(a);
++    expect(journal).toEqual(["joindre", "consommer"]);
++  });
++
++  it("l'échec de la jonction remonte, sans consommer", async () => {
++    const { a, journal } = actions({ joindre: vi.fn(async () => { throw new Error("jonction"); }) });
++    await expect(sequenceDeJonction(a)).rejects.toThrow("jonction");
++    expect(journal).toEqual([]);
++  });
++
++  it("l'échec de la consommation est avalé", async () => {
++    const { a } = actions({ consommer: vi.fn(async () => { throw new Error("réseau"); }) });
++    await expect(sequenceDeJonction(a)).resolves.toBeUndefined();
++  });
++});
+diff --git a/apps/mobile/__tests__/premiere-hydratation.test.ts b/apps/mobile/__tests__/premiere-hydratation.test.ts
+new file mode 100644
+index 0000000..0f63b38
+--- /dev/null
++++ b/apps/mobile/__tests__/premiere-hydratation.test.ts
+@@ -0,0 +1,208 @@
++/**
++ * La garde de première hydratation : un appareil qui vient de se connecter a un
++ * registre plein et des magasins vides, et ne doit rien écrire dans l'espace
++ * avant d'avoir lu ce que l'espace contient.
++ *
++ * Fichier à part, et non un bloc de `space-sync.test.ts` : même raison que
++ * `hydratation-instantane.test.ts`.
++ */
++import { beforeEach, describe, expect, it, vi } from "vitest";
++
++let mockLireArbre: () => Promise<unknown[]> = async () => [];
++
++const mockHandlePush = vi.fn(async () => undefined);
++const mockUpdateObjectIndex = vi.fn();
++
++vi.mock("@fiance/sdk", async (importOriginal) => ({
++  ...(await importOriginal<Record<string, unknown>>()),
++  readObjectTree: () => mockLireArbre(),
++  updateObjectIndex: (...args: unknown[]) => mockUpdateObjectIndex(...args),
++  clearNodeAccessCache: vi.fn(),
++  getSpaceAccessEntry: () => null,
++  getSpacesConfig: () => ({ kvAdapter: { getItem: () => null, setItem: () => {}, removeItem: () => {} } }),
++  getSyncNamespace: () => "dk",
++  getNodeAccess: async () => ({
++    isOwnerOpen: false,
++    push: mockHandlePush,
++    encryptor: null,
++    client: {
++      push: vi.fn(async () => ({ hash: "H" })),
++      pull: async () => ({ hash: "", data: null }),
++      batchPullMany: async (_collection: string, params: { objectId: string }[]) =>
++        params.map((p) =>
++          p.objectId === "col:guest:w1"
++            ? { data: { fmt: 2, items: { "g-serveur": { id: "g-serveur" } }, rev: { "g-serveur": 5 }, tombstones: {} } }
++            : { data: null },
++        ),
++    },
++  }),
++}));
++
++const SESSION = { userId: "u1" };
++vi.mock("@/lib/starfish", () => ({
++  getActiveSession: () => SESSION,
++  getActiveSpaceId: () => "sp-1",
++  getActiveWeddingNodeId: () => "w1",
++}));
++
++const kv = new Map<string, unknown>();
++vi.mock("@/lib/kv-storage", () => ({
++  readCollection: (clé: string) => (kv.has(clé) ? kv.get(clé) : null),
++  writeCollection: (clé: string, données: unknown) => { kv.set(clé, données); },
++  getStorage: () => ({}),
++}));
++vi.mock("@/lib/rsvp-sync", () => ({ applyHouseholdRsvpDocs: vi.fn() }));
++
++// Les prestataires locaux ne figurent pas dans l'espace : ils restent « sales » après l'hydratation.
++let invites: Array<{ id: string }> = [];
++let prestataires: Array<{ id: string }> = [];
++const magasin = {
++  getState: () => ({
++    wedding: null, guests: invites, tables: [], groups: [], households: [], vendors: prestataires,
++    quotePricings: [], vendorPayments: [], accommodations: [], gifts: [],
++    invitationTypes: [], communications: [], weddingRoles: [], weddingRoleAssignments: [],
++    seatingConstraints: [], weddingEvents: [], mealSelections: [], communicationTemplates: [],
++    documents: [], legalMilestones: [], honeymoonPlans: [], categories: [], tasks: [],
++    agendaEvents: [], dayOfItems: [], collections: [], ideas: [], ceremonyItems: [],
++    speeches: [], playlistTracks: [], roles: [], assignments: [], contributors: [],
++    setWedding: vi.fn(), setGroups: vi.fn(), setTables: vi.fn(),
++    setGuests: (v: Array<{ id: string }>) => { invites = v; },
++    setVendors: vi.fn(), setQuotePricings: vi.fn(), setVendorPayments: vi.fn(),
++    setAccommodations: vi.fn(), setGifts: vi.fn(), setInvitationTypes: vi.fn(),
++    setCommunications: vi.fn(), setWeddingRoles: vi.fn(), setWeddingRoleAssignments: vi.fn(),
++    setSeatingConstraints: vi.fn(), setWeddingEvents: vi.fn(), setMealSelections: vi.fn(),
++    setCommunicationTemplates: vi.fn(), setDocuments: vi.fn(), setLegalMilestones: vi.fn(),
++    setHoneymoonPlans: vi.fn(), setCategories: vi.fn(), setTasks: vi.fn(),
++    setAgendaEvents: vi.fn(), setDayOfItems: vi.fn(), setCollections: vi.fn(),
++    setIdeas: vi.fn(), setCeremonyItems: vi.fn(), setSpeeches: vi.fn(),
++    setPlaylistTracks: vi.fn(), setRoles: vi.fn(), setAssignments: vi.fn(),
++  }),
++};
++for (const nom of [
++  "useWeddingStore", "useGuestsStore", "useVendorsStore", "usePlanningStore", "useIdeasStore",
++  "useAccommodationsStore", "useGiftsStore", "useInvitationTypesStore", "useCommunicationsStore",
++  "useWeddingPartyStore", "useSeatingConstraintsStore", "useWeddingEventsStore", "useMealSelectionsStore",
++  "useCommunicationTemplatesStore", "useDocumentsStore", "useLegalStore", "useHoneymoonStore",
++  "useCeremonyStore", "useSpeechesMusicStore", "usePermissionsStore", "useContributorsStore",
++]) {
++  vi.doMock(`@/store/${nom}`, () => ({ [nom]: magasin }));
++}
++vi.mock("@/store/useSyncAccessStore", () => ({
++  useSyncAccessStore: { getState: () => ({ writeDenied: false, setWriteDenied: vi.fn() }) },
++}));
++vi.mock("@/store/useSyncPendingStore", () => ({
++  useSyncPendingStore: { getState: () => ({ setUnsavedChanges: vi.fn() }) },
++}));
++
++/** Le registre, avec son marqueur : `updateWedding` le modifie comme le vrai store. */
++let registre: { activeWeddingId: string; weddings: Array<{ id: string; role: string; premiereHydratationAttendue?: boolean }> };
++const mockUpdateWedding = vi.fn(async (id: string, maj: Record<string, unknown>) => {
++  registre = { ...registre, weddings: registre.weddings.map((w) => (w.id === id ? { ...w, ...maj } : w)) };
++});
++vi.mock("@/store/useWeddingRegistryStore", () => ({
++  useWeddingRegistryStore: { getState: () => ({ registry: registre, updateWedding: mockUpdateWedding }) },
++}));
++
++const ARBRE = [
++  { id: "w1", type: "wedding", parentId: null, updatedAt: 1000, contentKind: "merge", access: "space", enc: false },
++  { id: "col:guest:w1", type: "guest", parentId: "w1", updatedAt: 1000, contentKind: "merge", access: "space", enc: false },
++];
++
++const sousMarqueur = () => registre.weddings[0].premiereHydratationAttendue === true;
++/** Une poussée a écrit la collection des prestataires dans l'espace. */
++const prestatairesPoussés = () =>
++  mockHandlePush.mock.calls.some((appel) => JSON.stringify(appel).includes("col:vendor:w1"));
++
++describe("la garde de première hydratation", () => {
++  beforeEach(() => {
++    vi.resetModules();
++    vi.useFakeTimers();
++    kv.clear();
++    invites = [];
++    prestataires = [{ id: "v-local" }];
++    mockHandlePush.mockClear();
++    mockUpdateObjectIndex.mockClear();
++    mockUpdateWedding.mockClear();
++    mockLireArbre = async () => ARBRE;
++    registre = { activeWeddingId: "w1", weddings: [{ id: "w1", role: "owner", premiereHydratationAttendue: true }] };
++  });
++
++  it("aucune poussée ne part tant que le marqueur est posé", async () => {
++    const { scheduleSyncPush, viderPousséeEnAttente } = await import("@/lib/space-sync");
++
++    scheduleSyncPush();
++    await vi.advanceTimersByTimeAsync(5000);
++    viderPousséeEnAttente();
++    await vi.advanceTimersByTimeAsync(5000);
++
++    expect(mockHandlePush).not.toHaveBeenCalled();
++    expect(mockUpdateObjectIndex).not.toHaveBeenCalled();
++  });
++
++  it("le rattrapage du démarrage est lui aussi retenu", async () => {
++    kv.set("sync.pousseeEnAttente", true);
++    const { rejouerPousséeEnAttente } = await import("@/lib/space-sync");
++
++    expect(await rejouerPousséeEnAttente(SESSION as never, "sp-1", "w1")).toBe(false);
++    expect(mockHandlePush).not.toHaveBeenCalled();
++  });
++
++  it("la poussée demandée sous marqueur repart une fois l'hydratation appliquée", async () => {
++    const { scheduleSyncPush, hydrateFromSpace } = await import("@/lib/space-sync");
++
++    scheduleSyncPush();
++    await vi.advanceTimersByTimeAsync(3000);
++    expect(prestatairesPoussés()).toBe(false);
++
++    await hydrateFromSpace(SESSION as never, "sp-1", "w1");
++    expect(sousMarqueur()).toBe(false);
++
++    await vi.advanceTimersByTimeAsync(2500);
++    expect(prestatairesPoussés()).toBe(true);
++  });
++
++  it("l'hydratation d'un espace vide lève aussi le marqueur", async () => {
++    mockLireArbre = async () => [];
++    const { hydrateFromSpace } = await import("@/lib/space-sync");
++
++    await hydrateFromSpace(SESSION as never, "sp-1", "w1");
++
++    expect(sousMarqueur()).toBe(false);
++  });
++
++  it("une hydratation en échec laisse le marqueur, et rien ne part", async () => {
++    mockLireArbre = async () => { throw new Error("réseau coupé"); };
++    const { scheduleSyncPush, hydrateFromSpace } = await import("@/lib/space-sync");
++
++    scheduleSyncPush();
++    await expect(hydrateFromSpace(SESSION as never, "sp-1", "w1")).rejects.toThrow("réseau coupé");
++    await vi.advanceTimersByTimeAsync(5000);
++
++    expect(sousMarqueur()).toBe(true);
++    expect(mockHandlePush).not.toHaveBeenCalled();
++  });
++
++  it("une hydratation abandonnée laisse le marqueur", async () => {
++    let libérer!: () => void;
++    mockLireArbre = () => new Promise((res) => { libérer = () => res(ARBRE); });
++    const { scheduleSyncPush, hydrateFromSpace } = await import("@/lib/space-sync");
++
++    const hydratation = hydrateFromSpace(SESSION as never, "sp-1", "w1");
++    scheduleSyncPush(); // une modification locale date l'époque : la lecture sera jetée
++    libérer();
++    await hydratation;
++
++    expect(sousMarqueur()).toBe(true);
++    expect(mockUpdateWedding).not.toHaveBeenCalled();
++  });
++
++  it("sans marqueur, la poussée part comme avant", async () => {
++    registre.weddings[0].premiereHydratationAttendue = undefined;
++    const { scheduleSyncPush } = await import("@/lib/space-sync");
++
++    scheduleSyncPush();
++    await vi.advanceTimersByTimeAsync(2500);
++
++    expect(prestatairesPoussés()).toBe(true);
++  });
++});
+diff --git a/apps/mobile/__tests__/resoudre-une-saisie.test.ts b/apps/mobile/__tests__/resoudre-une-saisie.test.ts
+new file mode 100644
+index 0000000..14239ae
+--- /dev/null
++++ b/apps/mobile/__tests__/resoudre-une-saisie.test.ts
+@@ -0,0 +1,140 @@
++/**
++ * Ce qu'une personne colle ou tape sur l'accueil : lien court, lien long,
++ * « CODE#clé » ou « CODE clé » — toutes les formes rendent la même invitation.
++ */
++import { beforeEach, describe, expect, it, vi } from "vitest";
++
++vi.mock("@fiance/sdk", async (importOriginal) => ({
++  ...(await importOriginal<Record<string, unknown>>()),
++  getSyncNamespace: () => "dk",
++}));
++
++import { encodeSpaceInviteLink, type SpaceInviteLinkToken } from "@fiance/sdk";
++import { resoudreUneSaisie } from "@/lib/resolution-d-invitation";
++import {
++  chiffrerLeJeton,
++  consommer,
++  construireLeLienCourt,
++  deposer,
++  emballerLInvitation,
++  tirerUnCode,
++  type DepotChiffre,
++} from "@/lib/invitation-courte";
++
++const JETON: SpaceInviteLinkToken = {
++  v: 1,
++  spaceId: "sp-f88da0e30ce94f4dabcc6d050103e931",
++  spaceName: "Léa",
++  write: true,
++  key: "a".repeat(64),
++  kemPriv: "b".repeat(64),
++  kemPub: "c".repeat(64),
++  cap: { iss: "d".repeat(32), sub: "e".repeat(32), exp: 4102444800, nonce: "f".repeat(32) },
++} as unknown as SpaceInviteLinkToken;
++
++const BASE = "https://mariage.didot.io/sync";
++const ORIGINE = "https://mariage.didot.io";
++
++let depots: Record<string, unknown> = {};
++let appels = 0;
++
++beforeEach(() => {
++  depots = {};
++  appels = 0;
++  vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
++    appels += 1;
++    const code = url.match(/_invite\/([^/?#]+)/)?.[1] ?? "";
++    if (init?.method === "POST") {
++      depots[code] = JSON.parse(String(init.body)).data;
++      return { ok: true, status: 200, json: async () => ({ hash: "h" }) };
++    }
++    const d = depots[code] as DepotChiffre | undefined;
++    const vide = !d || !Object.keys(d).length;
++    return { ok: true, status: 200, json: async () => (vide ? { hash: "", data: {} } : { hash: "h", data: d }) };
++  });
++});
++
++function fragmentLong(): string {
++  const url = encodeSpaceInviteLink(ORIGINE, JETON);
++  return url.slice(url.indexOf("#") + 1);
++}
++
++async function emettre() {
++  const { depot, cle } = await chiffrerLeJeton(
++    emballerLInvitation({ jeton: fragmentLong(), nomDuMariage: "Adrien & Emma", nomDeLaPersonne: "Léa" }),
++  );
++  const code = tirerUnCode();
++  await deposer(BASE, code, depot);
++  return { code, cle, lien: construireLeLienCourt(ORIGINE, code, cle) };
++}
++
++describe("resoudreUneSaisie", () => {
++  it("un lien court complet", async () => {
++    const { lien, code } = await emettre();
++    expect(await resoudreUneSaisie(BASE, lien)).toMatchObject({
++      jeton: { spaceId: JETON.spaceId },
++      nomDuMariage: "Adrien & Emma",
++      nomDeLaPersonne: "Léa",
++      code,
++    });
++  });
++
++  it("un lien court noyé dans le message d'invitation", async () => {
++    const { lien, code } = await emettre();
++    const message = `Bonjour Léa, voici ton invitation pour préparer le mariage avec nous : ${lien} — elle est valable 7 jours et ne sert qu'une fois.`;
++    expect(await resoudreUneSaisie(BASE, message)).toMatchObject({ jeton: { spaceId: JETON.spaceId }, code });
++  });
++
++  it("un lien long, sans appel au serveur", async () => {
++    const r = await resoudreUneSaisie(BASE, `${ORIGINE}/join#${fragmentLong()}`);
++    expect(r).toMatchObject({ jeton: { spaceId: JETON.spaceId } });
++    expect(appels).toBe(0);
++  });
++
++  it("« CODE#clé »", async () => {
++    const { code, cle } = await emettre();
++    expect(await resoudreUneSaisie(BASE, `${code}#${cle}`)).toMatchObject({ jeton: { spaceId: JETON.spaceId }, code });
++  });
++
++  it("« CODE clé », avec espaces superflus", async () => {
++    const { code, cle } = await emettre();
++    expect(await resoudreUneSaisie(BASE, `  ${code}   ${cle}\n`)).toMatchObject({ code });
++  });
++
++  it("un code tapé en minuscules et coupé d'un tiret", async () => {
++    const { code, cle } = await emettre();
++    const tapé = `${code.slice(0, 5)}-${code.slice(5)}`.toLowerCase();
++    expect(await resoudreUneSaisie(BASE, `${tapé} ${cle}`)).toMatchObject({ code });
++  });
++
++  it("un code sans sa clé est INCOMPLET", async () => {
++    const { code } = await emettre();
++    expect(await resoudreUneSaisie(BASE, code)).toEqual({ cause: "incomplete" });
++    expect(await resoudreUneSaisie(BASE, `${code}#`)).toEqual({ cause: "incomplete" });
++  });
++
++  it("une adresse /i/<code> sans fragment est INCOMPLÈTE", async () => {
++    const { lien } = await emettre();
++    expect(await resoudreUneSaisie(BASE, lien.split("#")[0])).toEqual({ cause: "incomplete" });
++  });
++
++  it("n'importe quoi est INVALIDE, sans appel au serveur", async () => {
++    for (const saisie of ["", "   ", "bonjour tout le monde", "https://exemple.org/page"]) {
++      expect(await resoudreUneSaisie(BASE, saisie)).toEqual({ cause: "invalide" });
++    }
++    expect(appels).toBe(0);
++  });
++
++  it("un dépôt consommé est UTILISÉ, quelle que soit la forme saisie", async () => {
++    const { lien, code, cle } = await emettre();
++    await consommer(BASE, code);
++    expect(await resoudreUneSaisie(BASE, lien)).toEqual({ cause: "utilisee" });
++    expect(await resoudreUneSaisie(BASE, `${code}#${cle}`)).toEqual({ cause: "utilisee" });
++  });
++
++  it("un dépôt absent est EXPIRÉ", async () => {
++    const { code, cle } = await emettre();
++    depots[code] = {};
++    expect(await resoudreUneSaisie(BASE, `${code} ${cle}`)).toEqual({ cause: "expiree" });
++  });
++});
+diff --git a/apps/mobile/app/settings/_layout.tsx b/apps/mobile/app/settings/_layout.tsx
+index f9758e4..a855a0e 100644
+--- a/apps/mobile/app/settings/_layout.tsx
++++ b/apps/mobile/app/settings/_layout.tsx
+@@ -35,6 +35,7 @@ export default function SettingsLayout() {
+             ),
+           }}
+         />
++        <Stack.Screen name="compte" options={{ title: t("compte.titre") }} />
+         <Stack.Screen name="public-page" options={{ title: t("publicPageTitle") }} />
+         <Stack.Screen name="roles" options={{ title: t("rolesTitle") }} />
+         <Stack.Screen name="event-photos" options={{ title: t("eventPhotosTitle") }} />
+diff --git a/apps/mobile/app/settings/compte.tsx b/apps/mobile/app/settings/compte.tsx
+new file mode 100644
+index 0000000..1b0743c
+--- /dev/null
++++ b/apps/mobile/app/settings/compte.tsx
+@@ -0,0 +1,125 @@
++import React, { useEffect, useState } from "react";
++import { View, Text, ScrollView } from "react-native-css/components";
++import { useTranslation } from "react-i18next";
++import { Bouton } from "@/components/compte/Bouton";
++import { FormulaireDeChangementDeMotDePasse } from "@/components/compte/FormulaireDeChangementDeMotDePasse";
++import { FormulaireDeConnexion } from "@/components/compte/FormulaireDeConnexion";
++import { FormulaireDeCreationDeCompte } from "@/components/compte/FormulaireDeCreationDeCompte";
++import { ConfirmSheet } from "@/components/ConfirmSheet";
++import { changerMonMotDePasse, creerMonCompte, planifierLeCoffre, seDeconnecter, verifierLeCoffre } from "@/lib/compte-session";
++import { theme as GP } from "@/lib/theme";
++import { useCompteStore } from "@/store/useCompteStore";
++
++type Confirmation = "deconnexion" | "forcer" | null;
++
++export default function CompteScreen() {
++  const { t } = useTranslation("settings");
++  const { t: tCommun } = useTranslation("common");
++  const compte = useCompteStore((s) => s.compte);
++  const charge = useCompteStore((s) => s.charge);
++  const etatDuCoffre = useCompteStore((s) => s.coffre);
++  const [confirmation, setConfirmation] = useState<Confirmation>(null);
++  const [deconnexionEnCours, setDeconnexionEnCours] = useState(false);
++
++  const deconnecter = async (forcer: boolean) => {
++    setConfirmation(null);
++    setDeconnexionEnCours(true);
++    try {
++      const issue = await seDeconnecter({ forcer });
++      if (issue === "poussee-en-echec") setConfirmation("forcer");
++    } finally {
++      setDeconnexionEnCours(false);
++    }
++  };
++
++  useEffect(() => {
++    if (charge) void verifierLeCoffre();
++  }, [charge]);
++
++  if (!charge) return <View className="flex-1 bg-accent-paper" />;
++
++  return (
++    <>
++      <ScrollView className="flex-1 bg-accent-paper" contentContainerStyle={{ alignItems: "center", paddingVertical: 16 }}>
++        <View style={{ width: "100%", maxWidth: 560, paddingHorizontal: 16 }}>
++          {!compte ? (
++            <>
++              <Text className="text-base text-mute leading-6 mb-6">{t("compte.sansCompte")}</Text>
++              <FormulaireDeCreationDeCompte
++                libelleDuBouton={t("compte.creer")}
++                onCreer={creerMonCompte}
++              />
++            </>
++          ) : (
++            <>
++              <View className="bg-accent-card rounded-2xl p-4 border border-hair mb-4">
++                <Text className="text-xs text-mute mb-1">{t("compte.identifiant")}</Text>
++                <Text selectable className="text-base text-ink font-semibold" testID="compte-identifiant">
++                  {compte.identifiant}
++                </Text>
++                <EtatDuCoffre etat={etatDuCoffre} />
++              </View>
++
++              {etatDuCoffre === "echec" && (
++                <View className="mb-6">
++                  <Bouton libelle={t("compte.coffre.reessayer")} variante="secondaire" onPress={planifierLeCoffre} />
++                </View>
++              )}
++
++              {etatDuCoffre === "deplace" ? (
++                <View className="mb-6">
++                  <FormulaireDeConnexion identifiantInitial={compte.identifiant} />
++                </View>
++              ) : (
++                <View className="mb-6">
++                  <Text className="text-lg text-ink font-semibold mb-3">{t("compte.changerLeMotDePasse")}</Text>
++                  <FormulaireDeChangementDeMotDePasse onChanger={changerMonMotDePasse} />
++                </View>
++              )}
++
++              <Bouton
++                libelle={t("compte.deconnexion.bouton")}
++                variante="secondaire"
++                enCours={deconnexionEnCours}
++                onPress={() => setConfirmation("deconnexion")}
++                testID="compte-deconnecter"
++              />
++            </>
++          )}
++        </View>
++      </ScrollView>
++
++      <ConfirmSheet
++        visible={confirmation === "deconnexion"}
++        title={t("compte.deconnexion.titre")}
++        message={t("compte.deconnexion.message")}
++        confirmLabel={t("compte.deconnexion.bouton")}
++        cancelLabel={tCommun("cancel")}
++        destructive
++        onConfirm={() => void deconnecter(false)}
++        onCancel={() => setConfirmation(null)}
++      />
++      <ConfirmSheet
++        visible={confirmation === "forcer"}
++        title={t("compte.deconnexion.titre")}
++        message={t("compte.deconnexion.poussee")}
++        confirmLabel={t("compte.deconnexion.quandMeme")}
++        cancelLabel={tCommun("cancel")}
++        destructive
++        onConfirm={() => void deconnecter(true)}
++        onCancel={() => setConfirmation(null)}
++      />
++    </>
++  );
++}
++
++function EtatDuCoffre({ etat }: { etat: "a-jour" | "en-attente" | "echec" | "deplace" }) {
++  const { t } = useTranslation("settings");
++  const cle = { "a-jour": "aJour", "en-attente": "enAttente", echec: "echec", deplace: "deplace" }[etat];
++  const couleur = etat === "a-jour" ? GP.olive : etat === "en-attente" ? GP.mute : GP.strawberryInk;
++  return (
++    <Text className="text-sm mt-2" style={{ color: couleur }} testID="compte-coffre">
++      {t(`compte.coffre.${cle}`)}
++    </Text>
++  );
++}
+diff --git a/apps/mobile/components/RecuperationDesDonnees.tsx b/apps/mobile/components/RecuperationDesDonnees.tsx
+new file mode 100644
+index 0000000..4befdf2
+--- /dev/null
++++ b/apps/mobile/components/RecuperationDesDonnees.tsx
+@@ -0,0 +1,89 @@
++import React, { useCallback, useEffect, useState } from "react";
++import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View, useColorScheme } from "react-native";
++import { useTranslation } from "react-i18next";
++import { seDeconnecter } from "@/lib/compte-session";
++import { refreshFromSpaceIfIdle } from "@/lib/space-sync";
++import { getActiveSession } from "@/lib/starfish";
++import { theme as GP } from "@/lib/theme";
++import { useCompteStore } from "@/store/useCompteStore";
++import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
++
++const DELAI_AVANT_ECHEC_MS = 20_000;
++
++/** Voile plein écran tant que le mariage actif attend sa première hydratation. */
++export function RecuperationDesDonnees() {
++  const { t } = useTranslation("common");
++  const sombre = useColorScheme() === "dark";
++  const attendue = useWeddingRegistryStore((s) => {
++    const r = s.registry;
++    return r?.weddings.find((w) => w.id === r.activeWeddingId)?.premiereHydratationAttendue === true;
++  });
++  const compte = useCompteStore((s) => s.compte);
++  const [tentative, setTentative] = useState(0);
++  const [tropLong, setTropLong] = useState(false);
++  const [enCours, setEnCours] = useState(false);
++
++  useEffect(() => {
++    setTropLong(false);
++    if (!attendue) return;
++    const minuteur = setTimeout(() => setTropLong(true), DELAI_AVANT_ECHEC_MS);
++    return () => clearTimeout(minuteur);
++  }, [attendue, tentative]);
++
++  const reessayer = useCallback(async () => {
++    setEnCours(true);
++    try {
++      // Sans session, l'activation a échoué au démarrage : seule une relance de la sync la refait.
++      if (getActiveSession()) await refreshFromSpaceIfIdle();
++      else useCompteStore.getState().relancer();
++    } finally {
++      setTentative((n) => n + 1);
++      setEnCours(false);
++    }
++  }, []);
++
++  // Rien n'est encore lu : il n'y a rien à perdre, on ne demande donc pas de confirmation.
++  const deconnecter = useCallback(() => { void seDeconnecter({ forcer: true }); }, []);
++
++  if (!attendue) return null;
++
++  const encre = sombre ? GP.inkDark : GP.ink;
++  return (
++    <Modal visible transparent={false} animationType="none" statusBarTranslucent onRequestClose={() => {}}>
++      <View style={[styles.voile, { backgroundColor: sombre ? GP.paperDark : GP.paper }]} testID="recuperation-des-donnees">
++        <ActivityIndicator size="large" color={GP.clay} />
++        <Text style={[styles.titre, { color: encre }]}>{t("compte.recuperation.titre")}</Text>
++        {tropLong && (
++          <>
++            <Text style={[styles.echec, { color: encre }]}>{t("compte.recuperation.echec")}</Text>
++            <Pressable
++              accessibilityRole="button"
++              disabled={enCours}
++              onPress={reessayer}
++              style={[styles.bouton, styles.principal, enCours && styles.inactif]}
++            >
++              <Text style={styles.libellePrincipal}>{t("compte.recuperation.reessayer")}</Text>
++            </Pressable>
++            {compte && (
++              <Pressable accessibilityRole="button" onPress={deconnecter} style={[styles.bouton, styles.secondaire]}>
++                <Text style={[styles.libelleSecondaire, { color: encre }]}>{t("compte.recuperation.deconnecter")}</Text>
++              </Pressable>
++            )}
++          </>
++        )}
++      </View>
++    </Modal>
++  );
++}
++
++const styles = StyleSheet.create({
++  voile: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 16 },
++  titre: { fontSize: 18, fontFamily: "Inter_500Medium", textAlign: "center", marginTop: 8 },
++  echec: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center" },
++  bouton: { minWidth: 200, minHeight: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", paddingHorizontal: 20 },
++  principal: { backgroundColor: GP.clay },
++  secondaire: { borderWidth: 1, borderColor: GP.hairStrong },
++  inactif: { opacity: 0.6 },
++  libellePrincipal: { color: GP.card, fontSize: 15, fontFamily: "Inter_600SemiBold" },
++  libelleSecondaire: { fontSize: 15, fontFamily: "Inter_500Medium" },
++});
+diff --git a/apps/mobile/components/compte/Bouton.tsx b/apps/mobile/components/compte/Bouton.tsx
+new file mode 100644
+index 0000000..797a830
+--- /dev/null
++++ b/apps/mobile/components/compte/Bouton.tsx
+@@ -0,0 +1,46 @@
++import React from "react";
++import { ActivityIndicator } from "react-native";
++import { View, Text, Pressable } from "react-native-css/components";
++import { theme as GP } from "@/lib/theme";
++
++type Variante = "plein" | "secondaire" | "lien";
++
++interface BoutonProps {
++  libelle: string;
++  onPress: () => void;
++  variante?: Variante;
++  enCours?: boolean;
++  desactive?: boolean;
++  icone?: React.ReactNode;
++  testID?: string;
++}
++
++/** Cible d'au moins 44 px dans le DOM : `hitSlop` est inerte sur `Pressable` en react-native-web. */
++export function Bouton({ libelle, onPress, variante = "plein", enCours, desactive, icone, testID }: BoutonProps) {
++  const inactif = !!(enCours || desactive);
++  const classes =
++    variante === "plein"
++      ? "bg-primary-500 rounded-2xl py-4 items-center active:bg-primary-600"
++      : variante === "secondaire"
++        ? "bg-accent-card rounded-2xl py-4 items-center border border-hair active:opacity-80"
++        : "items-center justify-center active:opacity-70";
++  const texte =
++    variante === "plein" ? "text-white font-semibold text-base" : variante === "secondaire" ? "text-ink font-semibold text-base" : "text-mute text-sm underline";
++
++  return (
++    <Pressable
++      accessibilityRole="button"
++      accessibilityState={{ disabled: inactif, busy: !!enCours }}
++      disabled={inactif}
++      onPress={onPress}
++      testID={testID}
++      className={classes}
++      style={{ minHeight: 44, justifyContent: "center", opacity: inactif ? 0.6 : 1 }}
++    >
++      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
++        {enCours ? <ActivityIndicator size="small" color={variante === "plein" ? "#fff" : GP.clay} /> : icone}
++        <Text className={texte}>{libelle}</Text>
++      </View>
++    </Pressable>
++  );
++}
+diff --git a/apps/mobile/components/compte/CadreDEcran.tsx b/apps/mobile/components/compte/CadreDEcran.tsx
+new file mode 100644
+index 0000000..e296e1d
+--- /dev/null
++++ b/apps/mobile/components/compte/CadreDEcran.tsx
+@@ -0,0 +1,34 @@
++import React from "react";
++import { Platform } from "react-native";
++import { View, ScrollView, Pressable, KeyboardAvoidingView } from "react-native-css/components";
++import { ArrowLeft } from "lucide-react-native";
++import { useTranslation } from "react-i18next";
++import { Seo } from "@/components/Seo";
++
++/** Le gabarit des sous-écrans d'accueil : retour en haut, colonne de 480 px. */
++export function CadreDEcran({ onRetour, children }: { onRetour: () => void; children: React.ReactNode }) {
++  const { t } = useTranslation("common");
++  return (
++    <KeyboardAvoidingView className="flex-1 bg-accent-paper" behavior={Platform.OS === "ios" ? "padding" : undefined}>
++      <Seo title="Fiancé" description="" noindex />
++      <ScrollView
++        className="flex-1"
++        keyboardShouldPersistTaps="handled"
++        contentContainerStyle={{ justifyContent: "center", flexGrow: 1, alignItems: "center", paddingVertical: 24 }}
++      >
++        <View style={{ width: "100%", maxWidth: 480, paddingHorizontal: 24 }}>
++          <Pressable
++            accessibilityRole="button"
++            accessibilityLabel={t("back")}
++            onPress={onRetour}
++            className="mb-4 -ml-2 items-center justify-center"
++            style={{ width: 44, height: 44 }}
++          >
++            <ArrowLeft size={24} color="#9CA3AF" />
++          </Pressable>
++          {children}
++        </View>
++      </ScrollView>
++    </KeyboardAvoidingView>
++  );
++}
+diff --git a/apps/mobile/components/compte/ChampDeFormulaire.tsx b/apps/mobile/components/compte/ChampDeFormulaire.tsx
+new file mode 100644
+index 0000000..37bb3a5
+--- /dev/null
++++ b/apps/mobile/components/compte/ChampDeFormulaire.tsx
+@@ -0,0 +1,89 @@
++import React, { useState } from "react";
++import type { TextInputProps } from "react-native";
++import { View, Text, TextInput, Pressable } from "react-native-css/components";
++import { Eye, EyeOff } from "lucide-react-native";
++import { useTranslation } from "react-i18next";
++import { theme as GP } from "@/lib/theme";
++
++type Genre = "identifiant" | "nouveau-mot-de-passe" | "mot-de-passe-actuel" | "texte";
++
++interface ChampProps {
++  libelle: string;
++  valeur: string;
++  onChangeText: (texte: string) => void;
++  genre?: Genre;
++  placeholder?: string;
++  aide?: string;
++  erreur?: string | null;
++  onSubmit?: () => void;
++  editable?: boolean;
++  autoFocus?: boolean;
++  testID?: string;
++}
++
++const PAR_GENRE: Record<Genre, Partial<TextInputProps>> = {
++  identifiant: { autoComplete: "username", textContentType: "username", autoCapitalize: "none", autoCorrect: false },
++  "mot-de-passe-actuel": { autoComplete: "current-password", textContentType: "password", autoCapitalize: "none", autoCorrect: false },
++  "nouveau-mot-de-passe": { autoComplete: "new-password", textContentType: "newPassword", autoCapitalize: "none", autoCorrect: false },
++  texte: { autoCapitalize: "none", autoCorrect: false },
++};
++
++export function ChampDeFormulaire({
++  libelle,
++  valeur,
++  onChangeText,
++  genre = "texte",
++  placeholder,
++  aide,
++  erreur,
++  onSubmit,
++  editable = true,
++  autoFocus,
++  testID,
++}: ChampProps) {
++  const { t } = useTranslation("common");
++  const secret = genre === "mot-de-passe-actuel" || genre === "nouveau-mot-de-passe";
++  const [visible, setVisible] = useState(false);
++
++  return (
++    <View className="mb-4">
++      <Text className="text-sm font-medium text-mute mb-1.5 ml-1">{libelle}</Text>
++      <View>
++        <TextInput
++          {...PAR_GENRE[genre]}
++          accessibilityLabel={libelle}
++          value={valeur}
++          onChangeText={onChangeText}
++          placeholder={placeholder}
++          placeholderTextColor="#C0C0C8"
++          secureTextEntry={secret && !visible}
++          editable={editable}
++          autoFocus={autoFocus}
++          onSubmitEditing={onSubmit}
++          returnKeyType={onSubmit ? "go" : undefined}
++          testID={testID}
++          className="bg-accent-card rounded-xl px-4 py-3.5 text-base text-ink border border-hair"
++          style={{ minHeight: 48, ...(secret ? { paddingRight: 52 } : null), ...(erreur ? { borderColor: GP.strawberryInk } : null) }}
++        />
++        {secret && (
++          <Pressable
++            accessibilityRole="button"
++            accessibilityLabel={visible ? t("compte.champs.masquer") : t("compte.champs.afficher")}
++            onPress={() => setVisible((v) => !v)}
++            className="absolute items-center justify-center"
++            style={{ right: 0, top: 0, bottom: 0, width: 48 }}
++          >
++            {visible ? <EyeOff size={20} color={GP.mute} /> : <Eye size={20} color={GP.mute} />}
++          </Pressable>
++        )}
++      </View>
++      {erreur ? (
++        <Text accessibilityRole="alert" className="text-sm mt-1.5 ml-1" style={{ color: GP.strawberryInk }}>
++          {erreur}
++        </Text>
++      ) : aide ? (
++        <Text className="text-xs text-mute mt-1.5 ml-1">{aide}</Text>
++      ) : null}
++    </View>
++  );
++}
+diff --git a/apps/mobile/components/compte/FormulaireDeChangementDeMotDePasse.tsx b/apps/mobile/components/compte/FormulaireDeChangementDeMotDePasse.tsx
+new file mode 100644
+index 0000000..4234148
+--- /dev/null
++++ b/apps/mobile/components/compte/FormulaireDeChangementDeMotDePasse.tsx
+@@ -0,0 +1,84 @@
++import React, { useState } from "react";
++import { View, Text } from "react-native-css/components";
++import { useTranslation } from "react-i18next";
++import { messageDeLErreur, validerLeMotDePasse } from "@/lib/messages-de-compte";
++import { theme as GP } from "@/lib/theme";
++import { Bouton } from "./Bouton";
++import { ChampDeFormulaire } from "./ChampDeFormulaire";
++import { useEnvoi } from "./useEnvoi";
++
++export function FormulaireDeChangementDeMotDePasse({ onChanger }: { onChanger: (mdp: string) => Promise<void> }) {
++  const { t } = useTranslation("common");
++  const [motDePasse, setMotDePasse] = useState("");
++  const [confirmation, setConfirmation] = useState("");
++  const [erreurs, setErreurs] = useState<{ motDePasse?: string; confirmation?: string }>({});
++  const [erreur, setErreur] = useState<string | null>(null);
++  const [change, setChange] = useState(false);
++  const { enCours, lancer } = useEnvoi();
++
++  const envoyer = () => {
++    const invalides = validerLeMotDePasse(motDePasse, confirmation);
++    setErreurs(invalides);
++    setErreur(null);
++    setChange(false);
++    if (Object.keys(invalides).length > 0) return;
++    void lancer(
++      async () => {
++        await onChanger(motDePasse);
++        setMotDePasse("");
++        setConfirmation("");
++        setChange(true);
++      },
++      (err) => setErreur(messageDeLErreur(err, (cle) => t(cle))),
++    );
++  };
++
++  return (
++    <View>
++      <ChampDeFormulaire
++        libelle={t("compte.champs.nouveauMotDePasse")}
++        valeur={motDePasse}
++        onChangeText={(v) => {
++          setMotDePasse(v);
++          setErreurs((e) => ({ ...e, motDePasse: undefined }));
++        }}
++        genre="nouveau-mot-de-passe"
++        aide={t("compte.champs.motDePasseAide")}
++        erreur={erreurs.motDePasse ? t(erreurs.motDePasse) : null}
++        editable={!enCours}
++        onSubmit={envoyer}
++        testID="changement-mot-de-passe"
++      />
++      <ChampDeFormulaire
++        libelle={t("compte.champs.confirmationDuNouveau")}
++        valeur={confirmation}
++        onChangeText={(v) => {
++          setConfirmation(v);
++          setErreurs((e) => ({ ...e, confirmation: undefined }));
++        }}
++        genre="nouveau-mot-de-passe"
++        erreur={erreurs.confirmation ? t(erreurs.confirmation) : null}
++        editable={!enCours}
++        onSubmit={envoyer}
++        testID="changement-confirmation"
++      />
++      <Bouton
++        libelle={enCours ? t("compte.changement.enCours") : t("compte.changement.bouton")}
++        onPress={envoyer}
++        enCours={enCours}
++        variante="secondaire"
++        testID="changement-envoyer"
++      />
++      {erreur && (
++        <Text accessibilityRole="alert" className="text-sm mt-3 text-center" style={{ color: GP.strawberryInk }}>
++          {erreur}
++        </Text>
++      )}
++      {change && (
++        <Text accessibilityRole="alert" className="text-sm mt-3 text-center" style={{ color: GP.olive }}>
++          {t("compte.changement.reussi")}
++        </Text>
++      )}
++    </View>
++  );
++}
+diff --git a/apps/mobile/components/compte/FormulaireDeConnexion.tsx b/apps/mobile/components/compte/FormulaireDeConnexion.tsx
+new file mode 100644
+index 0000000..0ec07e3
+--- /dev/null
++++ b/apps/mobile/components/compte/FormulaireDeConnexion.tsx
+@@ -0,0 +1,73 @@
++import React, { useState } from "react";
++import { View, Text } from "react-native-css/components";
++import { useTranslation } from "react-i18next";
++import { ouvrirUneSession } from "@/lib/compte-session";
++import { messageDeLErreur } from "@/lib/messages-de-compte";
++import { theme as GP } from "@/lib/theme";
++import { Bouton } from "./Bouton";
++import { ChampDeFormulaire } from "./ChampDeFormulaire";
++import { useEnvoi } from "./useEnvoi";
++
++interface Props {
++  identifiantInitial?: string;
++  onConnecte?: () => void;
++}
++
++export function FormulaireDeConnexion({ identifiantInitial = "", onConnecte }: Props) {
++  const { t } = useTranslation("common");
++  const [identifiant, setIdentifiant] = useState(identifiantInitial);
++  const [motDePasse, setMotDePasse] = useState("");
++  const [erreur, setErreur] = useState<string | null>(null);
++  const { enCours, lancer } = useEnvoi();
++
++  const envoyer = () => {
++    if (!identifiant.trim() || !motDePasse) {
++      setErreur(t("compte.connexion.champsVides"));
++      return;
++    }
++    setErreur(null);
++    void lancer(
++      async () => {
++        await ouvrirUneSession(identifiant, motDePasse);
++        onConnecte?.();
++      },
++      (err) => setErreur(messageDeLErreur(err, (cle) => t(cle))),
++    );
++  };
++
++  return (
++    <View>
++      <ChampDeFormulaire
++        libelle={t("compte.champs.identifiant")}
++        valeur={identifiant}
++        onChangeText={setIdentifiant}
++        genre="identifiant"
++        placeholder={t("compte.champs.identifiantPlaceholder")}
++        editable={!enCours}
++        onSubmit={envoyer}
++        testID="connexion-identifiant"
++      />
++      <ChampDeFormulaire
++        libelle={t("compte.champs.motDePasse")}
++        valeur={motDePasse}
++        onChangeText={setMotDePasse}
++        genre="mot-de-passe-actuel"
++        placeholder={t("compte.champs.motDePassePlaceholder")}
++        editable={!enCours}
++        onSubmit={envoyer}
++        testID="connexion-mot-de-passe"
++      />
++      <Bouton
++        libelle={enCours ? t("compte.connexion.enCours") : t("compte.connexion.bouton")}
++        onPress={envoyer}
++        enCours={enCours}
++        testID="connexion-envoyer"
++      />
++      {erreur && (
++        <Text accessibilityRole="alert" className="text-sm mt-3 text-center" style={{ color: GP.strawberryInk }}>
++          {erreur}
++        </Text>
++      )}
++    </View>
++  );
++}
+diff --git a/apps/mobile/components/compte/FormulaireDeCreationDeCompte.tsx b/apps/mobile/components/compte/FormulaireDeCreationDeCompte.tsx
+new file mode 100644
+index 0000000..1b2a934
+--- /dev/null
++++ b/apps/mobile/components/compte/FormulaireDeCreationDeCompte.tsx
+@@ -0,0 +1,94 @@
++import React, { useState } from "react";
++import { View, Text } from "react-native-css/components";
++import { useTranslation } from "react-i18next";
++import { messageDeLErreur, validerLaCreation, type ErreursDeCreation } from "@/lib/messages-de-compte";
++import { theme as GP } from "@/lib/theme";
++import { Bouton } from "./Bouton";
++import { ChampDeFormulaire } from "./ChampDeFormulaire";
++import { useEnvoi } from "./useEnvoi";
++
++interface Props {
++  libelleDuBouton: string;
++  onCreer: (identifiant: string, mdp: string) => Promise<void>;
++  identifiantInitial?: string;
++}
++
++export function FormulaireDeCreationDeCompte({ libelleDuBouton, onCreer, identifiantInitial = "" }: Props) {
++  const { t } = useTranslation("common");
++  const [identifiant, setIdentifiant] = useState(identifiantInitial);
++  const [motDePasse, setMotDePasse] = useState("");
++  const [confirmation, setConfirmation] = useState("");
++  const [erreurs, setErreurs] = useState<ErreursDeCreation>({});
++  const [erreur, setErreur] = useState<string | null>(null);
++  const { enCours, lancer } = useEnvoi();
++
++  const sans = (champ: keyof ErreursDeCreation) => setErreurs((e) => ({ ...e, [champ]: undefined }));
++
++  const envoyer = () => {
++    const invalides = validerLaCreation({ identifiant, motDePasse, confirmation });
++    setErreurs(invalides);
++    setErreur(null);
++    if (Object.keys(invalides).length > 0) return;
++    void lancer(
++      () => onCreer(identifiant, motDePasse),
++      (err) => setErreur(messageDeLErreur(err, (cle) => t(cle))),
++    );
++  };
++
++  const message = (cle?: string) => (cle ? t(cle) : null);
++
++  return (
++    <View>
++      <ChampDeFormulaire
++        libelle={t("compte.champs.identifiant")}
++        valeur={identifiant}
++        onChangeText={(v) => {
++          setIdentifiant(v);
++          sans("identifiant");
++        }}
++        genre="identifiant"
++        placeholder={t("compte.champs.identifiantPlaceholder")}
++        aide={t("compte.champs.identifiantAide")}
++        erreur={message(erreurs.identifiant)}
++        editable={!enCours}
++        onSubmit={envoyer}
++        testID="creation-identifiant"
++      />
++      <ChampDeFormulaire
++        libelle={t("compte.champs.motDePasse")}
++        valeur={motDePasse}
++        onChangeText={(v) => {
++          setMotDePasse(v);
++          sans("motDePasse");
++        }}
++        genre="nouveau-mot-de-passe"
++        placeholder={t("compte.champs.motDePassePlaceholder")}
++        aide={t("compte.champs.motDePasseAide")}
++        erreur={message(erreurs.motDePasse)}
++        editable={!enCours}
++        onSubmit={envoyer}
++        testID="creation-mot-de-passe"
++      />
++      <ChampDeFormulaire
++        libelle={t("compte.champs.confirmation")}
++        valeur={confirmation}
++        onChangeText={(v) => {
++          setConfirmation(v);
++          sans("confirmation");
++        }}
++        genre="nouveau-mot-de-passe"
++        placeholder={t("compte.champs.confirmationPlaceholder")}
++        erreur={message(erreurs.confirmation)}
++        editable={!enCours}
++        onSubmit={envoyer}
++        testID="creation-confirmation"
++      />
++      <Bouton libelle={libelleDuBouton} onPress={envoyer} enCours={enCours} testID="creation-envoyer" />
++      {erreur && (
++        <Text accessibilityRole="alert" className="text-sm mt-3 text-center" style={{ color: GP.strawberryInk }}>
++          {erreur}
++        </Text>
++      )}
++    </View>
++  );
++}
+diff --git a/apps/mobile/components/compte/useEnvoi.ts b/apps/mobile/components/compte/useEnvoi.ts
+new file mode 100644
+index 0000000..902911d
+--- /dev/null
++++ b/apps/mobile/components/compte/useEnvoi.ts
+@@ -0,0 +1,31 @@
++import { useCallback, useEffect, useRef, useState } from "react";
++
++/** Un envoi à la fois ; l'état n'est touché que tant que le formulaire est monté (un succès peut le démonter). */
++export function useEnvoi() {
++  const [enCours, setEnCours] = useState(false);
++  const vivant = useRef(true);
++  const verrou = useRef(false);
++
++  useEffect(() => {
++    vivant.current = true;
++    return () => {
++      vivant.current = false;
++    };
++  }, []);
++
++  const lancer = useCallback(async (tache: () => Promise<void>, surEchec: (err: unknown) => void) => {
++    if (verrou.current) return;
++    verrou.current = true;
++    setEnCours(true);
++    try {
++      await tache();
++    } catch (err) {
++      if (vivant.current) surEchec(err);
++    } finally {
++      verrou.current = false;
++      if (vivant.current) setEnCours(false);
++    }
++  }, []);
++
++  return { enCours, lancer };
++}
+diff --git a/apps/mobile/components/invitation/ParcoursDInvitation.tsx b/apps/mobile/components/invitation/ParcoursDInvitation.tsx
+new file mode 100644
+index 0000000..f53490b
+--- /dev/null
++++ b/apps/mobile/components/invitation/ParcoursDInvitation.tsx
+@@ -0,0 +1,250 @@
++import React, { useCallback, useEffect, useRef, useState } from "react";
++import { ActivityIndicator } from "react-native";
++import { View, Text, Pressable } from "react-native-css/components";
++import { useRouter } from "expo-router";
++import { useTranslation } from "react-i18next";
++import { AlertCircle, ArrowLeft, Heart, PlusCircle } from "lucide-react-native";
++import { Seo } from "@/components/Seo";
++import { PageHeader } from "@/components/PageHeader";
++import { InvitationDejaAcceptee } from "@/components/InvitationDejaAcceptee";
++import { Bouton } from "@/components/compte/Bouton";
++import { CadreDEcran } from "@/components/compte/CadreDEcran";
++import { FormulaireDeConnexion } from "@/components/compte/FormulaireDeConnexion";
++import { FormulaireDeCreationDeCompte } from "@/components/compte/FormulaireDeCreationDeCompte";
++import { analytics } from "@/lib/analytics";
++import { baseDeSync } from "@/lib/base-de-sync";
++import { creerMonCompte, ouvrirUneSession } from "@/lib/compte-session";
++import { consommer as consommerLeDepot } from "@/lib/invitation-courte";
++import { joinWeddingByToken } from "@/lib/join-space";
++import { etapeDuParcours, sequenceDeCreationDeCompte, sequenceDeJonction } from "@/lib/parcours-d-invitation";
++import type { ResolutionDInvitation } from "@/lib/resolution-d-invitation";
++import { theme as GP } from "@/lib/theme";
++import { useAccesChiffreStore } from "@/store/useAccesChiffreStore";
++import { useParcoursDAccueilStore } from "@/store/useParcoursDAccueilStore";
++import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
++
++type Resolution = Extract<ResolutionDInvitation, { jeton: unknown }>;
++
++type Etat = { type: "repos" } | { type: "en-cours"; texte: string } | { type: "erreur"; message: string };
++
++type Onglet = "creer" | "connexion";
++
++interface Props {
++  resolution: Resolution;
++  onRetour: () => void;
++}
++
++export function ParcoursDInvitation({ resolution, onRetour }: Props) {
++  const { t } = useTranslation("common");
++  const router = useRouter();
++  const { jeton, nomDuMariage, nomDeLaPersonne, code } = resolution;
++  const nom = nomDuMariage ?? jeton.spaceName;
++
++  const registre = useWeddingRegistryStore((s) => s.registry);
++  const switchWedding = useWeddingRegistryStore((s) => s.switchWedding);
++  const illisible = useAccesChiffreStore((s) => Object.keys(s.illisibles).length > 0);
++
++  const [etat, setEtat] = useState<Etat>({ type: "repos" });
++  const [onglet, setOnglet] = useState<Onglet>("creer");
++  const [identifiant, setIdentifiant] = useState(nomDeLaPersonne ?? "");
++  const derniere = useRef<{ texte: string; tache: () => Promise<void> } | null>(null);
++
++  useEffect(() => {
++    useParcoursDAccueilStore.getState().poser(true);
++    return () => useParcoursDAccueilStore.getState().poser(false);
++  }, []);
++
++  const lancer = useCallback(
++    async (texte: string, tache: () => Promise<void>) => {
++      derniere.current = { texte, tache };
++      setEtat({ type: "en-cours", texte });
++      try {
++        await tache();
++        router.replace("/home" as any);
++      } catch (err) {
++        setEtat({ type: "erreur", message: err instanceof Error ? err.message : String(err) });
++      }
++    },
++    [router],
++  );
++
++  const joindre = async () => {
++    await joinWeddingByToken(jeton, { nomDuMariage });
++  };
++  const consommer = async () => {
++    if (code) await consommerLeDepot(baseDeSync(), code);
++  };
++
++  if (etat.type !== "repos") {
++    if (illisible) {
++      return (
++        <View className="flex-1 bg-accent-paper justify-center px-6">
++          <View className="items-center mb-10">
++            <AlertCircle size={36} color={GP.mustard} />
++          </View>
++          <PageHeader
++            eyebrow={t("join.inviteEyebrow")}
++            title={t("join.invitationIncomplete")}
++            tagline={t("join.espaceRejointIllisible")}
++            titleSize={24}
++            style={{ paddingHorizontal: 0, paddingTop: 0 }}
++          />
++        </View>
++      );
++    }
++    if (etat.type === "erreur") {
++      return (
++        <View className="flex-1 bg-accent-paper justify-center px-6">
++          <View style={{ width: "100%", maxWidth: 480, alignSelf: "center" }}>
++            <View className="items-center mb-8">
++              <AlertCircle size={36} color="#EF4444" />
++            </View>
++            <PageHeader
++              eyebrow={t("join.eyebrow")}
++              title={t("onboarding.inviteFailed")}
++              tagline={etat.message}
++              titleSize={24}
++              style={{ paddingHorizontal: 0, paddingTop: 0, marginBottom: 24 }}
++            />
++            <View style={{ gap: 12 }}>
++              <Bouton
++                libelle={t("join.reessayer")}
++                onPress={() => derniere.current && void lancer(derniere.current.texte, derniere.current.tache)}
++              />
++              <Bouton libelle={t("back")} variante="secondaire" onPress={() => setEtat({ type: "repos" })} />
++            </View>
++          </View>
++        </View>
++      );
++    }
++    return (
++      <View className="flex-1 bg-accent-paper items-center justify-center px-6" testID="parcours-en-cours">
++        <ActivityIndicator size="large" color={GP.clay} />
++        <Text className="text-base text-mute mt-4 text-center">{etat.texte}</Text>
++      </View>
++    );
++  }
++
++  const etape = etapeDuParcours(registre, jeton.spaceId);
++
++  if (etape === "deja-acceptee") {
++    return (
++      <InvitationDejaAcceptee
++        weddingName={nom}
++        onContinuer={() => {
++          void (async () => {
++            const existant = registre?.weddings.find((w) => w.spaceId === jeton.spaceId);
++            if (existant) await switchWedding(existant.id);
++            router.replace("/home" as any);
++          })();
++        }}
++      />
++    );
++  }
++
++  if (etape === "confirmer") {
++    return (
++      <View className="flex-1 bg-accent-paper justify-center px-6">
++        <Seo title="Fiancé" description="" noindex />
++        <View style={{ width: "100%", maxWidth: 480, alignSelf: "center" }}>
++          <View className="items-center mb-10">
++            <View className="w-20 h-20 rounded-full bg-primary-50 dark:bg-primary-900 items-center justify-center mb-5">
++              <Heart size={36} color={GP.clay} />
++            </View>
++            <PageHeader
++              eyebrow={t("join.inviteEyebrow")}
++              title={t("join.joinThisWedding")}
++              tagline={nom}
++              titleSize={26}
++              style={{ paddingHorizontal: 0, paddingTop: 0 }}
++            />
++            <Text className="text-base text-mute mt-2 text-center">
++              {t("join.alreadyHaveWedding")}
++              {"\n"}
++              {t("join.confirmJoin", { name: nom ? ` (${nom})` : "" })}
++            </Text>
++          </View>
++          <View style={{ gap: 12 }}>
++            <Bouton
++              libelle={t("join.yesJoin")}
++              icone={<PlusCircle size={20} color="#fff" />}
++              onPress={() => void lancer(t("join.jonctionEnCours"), () => sequenceDeJonction({ joindre, consommer }))}
++            />
++            <Bouton
++              libelle={t("join.noGoBack")}
++              variante="secondaire"
++              icone={<ArrowLeft size={20} color={GP.clay} />}
++              onPress={onRetour}
++            />
++          </View>
++        </View>
++      </View>
++    );
++  }
++
++  const creer = (id: string, mdp: string) =>
++    lancer(t("join.creationEnCours"), async () => {
++      setIdentifiant(id);
++      await sequenceDeCreationDeCompte(
++        {
++          joindre: async () => {
++            await joindre();
++            analytics.capture("wedding_created", { method: "invite" });
++          },
++          creerLeCompte: creerMonCompte,
++          ouvrirUneSession,
++          consommer,
++        },
++        id,
++        mdp,
++      );
++    });
++
++  const onglets: { cle: Onglet; libelle: string }[] = [
++    { cle: "creer", libelle: t("join.ongletCreer") },
++    { cle: "connexion", libelle: t("join.ongletConnexion") },
++  ];
++
++  return (
++    <CadreDEcran onRetour={onRetour}>
++      {/* Sans icône : sur un téléphone de 659 px, le bouton du formulaire doit tenir à l'écran. */}
++      <View className="items-center mb-4">
++        <PageHeader
++          eyebrow={t("join.inviteEyebrow")}
++          title={t("join.inviteATitre")}
++          tagline={nom}
++          titleSize={26}
++          style={{ paddingHorizontal: 0, paddingTop: 0 }}
++        />
++      </View>
++
++      <View accessibilityRole="tablist" className="flex-row bg-accent-card border border-hair rounded-xl p-1 mb-4">
++        {onglets.map(({ cle, libelle }) => {
++          const actif = onglet === cle;
++          return (
++            <Pressable
++              key={cle}
++              accessibilityRole="tab"
++              accessibilityState={{ selected: actif }}
++              onPress={() => setOnglet(cle)}
++              className="items-center justify-center rounded-lg"
++              style={{ flex: 1, minHeight: 44, backgroundColor: actif ? GP.clay : "transparent" }}
++            >
++              <Text className={actif ? "text-white font-semibold text-sm" : "text-ink font-medium text-sm"}>{libelle}</Text>
++            </Pressable>
++          );
++        })}
++      </View>
++
++      {onglet === "creer" ? (
++        <FormulaireDeCreationDeCompte
++          libelleDuBouton={t("join.boutonRejoindre")}
++          identifiantInitial={identifiant}
++          onCreer={creer}
++        />
++      ) : (
++        <FormulaireDeConnexion identifiantInitial={identifiant} />
++      )}
++    </CadreDEcran>
++  );
++}
+diff --git a/apps/mobile/lib/accueil.ts b/apps/mobile/lib/accueil.ts
+new file mode 100644
+index 0000000..6879de5
+--- /dev/null
++++ b/apps/mobile/lib/accueil.ts
+@@ -0,0 +1,7 @@
++export type EcranDAccueil = "accueil" | "connexion";
++
++/** `?mode=connexion` ouvre directement la connexion ; expo-router rend un tableau si le paramètre est répété. */
++export function ecranInitialDeLAccueil(mode: string | string[] | undefined): EcranDAccueil {
++  const valeur = Array.isArray(mode) ? mode[0] : mode;
++  return valeur === "connexion" ? "connexion" : "accueil";
++}
+diff --git a/apps/mobile/lib/alerte-web.ts b/apps/mobile/lib/alerte-web.ts
+new file mode 100644
+index 0000000..0637d17
+--- /dev/null
++++ b/apps/mobile/lib/alerte-web.ts
+@@ -0,0 +1,47 @@
++// `Alert.alert` de react-native-web est une fonction vide : sans ceci, toute
++// confirmation et tout message d'erreur de l'app sont muets dans le navigateur.
++import { Platform, Alert } from "react-native";
++import { toast } from "@/lib/toast/sonner";
++
++type Bouton = {
++  text?: string;
++  style?: "cancel" | "destructive" | "default";
++  onPress?: () => void;
++};
++
++export type DecisionDAlerte = {
++  mode: "toast" | "confirmation";
++  accepter?: () => void;
++  refuser?: () => void;
++};
++
++export function deciderLAlerte(boutons: Bouton[] = []): DecisionDAlerte {
++  if (boutons.length <= 1) return { mode: "toast", accepter: boutons[0]?.onPress };
++  // Convention React Native : l'action principale est le DERNIER bouton.
++  const principal = [...boutons].reverse().find((b) => b.style !== "cancel");
++  return {
++    mode: "confirmation",
++    accepter: principal?.onPress,
++    refuser: boutons.find((b) => b.style === "cancel")?.onPress,
++  };
++}
++
++let installee = false;
++
++export function installerLesAlertesWeb(): void {
++  if (installee || Platform.OS !== "web") return;
++  installee = true;
++
++  const notifier = toast as unknown as (titre: string, options?: { description?: string }) => void;
++
++  (Alert as { alert: unknown }).alert = (titre: string, message?: string, boutons?: Bouton[]) => {
++    const decision = deciderLAlerte(boutons);
++    if (decision.mode === "toast") {
++      notifier(titre, message ? { description: message } : undefined);
++      decision.accepter?.();
++      return;
++    }
++    const accepte = window.confirm(message ? `${titre}\n\n${message}` : titre);
++    (accepte ? decision.accepter : decision.refuser)?.();
++  };
++}
+diff --git a/apps/mobile/lib/base-de-sync.ts b/apps/mobile/lib/base-de-sync.ts
+new file mode 100644
+index 0000000..baaa778
+--- /dev/null
++++ b/apps/mobile/lib/base-de-sync.ts
+@@ -0,0 +1,6 @@
++import { normalizeSyncBase, resolveServerUrl } from "@/lib/server";
++
++/** La base de sync, pour aller chercher un dépôt avant d'avoir la moindre identité. */
++export function baseDeSync(): string {
++  return normalizeSyncBase(resolveServerUrl() ?? "https://mariage.didot.io/sync");
++}
+diff --git a/apps/mobile/lib/compte-session.ts b/apps/mobile/lib/compte-session.ts
+new file mode 100644
+index 0000000..74e04cb
+--- /dev/null
++++ b/apps/mobile/lib/compte-session.ts
+@@ -0,0 +1,301 @@
++/**
++ * Le compte, côté appli : le registre local devient le coffre, et inversement.
++ */
++
++import { clearSpaceAccessStore } from "@fiance/sdk";
++import {
++  CompteError,
++  changerLeMotDePasse,
++  creerLeCompte,
++  enregistrerLeCoffre,
++  lireLeCoffre,
++  seConnecter,
++  type Coffre,
++  type CompteLocal,
++} from "@/lib/compte";
++import { readCollection, writeCollection } from "@/lib/kv-storage";
++import { normalizeSyncBase, resolveServerUrl } from "@/lib/server";
++import { resetDirtyPushBaseline, pousserAvantDeQuitter, attendreLaFinDeLHydratation } from "@/lib/space-sync";
++import { teardownSync } from "@/lib/starfish";
++import {
++  deleteWeddingEntry,
++  loadRegistry,
++  saveRegistry,
++  type WeddingRegistry,
++  type WeddingRegistryEntry,
++} from "@/lib/wedding-registry";
++import { useCompteStore, type EtatDuCoffre } from "@/store/useCompteStore";
++import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
++
++// Clés de `invite-link.ts`, recopiées : ce module est appelé par lui.
++const CLE_REVOCATION = "spaceInviteStore";
++const CLE_CODES_DE_DEPOT = "inviteDepotCodes";
++const PREFIXE_DES_ACCES = "dk.spaceaccess.";
++/** Cache de lecture de `createKvPullCache` (starfish-client), écrit tel quel dans le KV de l'app. */
++const PREFIXE_DU_CACHE_DE_LECTURE = "starfish.pullcache.";
++const DELAI_DU_COFFRE_MS = 1500;
++
++type Annexes = Coffre["annexes"];
++
++/** Les annexes du dernier coffre lu ou écrit, en mémoire seulement. */
++let _annexesConnues: Annexes = {};
++
++function baseDeSynchro(): string {
++  const url = resolveServerUrl();
++  if (!url) throw new CompteError("reseau", "aucun serveur configuré");
++  return normalizeSyncBase(url);
++}
++
++function sansMarqueur(entree: WeddingRegistryEntry): WeddingRegistryEntry {
++  const { premiereHydratationAttendue: _, ...reste } = entree;
++  return reste;
++}
++
++function annexesLocales(weddingId: string): Annexes[string] {
++  const annexes: Annexes[string] = {};
++  try {
++    const revocation = readCollection<string>(CLE_REVOCATION);
++    if (typeof revocation === "string") annexes.spaceInviteStore = revocation;
++    const codes = readCollection<Record<string, string[]>>(CLE_CODES_DE_DEPOT)?.[weddingId];
++    if (Array.isArray(codes)) annexes.inviteDepotCodes = codes;
++  } catch {
++    /* KV fermé : les annexes déjà connues suffisent */
++  }
++  return annexes;
++}
++
++export async function construireLeCoffre(identifiant: string): Promise<Coffre> {
++  const registre = await loadRegistry();
++  const weddings = registre.weddings.map(sansMarqueur);
++  const annexes: Annexes = {};
++  for (const { id } of weddings) if (_annexesConnues[id]) annexes[id] = { ..._annexesConnues[id] };
++  const actif = registre.activeWeddingId;
++  if (actif && weddings.some((w) => w.id === actif)) {
++    const locales = annexesLocales(actif);
++    if (Object.keys(locales).length) annexes[actif] = { ...annexes[actif], ...locales };
++  }
++  return {
++    v: 1,
++    identifiant,
++    registre: { activeWeddingId: registre.activeWeddingId, weddings },
++    annexes,
++    majLe: new Date().toISOString(),
++  };
++}
++
++function memeMariage(a: WeddingRegistryEntry, b: WeddingRegistryEntry): boolean {
++  return (!!a.spaceId && a.spaceId === b.spaceId) || a.id === b.id;
++}
++
++/** Sans synchronisation, rien ne sera poussé : un marqueur ne lèverait jamais. */
++function aRestaurer(entree: WeddingRegistryEntry): WeddingRegistryEntry {
++  return entree.seedPhrase && !entree.syncDisabled ? { ...entree, premiereHydratationAttendue: true } : entree;
++}
++
++function fusionnerLesRegistres(local: WeddingRegistry, distant: WeddingRegistry): WeddingRegistry {
++  const restaurees = distant.weddings.map(aRestaurer);
++  if (!local.weddings.length) {
++    const actif = restaurees.some((w) => w.id === distant.activeWeddingId)
++      ? distant.activeWeddingId
++      : (restaurees[0]?.id ?? null);
++    return { activeWeddingId: actif, weddings: restaurees };
++  }
++  const ajoutees = restaurees.filter((r) => !local.weddings.some((l) => memeMariage(l, r)));
++  return { activeWeddingId: local.activeWeddingId, weddings: [...local.weddings, ...ajoutees] };
++}
++
++export async function ouvrirUneSession(identifiant: string, mdp: string): Promise<void> {
++  const { compte, coffre } = await seConnecter(baseDeSynchro(), identifiant, mdp);
++  await saveRegistry(fusionnerLesRegistres(await loadRegistry(), coffre.registre));
++  _annexesConnues = coffre.annexes ?? {};
++  await useCompteStore.getState().poser(compte);
++  await useWeddingRegistryStore.getState().load();
++}
++
++export async function creerMonCompte(identifiant: string, mdp: string): Promise<void> {
++  const coffre = await construireLeCoffre(identifiant);
++  const compte = await creerLeCompte(baseDeSynchro(), identifiant, mdp, coffre);
++  _annexesConnues = coffre.annexes;
++  await useCompteStore.getState().poser(compte);
++}
++
++export async function changerMonMotDePasse(nouveauMdp: string): Promise<void> {
++  const compte = useCompteStore.getState().compte;
++  if (!compte) throw new Error("changerMonMotDePasse : aucun compte sur cet appareil");
++  // Une écriture planifiée sur l'ancien coffre le verrait vidé et se croirait déplacée.
++  annulerLeMinuteur();
++  const coffre = await construireLeCoffre(compte.identifiant);
++  await useCompteStore.getState().poser(await changerLeMotDePasse(baseDeSynchro(), compte, nouveauMdp, coffre));
++}
++
++// ─── Enregistrement du coffre ────────────────────────────────────────────────
++
++let _minuteur: ReturnType<typeof setTimeout> | null = null;
++let _generation = 0;
++
++function annulerLeMinuteur(): void {
++  if (_minuteur) clearTimeout(_minuteur);
++  _minuteur = null;
++  _generation++;
++}
++
++async function enregistrerMaintenant(compte: CompteLocal): Promise<Exclude<EtatDuCoffre, "en-attente">> {
++  try {
++    const coffre = await construireLeCoffre(compte.identifiant);
++    // Les annexes ne vivent qu'en mémoire avant leur restauration : ne jamais écraser celles du serveur par du vide.
++    const distant = await lireLeCoffre(baseDeSynchro(), compte).catch(() => null);
++    for (const [id, annexes] of Object.entries(distant?.annexes ?? {})) {
++      if (coffre.registre.weddings.some((w) => w.id === id)) coffre.annexes[id] = { ...annexes, ...coffre.annexes[id] };
++    }
++    await enregistrerLeCoffre(baseDeSynchro(), compte, coffre);
++    _annexesConnues = coffre.annexes;
++    return "a-jour";
++  } catch (err) {
++    return err instanceof CompteError && err.cas === "deplace" ? "deplace" : "echec";
++  }
++}
++
++export function planifierLeCoffre(): void {
++  const compte = useCompteStore.getState().compte;
++  if (!compte) return;
++  if (_minuteur) clearTimeout(_minuteur);
++  const generation = ++_generation;
++  useCompteStore.getState().marquerLeCoffre("en-attente");
++  _minuteur = setTimeout(() => {
++    _minuteur = null;
++    void enregistrerMaintenant(compte).then((etat) => {
++      const { compte: courant, marquerLeCoffre } = useCompteStore.getState();
++      if (generation === _generation && courant === compte) marquerLeCoffre(etat);
++    });
++  }, DELAI_DU_COFFRE_MS);
++}
++
++/** Un coffre vidé n'est découvert qu'en écrivant : on le lit pour savoir si le mot de passe a changé ailleurs. Ne lève jamais. */
++export async function verifierLeCoffre(): Promise<void> {
++  const compte = useCompteStore.getState().compte;
++  if (!compte) return;
++  try {
++    const coffre = await lireLeCoffre(baseDeSynchro(), compte);
++    const { compte: courant, marquerLeCoffre } = useCompteStore.getState();
++    if (coffre === null && courant === compte) marquerLeCoffre("deplace");
++  } catch {
++    /* hors ligne ou illisible : on ne conclut rien */
++  }
++}
++
++function empreinteDuRegistre(registre: WeddingRegistry): string {
++  return JSON.stringify([registre.activeWeddingId, registre.weddings.map(sansMarqueur)]);
++}
++
++let _suiviInstalle = false;
++
++/** Un changement du registre (hors marqueur) replanifie le coffre. À appeler une fois au démarrage. */
++export function installerLeSuiviDuCoffre(): void {
++  if (_suiviInstalle) return;
++  _suiviInstalle = true;
++  useWeddingRegistryStore.subscribe((etat, avant) => {
++    if (!avant.registry || !etat.registry || etat.registry === avant.registry) return;
++    if (empreinteDuRegistre(etat.registry) !== empreinteDuRegistre(avant.registry)) planifierLeCoffre();
++  });
++}
++
++export function restaurerLesAnnexes(weddingId: string): void {
++  const annexes = _annexesConnues[weddingId];
++  if (!annexes) return;
++  try {
++    if (annexes.spaceInviteStore && readCollection(CLE_REVOCATION) == null) {
++      writeCollection(CLE_REVOCATION, annexes.spaceInviteStore);
++    }
++    if (annexes.inviteDepotCodes) {
++      const connus = readCollection<Record<string, string[]>>(CLE_CODES_DE_DEPOT) ?? {};
++      if (connus[weddingId] === undefined) {
++        writeCollection(CLE_CODES_DE_DEPOT, { ...connus, [weddingId]: annexes.inviteDepotCodes });
++      }
++    }
++  } catch {
++    /* KV indisponible : les annexes restent en mémoire pour la prochaine ouverture */
++  }
++}
++
++// ─── Déconnexion ─────────────────────────────────────────────────────────────
++
++export type ResultatDeDeconnexion = "ok" | "sans-compte" | "poussee-en-echec";
++
++async function effacerLesAccesDEspace(): Promise<void> {
++  try {
++    clearSpaceAccessStore();
++    const ls = (globalThis as { localStorage?: Storage }).localStorage;
++    if (ls) {
++      const cles: string[] = [];
++      for (let i = 0; i < ls.length; i++) {
++        const cle = ls.key(i);
++        if (cle?.startsWith(PREFIXE_DES_ACCES)) cles.push(cle);
++      }
++      for (const cle of cles) ls.removeItem(cle);
++      return;
++    }
++    const { default: AsyncStorage } = await import("@react-native-async-storage/async-storage");
++    const cles = (await AsyncStorage.getAllKeys()).filter(
++      (c) => c.startsWith(PREFIXE_DES_ACCES) || c.startsWith(PREFIXE_DU_CACHE_DE_LECTURE),
++    );
++    if (cles.length) await AsyncStorage.multiRemove(cles);
++  } catch (err) {
++    console.warn("[compte] accès aux espaces non effacés:", err);
++  }
++}
++
++/** Des magasins réécrivent leurs clés après la purge : on balaie en dernier, juste avant le rechargement. */
++function balayerLeStockageWeb(ls: Storage): void {
++  const cles: string[] = [];
++  for (let i = 0; i < ls.length; i++) {
++    const cle = ls.key(i);
++    if (!cle) continue;
++    const base = cle.startsWith("wedding_") && cle.includes(".db::");
++    if (base || cle.startsWith(PREFIXE_DU_CACHE_DE_LECTURE) || cle.startsWith(PREFIXE_DES_ACCES)) cles.push(cle);
++  }
++  for (const cle of cles) ls.removeItem(cle);
++}
++
++/** L'état de module de la sync ne se réinitialise pas autrement que par un rechargement. */
++function rechargerVersLAccueil(): void {
++  const g = globalThis as { localStorage?: Storage; sessionStorage?: Storage; location?: Location };
++  if (!g.localStorage || typeof g.location?.replace !== "function") return;
++  try { g.sessionStorage?.clear(); } catch { /* accès refusé */ }
++  try { balayerLeStockageWeb(g.localStorage); } catch { /* accès refusé */ }
++  g.location.replace("/onboarding");
++}
++
++/**
++ * Sans `forcer`, une poussée ou un coffre qui n'arrive pas au serveur arrête la
++ * déconnexion (`"poussee-en-echec"`) ; l'écran confirme, puis rappelle avec `forcer`.
++ */
++export async function seDeconnecter(options: { forcer?: boolean } = {}): Promise<ResultatDeDeconnexion> {
++  const forcer = options.forcer === true;
++  if (!useCompteStore.getState().charge) await useCompteStore.getState().charger();
++  const compte = useCompteStore.getState().compte;
++  if (!compte) return "sans-compte";
++
++  annulerLeMinuteur();
++  const pousseeOk = await pousserAvantDeQuitter().catch(() => false);
++  // Un coffre « déplacé » ne bloque pas : le coffre à jour existe sous le nouveau mot de passe.
++  const coffre = pousseeOk || forcer ? await enregistrerMaintenant(compte) : "echec";
++  if (!forcer && (!pousseeOk || coffre === "echec")) {
++    planifierLeCoffre();
++    return "poussee-en-echec";
++  }
++
++  teardownSync();
++  await attendreLaFinDeLHydratation();
++  resetDirtyPushBaseline();
++
++  for (const entree of (await loadRegistry()).weddings) {
++    await deleteWeddingEntry(entree.id).catch((err) => console.warn("[compte] base locale non effacée:", err));
++  }
++  await saveRegistry({ activeWeddingId: null, weddings: [] });
++  await useCompteStore.getState().oublier();
++  await effacerLesAccesDEspace();
++  _annexesConnues = {};
++  await useWeddingRegistryStore.getState().load();
++  rechargerVersLAccueil();
++  return "ok";
++}
+diff --git a/apps/mobile/lib/compte.ts b/apps/mobile/lib/compte.ts
+new file mode 100644
+index 0000000..5598b94
+--- /dev/null
++++ b/apps/mobile/lib/compte.ts
+@@ -0,0 +1,248 @@
++/**
++ * Le compte : un coffre chiffré sous mot de passe, déposé sur le serveur.
++ *
++ * Crypto et réseau seulement — ni React, ni store, ni stockage sécurisé.
++ */
++
++import { argon2id } from "hash-wasm";
++import { getSyncNamespace } from "@fiance/sdk";
++import type { WeddingRegistry } from "@/lib/wedding-registry";
++import { decoderBase64Url, encoderBase64Url } from "@/lib/invitation-courte";
++
++export type EchecDeCompte =
++  | "identifiants"
++  | "existe-deja"
++  | "illisible"
++  | "reseau"
++  | "mot-de-passe-faible"
++  | "identifiant-vide"
++  /** Le coffre a été vidé : le mot de passe a changé sur un autre appareil. */
++  | "deplace";
++
++export class CompteError extends Error {
++  constructor(readonly cas: EchecDeCompte, message: string) {
++    super(message);
++    this.name = "CompteError";
++  }
++}
++
++export interface Coffre {
++  v: 1;
++  identifiant: string;
++  registre: WeddingRegistry;
++  annexes: Record<string, { spaceInviteStore?: string; inviteDepotCodes?: string[] }>;
++  majLe: string;
++}
++
++export interface CompteLocal {
++  identifiant: string;
++  /** Hex, 64 caractères : l'adresse du coffre. */
++  locator: string;
++  /** Base64url, 32 octets : la clé AES-256-GCM. */
++  cle: string;
++}
++
++export interface ParametresArgon2 {
++  memorySize: number;
++  iterations: number;
++  parallelism: number;
++}
++
++/** Mêmes paramètres que `deriveSession`. Les tests en passent de plus légers, jamais le code de production. */
++export const PARAMETRES_ARGON2: Readonly<ParametresArgon2> = Object.freeze({
++  memorySize: 47104,
++  iterations: 3,
++  parallelism: 1,
++});
++
++const LONGUEUR_MINIMALE_DU_MOT_DE_PASSE = 8;
++const ESSAIS_EN_CAS_DE_CONFLIT = 5;
++
++function crypto(): Crypto {
++  const c = globalThis.crypto;
++  if (!c?.subtle) throw new Error("compte : WebCrypto indisponible");
++  return c;
++}
++
++export function normaliserLIdentifiant(saisie: string): string {
++  return saisie.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
++}
++
++export function motDePasseAcceptable(mdp: string): boolean {
++  return [...mdp].length >= LONGUEUR_MINIMALE_DU_MOT_DE_PASSE;
++}
++
++function exigerUnIdentifiant(identifiant: string): void {
++  if (!normaliserLIdentifiant(identifiant)) throw new CompteError("identifiant-vide", "identifiant vide");
++}
++
++function exigerUnMotDePasse(mdp: string): void {
++  if (!motDePasseAcceptable(mdp)) {
++    throw new CompteError("mot-de-passe-faible", `mot de passe de moins de ${LONGUEUR_MINIMALE_DU_MOT_DE_PASSE} caractères`);
++  }
++}
++
++export async function deriverLesCles(
++  identifiant: string,
++  mdp: string,
++  parametres: ParametresArgon2 = PARAMETRES_ARGON2,
++): Promise<{ locator: string; cle: string }> {
++  const sel = new Uint8Array(
++    await crypto().subtle.digest("SHA-256", new TextEncoder().encode(`fiance-compte-v1:${normaliserLIdentifiant(identifiant)}`)),
++  );
++  const k = (await argon2id({
++    password: mdp,
++    salt: sel,
++    parallelism: parametres.parallelism,
++    iterations: parametres.iterations,
++    memorySize: parametres.memorySize,
++    hashLength: 64,
++    outputType: "binary",
++  })) as Uint8Array;
++  const hex = [...k.subarray(0, 32)].map((o) => o.toString(16).padStart(2, "0")).join("");
++  return { locator: hex, cle: encoderBase64Url(k.slice(32, 64)) };
++}
++
++interface CoffreChiffre {
++  iv: string;
++  ct: string;
++}
++
++async function chiffrer(coffre: Coffre, cle: string): Promise<CoffreChiffre> {
++  const c = crypto();
++  const iv = c.getRandomValues(new Uint8Array(12));
++  const k = await c.subtle.importKey("raw", decoderBase64Url(cle), "AES-GCM", false, ["encrypt"]);
++  const ct = await c.subtle.encrypt({ name: "AES-GCM", iv }, k, new TextEncoder().encode(JSON.stringify(coffre)));
++  return { iv: encoderBase64Url(iv), ct: encoderBase64Url(new Uint8Array(ct)) };
++}
++
++async function dechiffrer(depot: CoffreChiffre, cle: string): Promise<Coffre> {
++  try {
++    const k = await crypto().subtle.importKey("raw", decoderBase64Url(cle), "AES-GCM", false, ["decrypt"]);
++    const clair = await crypto().subtle.decrypt({ name: "AES-GCM", iv: decoderBase64Url(depot.iv) }, k, decoderBase64Url(depot.ct));
++    const coffre = JSON.parse(new TextDecoder().decode(clair)) as Partial<Coffre> | null;
++    if (coffre?.v !== 1 || !coffre.registre || typeof coffre.registre !== "object") throw new Error("forme inattendue");
++    return coffre as Coffre;
++  } catch (err) {
++    throw new CompteError("illisible", `le coffre ne se déchiffre pas (${err instanceof Error ? err.message : String(err)})`);
++  }
++}
++
++function chemin(base: string, locator: string, sens: "pull" | "push"): string {
++  return `${base.replace(/\/$/, "")}/v1/${getSyncNamespace()}/${sens}/_compte/${locator}`;
++}
++
++/** Un document absent se lit `{hash:"",data:{}}`, un document vidé garde son hash : `depot` est null dans les deux cas. */
++async function tirer(base: string, locator: string): Promise<{ hash: string; depot: CoffreChiffre | null }> {
++  try {
++    const rép = await fetch(chemin(base, locator, "pull"), { cache: "no-store" });
++    if (!rép.ok) throw new Error(`HTTP ${rép.status}`);
++    const lu = (await rép.json()) as { hash?: string; data?: Partial<CoffreChiffre> } | null;
++    const depot = lu?.data?.iv && lu.data.ct ? { iv: lu.data.iv, ct: lu.data.ct } : null;
++    return { hash: lu?.hash ?? "", depot };
++  } catch (err) {
++    throw new CompteError("reseau", `serveur injoignable (${err instanceof Error ? err.message : String(err)})`);
++  }
++}
++
++/** Le champ s'appelle `baseHash`, jamais `hash` : le serveur ignore un nom inconnu et refuse tout en 409. */
++async function pousser(base: string, locator: string, data: unknown, baseHash: string | null): Promise<Response> {
++  try {
++    return await fetch(chemin(base, locator, "push"), {
++      method: "POST",
++      headers: { "content-type": "application/json" },
++      body: JSON.stringify({ data, baseHash }),
++    });
++  } catch (err) {
++    throw new CompteError("reseau", `serveur injoignable (${err instanceof Error ? err.message : String(err)})`);
++  }
++}
++
++async function hashCourantDuConflit(rép: Response): Promise<string> {
++  const conflit = (await rép.json().catch(() => null)) as { currentHash?: string } | null;
++  if (!conflit?.currentHash) throw new CompteError("reseau", "conflit sans hash courant");
++  return conflit.currentHash;
++}
++
++async function ecrireEnCAS(base: string, locator: string, data: unknown, baseHash: string | null): Promise<void> {
++  let hash = baseHash;
++  for (let essai = 0; essai < ESSAIS_EN_CAS_DE_CONFLIT; essai += 1) {
++    const rép = await pousser(base, locator, data, hash);
++    if (rép.ok) return;
++    if (rép.status !== 409) throw new CompteError("reseau", `écriture refusée — HTTP ${rép.status}`);
++    hash = await hashCourantDuConflit(rép);
++  }
++  throw new CompteError("reseau", "écriture refusée — conflits répétés");
++}
++
++async function poserUnCoffreNeuf(
++  base: string,
++  identifiant: string,
++  { locator, cle }: { locator: string; cle: string },
++  coffre: Coffre,
++): Promise<CompteLocal> {
++  const { hash, depot } = await tirer(base, locator);
++  if (depot) throw new CompteError("existe-deja", "un compte porte déjà cet identifiant et ce mot de passe");
++  const rép = await pousser(base, locator, await chiffrer(coffre, cle), hash || null);
++  if (rép.status === 409) throw new CompteError("existe-deja", "le coffre a été créé entre-temps");
++  if (!rép.ok) throw new CompteError("reseau", `écriture refusée — HTTP ${rép.status}`);
++  return { identifiant: identifiant.trim(), locator, cle };
++}
++
++export async function creerLeCompte(
++  syncBase: string,
++  identifiant: string,
++  mdp: string,
++  coffre: Coffre,
++  parametres: ParametresArgon2 = PARAMETRES_ARGON2,
++): Promise<CompteLocal> {
++  exigerUnIdentifiant(identifiant);
++  exigerUnMotDePasse(mdp);
++  return poserUnCoffreNeuf(syncBase, identifiant, await deriverLesCles(identifiant, mdp, parametres), coffre);
++}
++
++export async function seConnecter(
++  syncBase: string,
++  identifiant: string,
++  mdp: string,
++  parametres: ParametresArgon2 = PARAMETRES_ARGON2,
++): Promise<{ compte: CompteLocal; coffre: Coffre }> {
++  exigerUnIdentifiant(identifiant);
++  // Aucun compte ne porte un mot de passe aussi court : même réponse qu'un mauvais, sans dérivation ni réseau.
++  if (!motDePasseAcceptable(mdp)) throw new CompteError("identifiants", "identifiant ou mot de passe incorrect");
++  const { locator, cle } = await deriverLesCles(identifiant, mdp, parametres);
++  const { depot } = await tirer(syncBase, locator);
++  if (!depot) throw new CompteError("identifiants", "identifiant ou mot de passe incorrect");
++  return { compte: { identifiant: identifiant.trim(), locator, cle }, coffre: await dechiffrer(depot, cle) };
++}
++
++export async function lireLeCoffre(syncBase: string, compte: CompteLocal): Promise<Coffre | null> {
++  const { depot } = await tirer(syncBase, compte.locator);
++  return depot ? dechiffrer(depot, compte.cle) : null;
++}
++
++export async function enregistrerLeCoffre(syncBase: string, compte: CompteLocal, coffre: Coffre): Promise<void> {
++  const { hash, depot } = await tirer(syncBase, compte.locator);
++  // Réécrire un coffre vidé ressusciterait l'ancien mot de passe.
++  if (hash && !depot) throw new CompteError("deplace", "le coffre a été déplacé par un changement de mot de passe");
++  await ecrireEnCAS(syncBase, compte.locator, await chiffrer(coffre, compte.cle), hash || null);
++}
++
++export async function changerLeMotDePasse(
++  syncBase: string,
++  compte: CompteLocal,
++  nouveauMdp: string,
++  coffre: Coffre,
++  parametres: ParametresArgon2 = PARAMETRES_ARGON2,
++): Promise<CompteLocal> {
++  exigerUnMotDePasse(nouveauMdp);
++  const cles = await deriverLesCles(compte.identifiant, nouveauMdp, parametres);
++  if (cles.locator === compte.locator) {
++    await enregistrerLeCoffre(syncBase, compte, coffre);
++    return compte;
++  }
++  const neuf = await poserUnCoffreNeuf(syncBase, compte.identifiant, cles, coffre);
++  // Le neuf est déjà posé : un ancien coffre qui survit est un défaut, pas un échec du changement.
++  await ecrireEnCAS(syncBase, compte.locator, {}, null).catch(() => undefined);
++  return neuf;
++}
+diff --git a/apps/mobile/lib/envoi-d-invitation.ts b/apps/mobile/lib/envoi-d-invitation.ts
+new file mode 100644
+index 0000000..d222872
+--- /dev/null
++++ b/apps/mobile/lib/envoi-d-invitation.ts
+@@ -0,0 +1,22 @@
++/** Les adresses d'envoi d'une invitation : fonctions pures. Le message vit dans `settings:inviteMessage`. */
++
++/** Le prénom : le premier mot du nom saisi. */
++export function prenomDe(nom: string | null | undefined): string {
++  return (nom ?? "").trim().split(/\s+/)[0] ?? "";
++}
++
++// `encodeURIComponent` est indispensable : le `#` du lien, non encodé, couperait le message.
++export const urlWhatsApp = (message: string) => `https://wa.me/?text=${encodeURIComponent(message)}`;
++
++export const urlSms = (message: string) => `sms:?&body=${encodeURIComponent(message)}`;
++
++export const urlEmail = (sujet: string, message: string) =>
++  `mailto:?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(message)}`;
++
++/** Le QR encode ~81 caractères (37 modules en ECL M) : 180 px donnent déjà près de 5 px par module. */
++export function tailleDuQR(largeur: number): number {
++  return Math.max(180, Math.min(240, Math.round(largeur - 96)));
++}
++
++/** Sous cette largeur d'écran, le QR est replié derrière un bouton. */
++export const LARGEUR_MINIMALE_POUR_LE_QR = 400;
+diff --git a/apps/mobile/lib/erreurs-d-hydratation.ts b/apps/mobile/lib/erreurs-d-hydratation.ts
+new file mode 100644
+index 0000000..57de796
+--- /dev/null
++++ b/apps/mobile/lib/erreurs-d-hydratation.ts
+@@ -0,0 +1,26 @@
++// React récupère seul un écart d'hydratation, mais le signale par un événement
++// `error` que la frontière de télémétrie tient pour fatal : l'écran entier
++// tombait sur « An unexpected error occurred » pour une simple chaîne traduite.
++const ECART_D_HYDRATATION = /Minified React error #(418|423|425)\b|Hydration failed|error while hydrating/i;
++
++export function estUnEcartDHydratation(message: unknown): boolean {
++  return typeof message === "string" && ECART_D_HYDRATATION.test(message);
++}
++
++let installe = false;
++
++/** À appeler au chargement du module, avant tout autre écouteur d'erreur. */
++export function tolererLesEcartsDHydratation(): void {
++  const w = globalThis as { addEventListener?: Window["addEventListener"]; document?: unknown };
++  if (installe || !w.document || typeof w.addEventListener !== "function") return;
++  installe = true;
++  w.addEventListener(
++    "error",
++    (e: ErrorEvent) => {
++      if (!estUnEcartDHydratation(e.message) && !estUnEcartDHydratation(e.error?.message)) return;
++      console.warn("[hydratation] écart récupéré par React :", e.message);
++      e.stopImmediatePropagation();
++    },
++    true,
++  );
++}
+diff --git a/apps/mobile/lib/join-space.ts b/apps/mobile/lib/join-space.ts
+index 7894fe6..fff1f0e 100644
+--- a/apps/mobile/lib/join-space.ts
++++ b/apps/mobile/lib/join-space.ts
+@@ -14,6 +14,7 @@ import { generatePassphrase, deriveSessionFromPhrase } from "@/lib/identity";
+ import { resolveServerUrl } from "@/lib/server";
+ import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
+ import { resolveActiveMemberPermissions } from "@/lib/permissions/resolve";
++import { planifierLeCoffre } from "@/lib/compte-session";
+ 
+ /**
+  * Join a wedding from a space-invite link token.
+@@ -25,7 +26,10 @@ import { resolveActiveMemberPermissions } from "@/lib/permissions/resolve";
+  *   wedding entry with `role: "member"` so provisioning never tries to
+  *   re-provision the space as owner.
+  */
+-export async function joinWeddingByToken(token: SpaceInviteLinkToken): Promise<void> {
++export async function joinWeddingByToken(
++  token: SpaceInviteLinkToken,
++  options: { nomDuMariage?: string } = {},
++): Promise<void> {
+   const store = useWeddingRegistryStore.getState();
+   const registry = store.registry;
+ 
+@@ -60,12 +64,14 @@ export async function joinWeddingByToken(token: SpaceInviteLinkToken): Promise<v
+   // Create the local wedding entry. spaceId is persisted atomically so
+   // ensureSpaceProvisioned fast-paths and never runs owner setup.
+   const entry = await store.createWedding(
+-    token.spaceName,
++    options.nomDuMariage?.trim() || token.spaceName,
+     seed,
+     serverUrl,
+     token.spaceId,
+     "member",
+   );
++  // Un membre aux magasins vides ne doit rien pousser avant d'avoir lu l'espace.
++  await store.updateWedding(entry.id, { premiereHydratationAttendue: true });
+ 
+   // Remember the invite's ephemeral subject id so we can resolve (and later
+   // re-resolve) the role the owner assigned to this link, keyed by that id.
+@@ -76,4 +82,5 @@ export async function joinWeddingByToken(token: SpaceInviteLinkToken): Promise<v
+     // permission assignments sync in (they may not be present yet).
+     await resolveActiveMemberPermissions().catch(() => {});
+   }
++  planifierLeCoffre();
+ }
+diff --git a/apps/mobile/lib/messages-de-compte.ts b/apps/mobile/lib/messages-de-compte.ts
+new file mode 100644
+index 0000000..379255f
+--- /dev/null
++++ b/apps/mobile/lib/messages-de-compte.ts
+@@ -0,0 +1,62 @@
++import { CompteError, motDePasseAcceptable, normaliserLIdentifiant, type EchecDeCompte } from "@/lib/compte";
++import type { CauseDEchec } from "@/lib/resolution-d-invitation";
++
++const CLE_PAR_CAS: Record<EchecDeCompte, string> = {
++  identifiants: "compte.erreurs.identifiants",
++  reseau: "compte.erreurs.reseau",
++  illisible: "compte.erreurs.illisible",
++  "existe-deja": "compte.erreurs.existeDeja",
++  "mot-de-passe-faible": "compte.validation.motDePasseCourt",
++  "identifiant-vide": "compte.validation.identifiantVide",
++  deplace: "compte.erreurs.deplace",
++};
++
++export function cleDuMessageDeCompte(cas: EchecDeCompte): string {
++  return CLE_PAR_CAS[cas];
++}
++
++/** Une `CompteError` se traduit selon son cas ; toute autre erreur garde son propre message. */
++export function messageDeLErreur(err: unknown, traduire: (cle: string) => string): string {
++  if (err instanceof CompteError) return traduire(cleDuMessageDeCompte(err.cas));
++  const message = err instanceof Error ? err.message : typeof err === "string" ? err : "";
++  return message.trim() || traduire("compte.erreurs.inconnue");
++}
++
++const CLE_PAR_CAUSE: Record<CauseDEchec, string> = {
++  incomplete: "onboarding.invitation.incomplete",
++  expiree: "onboarding.invitation.expiree",
++  invalide: "onboarding.invitation.invalide",
++  utilisee: "onboarding.invitation.utilisee",
++};
++
++export function cleDuMessageDInvitation(cause: CauseDEchec): string {
++  return CLE_PAR_CAUSE[cause];
++}
++
++export interface ErreursDeCreation {
++  identifiant?: string;
++  motDePasse?: string;
++  confirmation?: string;
++}
++
++/** Clés de message par champ en défaut ; objet vide = formulaire valide. */
++export function validerLaCreation(saisie: {
++  identifiant: string;
++  motDePasse: string;
++  confirmation: string;
++}): ErreursDeCreation {
++  const erreurs: ErreursDeCreation = {};
++  if (!normaliserLIdentifiant(saisie.identifiant)) erreurs.identifiant = "compte.validation.identifiantVide";
++  Object.assign(erreurs, validerLeMotDePasse(saisie.motDePasse, saisie.confirmation));
++  return erreurs;
++}
++
++export function validerLeMotDePasse(
++  motDePasse: string,
++  confirmation: string,
++): Pick<ErreursDeCreation, "motDePasse" | "confirmation"> {
++  const erreurs: Pick<ErreursDeCreation, "motDePasse" | "confirmation"> = {};
++  if (!motDePasseAcceptable(motDePasse)) erreurs.motDePasse = "compte.validation.motDePasseCourt";
++  else if (confirmation !== motDePasse) erreurs.confirmation = "compte.validation.confirmationDifferente";
++  return erreurs;
++}
+diff --git a/apps/mobile/lib/parcours-d-invitation.ts b/apps/mobile/lib/parcours-d-invitation.ts
+new file mode 100644
+index 0000000..c8d5b54
+--- /dev/null
++++ b/apps/mobile/lib/parcours-d-invitation.ts
+@@ -0,0 +1,52 @@
++import { CompteError } from "@/lib/compte";
++import type { WeddingRegistry } from "@/lib/wedding-registry";
++
++export type EtapeDuParcours = "deja-acceptee" | "confirmer" | "creer-un-compte";
++
++export function etapeDuParcours(
++  registre: Pick<WeddingRegistry, "weddings"> | null | undefined,
++  spaceId: string,
++): EtapeDuParcours {
++  const mariages = registre?.weddings ?? [];
++  if (mariages.some((w) => w.spaceId === spaceId)) return "deja-acceptee";
++  return mariages.length > 0 ? "confirmer" : "creer-un-compte";
++}
++
++export interface ActionsDeLaSequence {
++  joindre: () => Promise<void>;
++  creerLeCompte: (identifiant: string, mdp: string) => Promise<void>;
++  ouvrirUneSession: (identifiant: string, mdp: string) => Promise<void>;
++  /** Sans `code` (lien long), ne fait rien. */
++  consommer: () => Promise<void>;
++}
++
++/** Appareil déjà connecté : jonction, puis dépôt consommé au mieux. */
++export async function sequenceDeJonction(actions: Pick<ActionsDeLaSequence, "joindre" | "consommer">): Promise<void> {
++  await actions.joindre();
++  await actions.consommer().catch(() => {});
++}
++
++/**
++ * Appareil vierge. Rejoindre d'abord (le coffre doit contenir le mariage), consommer en dernier
++ * (un échec en route laisse le lien réutilisable). Seule la jonction peut faire échouer la séquence.
++ */
++export async function sequenceDeCreationDeCompte(
++  actions: ActionsDeLaSequence,
++  identifiant: string,
++  mdp: string,
++): Promise<"compte-cree" | "sans-compte"> {
++  await actions.joindre();
++  try {
++    try {
++      await actions.creerLeCompte(identifiant, mdp);
++    } catch (err) {
++      if (!(err instanceof CompteError && err.cas === "existe-deja")) throw err;
++      await actions.ouvrirUneSession(identifiant, mdp);
++    }
++  } catch (err) {
++    console.warn("[invitation] compte non créé après la jonction:", err);
++    return "sans-compte";
++  }
++  await actions.consommer().catch(() => {});
++  return "compte-cree";
++}
+diff --git a/apps/mobile/lib/share.ts b/apps/mobile/lib/share.ts
+index 752ecde..10b508c 100644
+--- a/apps/mobile/lib/share.ts
++++ b/apps/mobile/lib/share.ts
+@@ -24,8 +24,8 @@ export async function shareLink(url: string, message: string, copiedText: string
+     }
+   } else {
+     try {
+-      // Empty message = link-only share: omit message so the share sheet doesn't duplicate the url.
+-      await (message ? Share.share({ message, url }) : Share.share({ message: url }));
++      // Le message se termine déjà par l'url : la passer aussi la dupliquerait sur iOS.
++      await Share.share({ message: message || url });
+     } catch {
+       // dismissed
+     }
+diff --git a/apps/mobile/lib/starfish.ts b/apps/mobile/lib/starfish.ts
+index 1fd05b3..4ff87d1 100644
+--- a/apps/mobile/lib/starfish.ts
++++ b/apps/mobile/lib/starfish.ts
+@@ -56,7 +56,16 @@ export type SyncStatusValue = "synced" | "pending" | "syncing" | "error" | "offl
+  * In v3, this signals all registerPull listeners to refresh their collection.
+  */
+ export function notifySync(): void {
+-  dispatchDocChange("*");
++  // Sans écouteur (avant l'activation, ou entre `teardownSync` et la suivante), la
++  // modification doit quand même être datée : sinon une lecture la recouvre sans trace.
++  if (!dispatchDocChange("*")) _sansEcouteur?.();
++}
++
++let _sansEcouteur: (() => void) | null = null;
++
++/** Branché une fois au démarrage : survit à `teardownSync`, contrairement à `registerPull`. */
++export function auxModificationsSansEcouteur(fn: (() => void) | null): void {
++  _sansEcouteur = fn;
+ }
+ 
+ /**
+diff --git a/apps/mobile/lib/useApresHydratation.ts b/apps/mobile/lib/useApresHydratation.ts
+new file mode 100644
+index 0000000..933b936
+--- /dev/null
++++ b/apps/mobile/lib/useApresHydratation.ts
+@@ -0,0 +1,8 @@
++import { useEffect, useState } from "react";
++
++/** Faux au prérendu et au premier rendu client, vrai ensuite : ce qui dépend de la langue du navigateur ne se montre qu'après. */
++export function useApresHydratation(): boolean {
++  const [pret, setPret] = useState(false);
++  useEffect(() => setPret(true), []);
++  return pret;
++}
+diff --git a/apps/mobile/lib/wedding-registry.ts b/apps/mobile/lib/wedding-registry.ts
+index 98369c9..fac6e94 100644
+--- a/apps/mobile/lib/wedding-registry.ts
++++ b/apps/mobile/lib/wedding-registry.ts
+@@ -73,6 +73,8 @@ export interface WeddingRegistryEntry {
+    * (owner's) premium entitlement — see `resolveOwnerUserId` in lib/server.ts.
+    */
+   ownerId?: string;
++  /** Tant qu'il est posé, rien n'est poussé vers l'espace : la première hydratation n'a pas eu lieu. Jamais dans le coffre. */
++  premiereHydratationAttendue?: boolean;
+ }
+ 
+ export interface WeddingRegistry {
+@@ -149,14 +151,21 @@ export async function setActiveWeddingEntry(id: string): Promise<void> {
+   }
+ }
+ 
+-export async function updateWeddingEntry(
++/** Sérialisée : deux lectures-modifications-écritures concurrentes se recouvriraient, et un marqueur levé reviendrait. */
++let _écritures: Promise<unknown> = Promise.resolve();
++
++export function updateWeddingEntry(
+   id: string,
+-  updates: Partial<Pick<WeddingRegistryEntry, "label" | "seedPhrase" | "serverUrl" | "syncDisabled" | "spaceId" | "role" | "weddingNodeId" | "syncNamespace" | "roleId" | "permissions" | "inviteSubjectId" | "revocationGeneration" | "revokedEntries" | "ownerId">>
++  updates: Partial<Pick<WeddingRegistryEntry, "label" | "seedPhrase" | "serverUrl" | "syncDisabled" | "spaceId" | "role" | "weddingNodeId" | "syncNamespace" | "roleId" | "permissions" | "inviteSubjectId" | "revocationGeneration" | "revokedEntries" | "ownerId" | "premiereHydratationAttendue">>
+ ): Promise<void> {
+-  const registry = await loadRegistry();
+-  const entry = registry.weddings.find((w) => w.id === id);
+-  if (entry) {
+-    Object.assign(entry, updates);
+-    await saveRegistry(registry);
+-  }
++  const suite = _écritures.then(async () => {
++    const registry = await loadRegistry();
++    const entry = registry.weddings.find((w) => w.id === id);
++    if (entry) {
++      Object.assign(entry, updates);
++      await saveRegistry(registry);
++    }
++  });
++  _écritures = suite.catch(() => undefined);
++  return suite;
+ }
+diff --git a/apps/mobile/lib/wedding-registry.web.ts b/apps/mobile/lib/wedding-registry.web.ts
+index f268d6a..74508df 100644
+--- a/apps/mobile/lib/wedding-registry.web.ts
++++ b/apps/mobile/lib/wedding-registry.web.ts
+@@ -45,6 +45,8 @@ export interface WeddingRegistryEntry {
+   inviteSubjectId?: string;
+   revocationGeneration?: number;
+   revokedEntries?: unknown[];
++  /** Tant qu'il est posé, rien n'est poussé vers l'espace : la première hydratation n'a pas eu lieu. Jamais dans le coffre. */
++  premiereHydratationAttendue?: boolean;
+ }
+ 
+ export interface WeddingRegistry {
+@@ -118,14 +120,21 @@ export async function setActiveWeddingEntry(id: string): Promise<void> {
+   }
+ }
+ 
+-export async function updateWeddingEntry(
++/** Sérialisée : deux lectures-modifications-écritures concurrentes se recouvriraient, et un marqueur levé reviendrait. */
++let _écritures: Promise<unknown> = Promise.resolve();
++
++export function updateWeddingEntry(
+   id: string,
+-  updates: Partial<Pick<WeddingRegistryEntry, "label" | "seedPhrase" | "serverUrl" | "syncDisabled" | "spaceId" | "role" | "weddingNodeId" | "roleId" | "permissions" | "inviteSubjectId" | "revocationGeneration" | "revokedEntries">>
++  updates: Partial<Pick<WeddingRegistryEntry, "label" | "seedPhrase" | "serverUrl" | "syncDisabled" | "spaceId" | "role" | "weddingNodeId" | "roleId" | "permissions" | "inviteSubjectId" | "revocationGeneration" | "revokedEntries" | "premiereHydratationAttendue">>
+ ): Promise<void> {
+-  const registry = await loadRegistry();
+-  const entry = registry.weddings.find((w) => w.id === id);
+-  if (entry) {
+-    Object.assign(entry, updates);
+-    await saveRegistry(registry);
+-  }
++  const suite = _écritures.then(async () => {
++    const registry = await loadRegistry();
++    const entry = registry.weddings.find((w) => w.id === id);
++    if (entry) {
++      Object.assign(entry, updates);
++      await saveRegistry(registry);
++    }
++  });
++  _écritures = suite.catch(() => undefined);
++  return suite;
+ }
+diff --git a/apps/mobile/public/sw.js b/apps/mobile/public/sw.js
+index 6c1704c..8830065 100644
+--- a/apps/mobile/public/sw.js
++++ b/apps/mobile/public/sw.js
+@@ -1,4 +1,4 @@
+-const CACHE_NAME = "fiance-v3";
++const CACHE_NAME = "fiance-v4";
+ const PRECACHE = ["/", "/manifest.json"];
+ 
+ self.addEventListener("install", (e) => {
+@@ -39,6 +39,9 @@ self.addEventListener("fetch", (e) => {
+   // whose response hash must never be served stale (causes CAS 409 loops).
+   const url = new URL(request.url);
+   if (url.origin !== self.location.origin || /\/(pull|push)\//.test(url.pathname)) return;
++  // Self-hosted: the sync API lives same-origin under /sync/. Caching it would
++  // serve stale collections (/batch/pull) and hold the /events stream open forever.
++  if (url.pathname.startsWith("/sync/")) return;
+ 
+   // Static assets are content-hashed and immutable: cache-first.
+   // Always resolve to a valid Response — never respondWith(undefined).
+diff --git a/apps/mobile/store/useCompteStore.ts b/apps/mobile/store/useCompteStore.ts
+new file mode 100644
+index 0000000..a38131d
+--- /dev/null
++++ b/apps/mobile/store/useCompteStore.ts
+@@ -0,0 +1,60 @@
++import { create } from "zustand";
++import { secureDelete, secureGet, secureSet } from "@/lib/secure-store";
++import type { CompteLocal } from "@/lib/compte";
++
++export const CLE_DU_COMPTE = "fiance_compte";
++
++/** `deplace` : le mot de passe a changé sur un autre appareil, ce coffre-ci est vidé. */
++export type EtatDuCoffre = "a-jour" | "en-attente" | "echec" | "deplace";
++
++interface CompteState {
++  compte: CompteLocal | null;
++  charge: boolean;
++  coffre: EtatDuCoffre;
++  /** Incrémenté par `relancer` : fait redémarrer `SyncInitializer`. */
++  relance: number;
++
++  charger: () => Promise<void>;
++  poser: (compte: CompteLocal) => Promise<void>;
++  oublier: () => Promise<void>;
++  marquerLeCoffre: (etat: EtatDuCoffre) => void;
++  relancer: () => void;
++}
++
++function compteValide(valeur: unknown): valeur is CompteLocal {
++  const c = valeur as Partial<CompteLocal> | null;
++  return !!c && typeof c.identifiant === "string" && typeof c.locator === "string" && typeof c.cle === "string";
++}
++
++export const useCompteStore = create<CompteState>((set) => ({
++  compte: null,
++  charge: false,
++  coffre: "a-jour",
++  relance: 0,
++
++  charger: async () => {
++    let compte: CompteLocal | null = null;
++    try {
++      const brut = await secureGet(CLE_DU_COMPTE);
++      const lu = brut ? (JSON.parse(brut) as unknown) : null;
++      if (compteValide(lu)) compte = { identifiant: lu.identifiant, locator: lu.locator, cle: lu.cle };
++    } catch {
++      /* stockage illisible : comme sans compte */
++    }
++    set({ compte, charge: true });
++  },
++
++  poser: async (compte) => {
++    await secureSet(CLE_DU_COMPTE, JSON.stringify(compte));
++    set({ compte, charge: true, coffre: "a-jour" });
++  },
++
++  oublier: async () => {
++    await secureDelete(CLE_DU_COMPTE);
++    set({ compte: null, coffre: "a-jour" });
++  },
++
++  marquerLeCoffre: (coffre) => set({ coffre }),
++
++  relancer: () => set((s) => ({ relance: s.relance + 1 })),
++}));
+diff --git a/apps/mobile/store/useParcoursDAccueilStore.ts b/apps/mobile/store/useParcoursDAccueilStore.ts
+new file mode 100644
+index 0000000..253d12d
+--- /dev/null
++++ b/apps/mobile/store/useParcoursDAccueilStore.ts
+@@ -0,0 +1,12 @@
++import { create } from "zustand";
++
++interface ParcoursDAccueilState {
++  /** Levé tant qu'un parcours d'invitation tient l'écran d'accueil : `_layout` ne redirige pas vers `/home`. */
++  enCours: boolean;
++  poser: (enCours: boolean) => void;
++}
++
++export const useParcoursDAccueilStore = create<ParcoursDAccueilState>((set) => ({
++  enCours: false,
++  poser: (enCours) => set({ enCours }),
++}));
+diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
+index 8c90fdb..87dbc02 100644
+--- a/apps/mobile/lib/invite-link.ts
++++ b/apps/mobile/lib/invite-link.ts
+@@ -71,6 +118,7 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
+   // Publish the snapshot (incl. the new assignment) so the invite never points a
+   // member at a contentless space and their role resolves on first hydrate.
+   await pushSpaceSnapshot(cfg.session, spaceId, entry.weddingNodeId ?? entry.id);
++  planifierLeCoffre();
+ 
+   // Diagnostics for the "member joins but sees no data" (objdoc 403) bug: a link invitee
+   // only earns space:member if its ephemeral subUserId is in the server _access roster.
+diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
+index 07ec918..f5ad5cb 100644
+--- a/apps/mobile/components/InviteQRSheet.tsx
++++ b/apps/mobile/components/InviteQRSheet.tsx
+@@ -1,10 +1,11 @@
+-import React, { useEffect, useState } from "react";
+-import { View, Pressable, Text, TextInput, ActivityIndicator, useWindowDimensions } from "react-native";
++import React, { useEffect, useRef, useState } from "react";
++import { View, Pressable, Text, TextInput, ActivityIndicator, Linking, Platform, useWindowDimensions } from "react-native";
+ import { useTranslation } from "react-i18next";
+ import * as Clipboard from "expo-clipboard";
+ import { shareLink } from "@/lib/share";
++import { toast } from "@/lib/toast/sonner";
+ import { Sheet } from "@fiance/ui/components";
+-import { AlertCircle, ChevronRight } from "lucide-react-native";
++import { AlertCircle, Check, ChevronRight, Copy, Mail, MessageCircle, MessageSquare, QrCode, Share2 } from "lucide-react-native";
+ import QRCode from "react-native-qrcode-svg";
+ import { theme } from "@/lib/theme";
+ import { Display } from "@/components/Display";
