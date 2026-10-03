@@ -75,6 +75,7 @@ import { useFeatureTrialsStore } from "@/store/useFeatureTrialsStore";
 import { ObserveRoot, useObserve } from "expo-observe";
 // MODIFICATION LOCALE — l'indicateur de chargement du prérendu.
 import { masquerIndicateurDeChargement } from "@/lib/indicateur-de-chargement";
+// MODIFICATION LOCALE — le suivi des routes qui décide du retour (`lib/revenir.ts`).
 import { SuiviDeNavigation } from "@/components/SuiviDeNavigation";
 
 // Configure octospaces-sdk at module load so deriveSession/buildSession are
