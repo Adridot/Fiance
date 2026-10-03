@@ -78,7 +78,7 @@ export function useGuestRsvpLink(
   activeEntry: WeddingRegistryEntry | undefined,
 ): LienRsvp {
   const [lien, setLien] = useState<{ guestId: string; url: string } | null>(null);
-  const [echec, setEchec] = useState(false);
+  const [echecDe, setEchecDe] = useState<string | null>(null);
   const [essai, setEssai] = useState(0);
   const [synchroPrete, setSynchroPrete] = useState(laSyncEstPrete);
   const invitePresent = useGuestsStore((s) => !!guestId && s.guests.some((g) => g.id === guestId));
@@ -90,6 +90,9 @@ export function useGuestRsvpLink(
     synchroPrete,
   });
   const url = lien && lien.guestId === guestId ? lien.url : null;
+  // Un échec ne vaut que pour la tentative et l'état de la sync où il s'est produit.
+  const cle = `${guestId}|${essai}|${synchroPrete}`;
+  const echec = echecDe === cle;
 
   useEffect(() => {
     const retirer = onSseStatus(() => setSynchroPrete(laSyncEstPrete()));
@@ -98,9 +101,9 @@ export function useGuestRsvpLink(
 
   useEffect(() => {
     if (disponibilite !== "attente-de-la-sync") return;
-    const minuteur = setTimeout(() => setEchec(true), ATTENTE_MAX_DE_LA_SYNC_MS);
+    const minuteur = setTimeout(() => setEchecDe(cle), ATTENTE_MAX_DE_LA_SYNC_MS);
     return () => clearTimeout(minuteur);
-  }, [disponibilite, essai]);
+  }, [disponibilite, cle]);
 
   useEffect(() => {
     if (disponibilite !== "pret" || !guestId || url) return;
@@ -109,7 +112,6 @@ export function useGuestRsvpLink(
     const weddingNodeId = getActiveWeddingNodeId();
     if (!session || !spaceId || !weddingNodeId) return;
     let annule = false;
-    setEchec(false);
 
     (async () => {
       try {
@@ -128,17 +130,14 @@ export function useGuestRsvpLink(
         if (!annule) setLien({ guestId, url: link });
       } catch (err) {
         console.warn("[rsvp] link not prepared:", err);
-        if (!annule) setEchec(true);
+        if (!annule) setEchecDe(cle);
       }
     })();
 
     return () => { annule = true; };
-  }, [disponibilite, guestId, url, essai]);
+  }, [disponibilite, guestId, url, cle]);
 
-  const reessayer = useCallback(() => {
-    setEchec(false);
-    setEssai((n) => n + 1);
-  }, []);
+  const reessayer = useCallback(() => setEssai((n) => n + 1), []);
 
   return { url, etat: etatDuBoutonRsvp({ url, disponibilite, echec }), reessayer };
 }
