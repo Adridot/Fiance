@@ -5,6 +5,7 @@ import { Plus, Trash2, Lock } from "lucide-react-native";
 import { useWeddingStore } from "@/store/useWeddingStore";
 import type { FaqItem } from "@/lib/public-page";
 import { PageHeader } from "@/components/PageHeader";
+import { BoutonIcone } from "@/components/BoutonIcone";
 import { Label } from "@/components/Label";
 import { useHasFeature } from "@/lib/limits";
 import { useShowPaywall } from "@/components/PaywallProvider";
@@ -90,12 +91,9 @@ export default function FaqScreen() {
               <Label size={10} color="#9CA3AF">
                 {t("faqItemLabel", { index: index + 1 })}
               </Label>
-              <Pressable
-                onPress={() => removeItem(index)}
-                className="w-8 h-8 items-center justify-center rounded-lg active:opacity-60"
-              >
+              <BoutonIcone libelle={`${t("common:delete")} ${t("faqItemLabel", { index: index + 1 })}`} onPress={() => removeItem(index)}>
                 <Trash2 size={16} color="#EF4444" />
-              </Pressable>
+              </BoutonIcone>
             </View>
             <View className="border-b border-hair pb-3 mb-3">
               <Text className="text-xs text-mute mb-1 font-medium">

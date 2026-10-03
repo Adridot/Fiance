@@ -10,6 +10,7 @@ import { useWeddingPartyStore } from "@/store/useWeddingPartyStore";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
 import { FormActions } from "@/components/FormSection";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
 import { analytics } from "@/lib/analytics";
@@ -123,14 +124,14 @@ export default function WeddingPartyScreen() {
                     </View>
                   )}
                   {canEdit && (
-                    <Pressable onPress={() => handleEdit(role)} className="w-8 h-8 items-center justify-center">
+                    <BoutonIcone libelle={`${t("common:edit")} ${role.name}`} onPress={() => handleEdit(role)}>
                       <Pencil size={15} color="#9CA3AF" />
-                    </Pressable>
+                    </BoutonIcone>
                   )}
                   {canEdit && (
-                    <Pressable onPress={() => setDeleteId(role.id)} className="w-8 h-8 items-center justify-center">
+                    <BoutonIcone libelle={`${t("common:delete")} ${role.name}`} onPress={() => setDeleteId(role.id)}>
                       <Trash2 size={15} color="#EF4444" />
-                    </Pressable>
+                    </BoutonIcone>
                   )}
                 </View>
               </View>

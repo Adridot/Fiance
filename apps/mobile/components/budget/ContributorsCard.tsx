@@ -10,6 +10,8 @@ import {
   resolveAllocationAmount,
 } from "@fiance/sdk";
 import { InputRow, ChipSelect } from "@/components/FormSection";
+import { BoutonIcone } from "@/components/BoutonIcone";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { Avatar } from "@/components/Avatar";
 import { Chip } from "@/components/Chip";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
@@ -323,9 +325,13 @@ function ContributorSheet({
                   <View className="flex-row items-center justify-between">
                     <Text className="text-xs text-mute font-medium">{formatMoney(amount)}</Text>
                     {rows.length > 1 && (
-                      <Pressable onPress={() => removeRow(index)} hitSlop={8}>
+                      <BoutonIcone
+                        libelle={`${t("common:delete")} ${formatMoney(amount)}`}
+                        onPress={() => removeRow(index)}
+                        empreinte={CIBLE_TACTILE}
+                      >
                         <X size={16} color="#EF4444" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                   </View>
                   <ChipSelect
@@ -344,7 +350,7 @@ function ContributorSheet({
                 </View>
               );
             })}
-            <Pressable onPress={addRow} className="flex-row items-center mt-1">
+            <Pressable onPress={addRow} className="flex-row items-center" style={{ minHeight: CIBLE_TACTILE }}>
               <Plus size={16} color={GP.clay} />
               <Text className="text-primary-500 text-sm font-medium ml-1">
                 {t("contributors.addAllocation")}
@@ -373,7 +379,7 @@ function ContributorSheet({
           </Pressable>
         </View>
         {onDelete && (
-          <Pressable onPress={onDelete} className="items-center mt-3">
+          <Pressable onPress={onDelete} className="items-center" style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}>
             <Text className="text-red-500 text-sm font-medium">{t("common:delete")}</Text>
           </Pressable>
         )}

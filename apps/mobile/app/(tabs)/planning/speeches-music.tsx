@@ -15,6 +15,7 @@ import { useGuestsStore } from "@/store/useGuestsStore";
 import { useWeddingPartyStore } from "@/store/useWeddingPartyStore";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { ChipSelect, ToggleRow, FormActions } from "@/components/FormSection";
@@ -214,14 +215,14 @@ export default function SpeechesMusicScreen() {
           </View>
           <View className="flex-row items-center gap-1">
             {canEdit && (
-              <Pressable onPress={() => handleEditTrack(track)} className="w-8 h-8 items-center justify-center">
+              <BoutonIcone libelle={`${t("common:edit")} ${track.title}`} onPress={() => handleEditTrack(track)}>
                 <Pencil size={15} color="#9CA3AF" />
-              </Pressable>
+              </BoutonIcone>
             )}
             {canEdit && (
-              <Pressable onPress={() => setDeleteId(track.id)} className="w-8 h-8 items-center justify-center">
+              <BoutonIcone libelle={`${t("common:delete")} ${track.title}`} onPress={() => setDeleteId(track.id)}>
                 <Trash2 size={15} color="#EF4444" />
-              </Pressable>
+              </BoutonIcone>
             )}
           </View>
         </View>

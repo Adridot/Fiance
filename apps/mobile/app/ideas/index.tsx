@@ -24,6 +24,9 @@ import { IDEA_CATEGORY_LABELS } from "@/db/types";
 import type { IdeaCategory } from "@/db/types";
 import type { Idea } from "@/db/schema";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
+import { ZoneTactile } from "@/components/ZoneTactile";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { EmptyState } from "@/components/EmptyState";
 import { SearchBar } from "@/components/SearchBar";
 import { parseLinks } from "@/lib/links";
@@ -141,16 +144,17 @@ export default function IdeasScreen() {
         placeholder={t("searchIdea")}
         className="px-4 pt-2 pb-2"
         right={
-          <Pressable
+          <BoutonIcone
+            libelle={t("favoritesOnly")}
             onPress={() => setShowFavoritesOnly(!showFavoritesOnly)}
-            className="ml-2 w-8 h-8 items-center justify-center"
+            style={{ marginLeft: 4 }}
           >
             <Heart
               size={20}
               color={showFavoritesOnly ? "#EF4444" : "#C0C0C8"}
               fill={showFavoritesOnly ? "#EF4444" : "transparent"}
             />
-          </Pressable>
+          </BoutonIcone>
         }
       />
 
@@ -165,6 +169,7 @@ export default function IdeasScreen() {
                 ? "border-primary-300 dark:border-primary-700 bg-primary-50 dark:bg-primary-900"
                 : "border-hair bg-accent-card"
             }`}
+            style={{ minHeight: CIBLE_TACTILE }}
           >
             {activeCategory && (
               <View
@@ -195,7 +200,7 @@ export default function IdeasScreen() {
                 setCategoryFilter("ALL");
                 setShowCategoryPicker(false);
               }}
-              className="w-9 h-9 rounded-xl bg-accent-paper items-center justify-center"
+              className="w-11 h-11 rounded-xl bg-accent-paper items-center justify-center"
             >
               <X size={16} color="#9CA3AF" />
             </Pressable>
@@ -210,30 +215,34 @@ export default function IdeasScreen() {
               className="flex-1"
             >
               {collections.map((c) => (
-                <Pressable
+                <ZoneTactile
                   key={c.id}
                   onPress={() =>
                     setCollectionFilter(
                       collectionFilter === c.id ? "ALL" : c.id
                     )
                   }
-                  className={`px-3 py-1.5 rounded-full border ${
-                    collectionFilter === c.id
-                      ? "bg-primary-500 border-primary-500"
-                      : "bg-accent-card border-hair"
-                  }`}
+                  accessibilityState={{ selected: collectionFilter === c.id }}
                 >
-                  <Text
-                    className={`text-xs font-medium ${
+                  <View
+                    className={`px-3 py-1.5 rounded-full border ${
                       collectionFilter === c.id
-                        ? "text-white"
-                        : "text-mute"
+                        ? "bg-primary-500 border-primary-500"
+                        : "bg-accent-card border-hair"
                     }`}
-                    numberOfLines={1}
                   >
-                    {c.name}
-                  </Text>
-                </Pressable>
+                    <Text
+                      className={`text-xs font-medium ${
+                        collectionFilter === c.id
+                          ? "text-white"
+                          : "text-mute"
+                      }`}
+                      numberOfLines={1}
+                    >
+                      {c.name}
+                    </Text>
+                  </View>
+                </ZoneTactile>
               ))}
             </ScrollView>
           )}
@@ -244,7 +253,7 @@ export default function IdeasScreen() {
       {showCategoryPicker && (
         <View className="px-4 pb-3">
           <View className="bg-accent-card rounded-2xl border border-hair p-3">
-            <View className="flex-row flex-wrap" style={{ gap: 8 }}>
+            <View className="flex-row flex-wrap" style={{ columnGap: 8 }}>
               {CATEGORIES.map((cat) => {
                 const Icon = CATEGORY_ICONS[cat];
                 const color = CATEGORY_COLORS[cat];
@@ -252,45 +261,49 @@ export default function IdeasScreen() {
                 const count = categoryCounts[cat] || 0;
 
                 return (
-                  <Pressable
+                  <ZoneTactile
                     key={cat}
                     onPress={() => {
                       setCategoryFilter(isActive ? "ALL" : cat);
                       setShowCategoryPicker(false);
                     }}
-                    className={`flex-row items-center px-3 py-2 rounded-xl border ${
-                      isActive
-                        ? "border-primary-300 dark:border-primary-700"
-                        : "border-hair"
-                    }`}
-                    style={
-                      isActive
-                        ? { backgroundColor: color + "15" }
-                        : { backgroundColor: "transparent" }
-                    }
+                    accessibilityState={{ selected: isActive }}
                   >
-                    <Icon size={14} color={color} />
-                    <Text
-                      className="text-xs font-medium ml-1.5"
-                      style={{ color: isActive ? color : "#6B7280" }}
-                      numberOfLines={1}
+                    <View
+                      className={`flex-row items-center px-3 py-2 rounded-xl border ${
+                        isActive
+                          ? "border-primary-300 dark:border-primary-700"
+                          : "border-hair"
+                      }`}
+                      style={
+                        isActive
+                          ? { backgroundColor: color + "15" }
+                          : { backgroundColor: "transparent" }
+                      }
                     >
-                      {t(IDEA_CATEGORY_LABELS[cat])}
-                    </Text>
-                    {count > 0 && (
-                      <View
-                        className="ml-1.5 min-w-[18px] h-[18px] rounded-full items-center justify-center px-1"
-                        style={{ backgroundColor: color + "20" }}
+                      <Icon size={14} color={color} />
+                      <Text
+                        className="text-xs font-medium ml-1.5"
+                        style={{ color: isActive ? color : "#6B7280" }}
+                        numberOfLines={1}
                       >
-                        <Text
-                          className="text-[10px] font-bold"
-                          style={{ color }}
+                        {t(IDEA_CATEGORY_LABELS[cat])}
+                      </Text>
+                      {count > 0 && (
+                        <View
+                          className="ml-1.5 min-w-[18px] h-[18px] rounded-full items-center justify-center px-1"
+                          style={{ backgroundColor: color + "20" }}
                         >
-                          {count}
-                        </Text>
-                      </View>
-                    )}
-                  </Pressable>
+                          <Text
+                            className="text-[10px] font-bold"
+                            style={{ color }}
+                          >
+                            {count}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </ZoneTactile>
                 );
               })}
             </View>

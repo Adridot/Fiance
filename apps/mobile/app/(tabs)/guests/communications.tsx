@@ -10,6 +10,7 @@ import { useCommunicationTemplatesStore } from "@/store/useCommunicationTemplate
 import { useGuestsStore } from "@/store/useGuestsStore";
 import { useWeddingStore } from "@/store/useWeddingStore";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { FormCard, DateRow, InputRow, ChipSelect, FormActions } from "@/components/FormSection";
@@ -317,14 +318,14 @@ export default function CommunicationsScreen() {
                       </View>
                     )}
                     {canEdit && (
-                      <Pressable onPress={() => handleEdit(comm)} className="w-8 h-8 items-center justify-center">
+                      <BoutonIcone libelle={`${t("common:edit")} ${comm.label}`} onPress={() => handleEdit(comm)}>
                         <Pencil size={15} color="#9CA3AF" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                     {canEdit && (
-                      <Pressable onPress={() => setDeleteId(comm.id)} className="w-8 h-8 items-center justify-center">
+                      <BoutonIcone libelle={`${t("common:delete")} ${comm.label}`} onPress={() => setDeleteId(comm.id)}>
                         <Trash2 size={15} color="#EF4444" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                     <ChevronRight size={15} color="#9CA3AF" />
                   </View>

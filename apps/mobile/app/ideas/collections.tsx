@@ -7,6 +7,7 @@ import * as Crypto from "expo-crypto";
 import { useIdeasStore } from "@/store/useIdeasStore";
 import { PageHeader } from "@/components/PageHeader";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { analytics } from "@/lib/analytics";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
@@ -77,13 +78,13 @@ export default function CollectionsScreen() {
             <View className="flex-row gap-2">
               <Pressable
                 onPress={handleAdd}
-                className="flex-1 bg-primary-500 py-2 rounded-lg items-center"
+                className="flex-1 bg-primary-500 py-2.5 rounded-lg items-center"
               >
                 <Text className="text-white font-semibold">{t("common:create")}</Text>
               </Pressable>
               <Pressable
                 onPress={() => setShowAdd(false)}
-                className="flex-1 bg-accent-paper py-2 rounded-lg items-center"
+                className="flex-1 bg-accent-paper py-2.5 rounded-lg items-center"
               >
                 <Text className="text-mute">{t("common:cancel")}</Text>
               </Pressable>
@@ -113,9 +114,9 @@ export default function CollectionsScreen() {
                   </Text>
                 </View>
                 {canEdit && (
-                  <Pressable onPress={() => setDeleteId(col.id)}>
+                  <BoutonIcone libelle={`${t("common:delete")} ${col.name}`} onPress={() => setDeleteId(col.id)}>
                     <Trash2 size={18} color="#EF4444" />
-                  </Pressable>
+                  </BoutonIcone>
                 )}
               </View>
             </View>

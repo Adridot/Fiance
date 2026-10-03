@@ -7,6 +7,7 @@ import { useVendorsStore } from "@/store/useVendorsStore";
 import { useGuestsStore, computeCounts } from "@/store/useGuestsStore";
 import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
 import { ToggleRow } from "@/components/FormSection";
+import { BoutonIcone } from "@/components/BoutonIcone";
 import type { QuotePricing } from "@/db/schema";
 import { formatMoney } from "@/components/MoneyDisplay";
 import { theme as GP } from "@/lib/theme";
@@ -141,12 +142,12 @@ export function GuestPricingSection({ vendorId }: { vendorId: string }) {
               />
               <Text className="text-xs text-mute ml-1">{t("perGuestUnit")}</Text>
             </View>
-            <Pressable
+            <BoutonIcone
+              libelle={`${t("common:delete")} ${labelOf(line.pricingKey)}`}
               onPress={() => removeQuotePricing(line.id)}
-              className="w-8 h-8 items-center justify-center ml-1"
             >
               <X size={15} color="#EF4444" />
-            </Pressable>
+            </BoutonIcone>
           </View>
         );
       })}

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, ScrollView, Pressable, TextInput } from "react-native-css/components";
+import { View, Text, ScrollView, TextInput } from "react-native-css/components";
 import { Alert } from "react-native";
 import { useTranslation } from "react-i18next";
 import { FileText, Trash2, Pencil } from "lucide-react-native";
@@ -8,6 +8,7 @@ import { useCommunicationTemplatesStore } from "@/store/useCommunicationTemplate
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
 import { ChipSelect, FormActions } from "@/components/FormSection";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
 import { COMMUNICATION_CHANNEL_LABELS, type CommunicationChannel } from "@fiance/sdk";
@@ -156,14 +157,14 @@ export default function CommunicationTemplatesScreen() {
                   </View>
                   <View className="flex-row items-center gap-1">
                     {canEdit && (
-                      <Pressable onPress={() => handleEdit(tpl)} className="w-8 h-8 items-center justify-center">
+                      <BoutonIcone libelle={`${t("common:edit")} ${tpl.name}`} onPress={() => handleEdit(tpl)}>
                         <Pencil size={15} color="#9CA3AF" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                     {!tpl.isSystem && canEdit && (
-                      <Pressable onPress={() => setDeleteId(tpl.id)} className="w-8 h-8 items-center justify-center">
+                      <BoutonIcone libelle={`${t("common:delete")} ${tpl.name}`} onPress={() => setDeleteId(tpl.id)}>
                         <Trash2 size={15} color="#EF4444" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                   </View>
                 </View>

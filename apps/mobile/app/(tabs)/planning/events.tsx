@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, ScrollView, Pressable, TextInput } from "react-native-css/components";
+import { View, Text, ScrollView, TextInput } from "react-native-css/components";
 import { Alert } from "react-native";
 import { useTranslation } from "react-i18next";
 import { CalendarRange, Trash2, Pencil, Star } from "lucide-react-native";
@@ -9,6 +9,7 @@ import { useWeddingEventsStore } from "@/store/useWeddingEventsStore";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
 import { ChipSelect, ToggleRow, DateRow, TimeRow, FormActions } from "@/components/FormSection";
 import { analytics } from "@/lib/analytics";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
@@ -224,14 +225,14 @@ export default function PlanningEventsScreen() {
                   </View>
                   <View className="flex-row items-center gap-1">
                     {canEdit && (
-                      <Pressable onPress={() => handleEdit(e)} className="w-8 h-8 items-center justify-center">
+                      <BoutonIcone libelle={`${t("common:edit")} ${e.title}`} onPress={() => handleEdit(e)}>
                         <Pencil size={15} color="#9CA3AF" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                     {canEdit && (
-                      <Pressable onPress={() => setDeleteId(e.id)} className="w-8 h-8 items-center justify-center">
+                      <BoutonIcone libelle={`${t("common:delete")} ${e.title}`} onPress={() => setDeleteId(e.id)}>
                         <Trash2 size={15} color="#EF4444" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                   </View>
                 </View>

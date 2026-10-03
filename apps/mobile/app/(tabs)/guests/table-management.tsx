@@ -10,6 +10,8 @@ import { useGuestsStore } from "@/store/useGuestsStore";
 import { useSeatingConstraintsStore } from "@/store/useSeatingConstraintsStore";
 import { DIET_LABELS } from "@/db/types";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
+import { CIBLE_TACTILE, debordement } from "@/lib/cible-tactile";
 import { useCan } from "@/lib/permissions/usePermissions";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
@@ -193,6 +195,7 @@ export default function TableManagementScreen() {
                       setEditingName(table.name);
                     }}
                     className="flex-row items-center flex-1"
+                    style={{ minHeight: CIBLE_TACTILE, marginVertical: debordement(32) }}
                   >
                     <View className="w-8 h-8 rounded-lg bg-accent-blush dark:bg-primary-900 items-center justify-center mr-2">
                       <LayoutGrid size={16} color={GP.clay} />
@@ -247,12 +250,9 @@ export default function TableManagementScreen() {
                       </Text>
                     </View>
                     {canEdit && (
-                      <Pressable
-                        onPress={() => setDeleteId(table.id)}
-                        className="w-8 h-8 items-center justify-center"
-                      >
+                      <BoutonIcone libelle={`${t("common:delete")} ${table.name}`} onPress={() => setDeleteId(table.id)}>
                         <Trash2 size={16} color="#EF4444" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                   </View>
                 </View>

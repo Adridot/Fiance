@@ -16,6 +16,8 @@ import { useGuestsStore } from "@/store/useGuestsStore";
 import { useWeddingStore } from "@/store/useWeddingStore";
 import { useGuestGroupSideLabel } from "@/lib/guest-group-side";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
+import { CIBLE_TACTILE, debordement } from "@/lib/cible-tactile";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { FormActions } from "@/components/FormSection";
@@ -152,6 +154,7 @@ export default function GroupsScreen() {
                         }
                         disabled={!canEdit}
                         className="flex-row items-center flex-1"
+                        style={{ minHeight: CIBLE_TACTILE, marginVertical: debordement(32) }}
                       >
                         <View className="w-8 h-8 rounded-lg bg-accent-blush dark:bg-primary-900 items-center justify-center mr-2">
                           <FolderOpen size={16} color={GP.clay} />
@@ -190,12 +193,9 @@ export default function GroupsScreen() {
                           </Text>
                         </View>
                         {canEdit && (
-                          <Pressable
-                            onPress={() => setDeleteId(group.id)}
-                            className="w-8 h-8 items-center justify-center"
-                          >
+                          <BoutonIcone libelle={`${t("common:delete")} ${formatGuestGroupName(group.name)}`} onPress={() => setDeleteId(group.id)}>
                             <Trash2 size={16} color="#EF4444" />
-                          </Pressable>
+                          </BoutonIcone>
                         )}
                       </View>
                     </View>
