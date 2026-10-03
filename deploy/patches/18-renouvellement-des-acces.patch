@@ -1,0 +1,1905 @@
+diff --git a/apps/mobile/__tests__/acces-refuse.test.ts b/apps/mobile/__tests__/acces-refuse.test.ts
+new file mode 100644
+index 0000000..069e31f
+--- /dev/null
++++ b/apps/mobile/__tests__/acces-refuse.test.ts
+@@ -0,0 +1,188 @@
++/**
++ * Un refus RÉEL du serveur (401/403 en lecture de l'espace) se dit à l'écran ;
++ * un espace vide, une panne réseau ou l'appareil du propriétaire, non.
++ */
++import { beforeEach, describe, expect, it, vi } from "vitest";
++import { StarfishHttpError } from "@drakkar.software/starfish-client";
++
++import { refusASignaler, statutDeRefus } from "@/lib/acces-refuse";
++
++describe("statutDeRefus", () => {
++  it("401 et 403 sont des refus, le reste non", () => {
++    expect(statutDeRefus(new StarfishHttpError(401, '{"error":"Unauthorized"}'))).toBe(401);
++    expect(statutDeRefus(new StarfishHttpError(403, '{"error":"Forbidden"}'))).toBe(403);
++    expect(statutDeRefus(new StarfishHttpError(404, ""))).toBeNull();
++    expect(statutDeRefus(new StarfishHttpError(503, ""))).toBeNull();
++    expect(statutDeRefus(new TypeError("Failed to fetch"))).toBeNull();
++    expect(statutDeRefus(null)).toBeNull();
++  });
++
++  it("seul un membre, et pour l'accès qui a été refusé, le signale", () => {
++    const refus = new StarfishHttpError(401, "");
++    expect(refusASignaler(refus, { membre: true, accesInchange: true })).toBe(401);
++    expect(refusASignaler(refus, { membre: false, accesInchange: true })).toBeNull();
++    expect(refusASignaler(refus, { membre: true, accesInchange: false })).toBeNull();
++  });
++});
++
++describe("useAccesRefuseStore", () => {
++  it("se pose par espace et ne se lève que pour le sien", async () => {
++    const { useAccesRefuseStore } = await import("@/store/useAccesRefuseStore");
++    const s = useAccesRefuseStore.getState();
++    s.signaler("sp-1", 401);
++    expect(useAccesRefuseStore.getState().refus).toEqual({ spaceId: "sp-1", statut: 401 });
++    s.lever("sp-2");
++    expect(useAccesRefuseStore.getState().refus).not.toBeNull();
++    s.lever("sp-1");
++    expect(useAccesRefuseStore.getState().refus).toBeNull();
++  });
++});
++
++// ─── L'hydratation ──────────────────────────────────────────────────────────
++
++let mockArbre: unknown[] = [];
++let mockLireIndex: () => Promise<unknown> = async () => ({ hash: "", data: {} });
++let mockEntree: unknown = { kind: "link", cap: { nonce: "n1" } };
++
++vi.mock("@fiance/sdk", async (importOriginal) => ({
++  ...(await importOriginal<Record<string, unknown>>()),
++  readObjectTree: async () => mockArbre,
++  updateObjectIndex: vi.fn(),
++  clearNodeAccessCache: vi.fn(),
++  getSpaceAccessEntry: () => mockEntree,
++  getSpaceClient: () => ({ pull: () => mockLireIndex() }),
++  getSpacesConfig: () => ({ kvAdapter: { getItem: () => null, setItem: () => {}, removeItem: () => {} } }),
++  getSyncNamespace: () => "dk",
++  getNodeAccess: async () => ({
++    isOwnerOpen: false,
++    push: vi.fn(),
++    encryptor: null,
++    client: {
++      push: vi.fn(async () => ({ hash: "H" })),
++      pull: async () => ({ hash: "", data: null }),
++      batchPullMany: async (_c: string, params: unknown[]) => params.map(() => ({ data: null })),
++    },
++  }),
++}));
++
++const SESSION = { userId: "u1", layout: { objIndexPull: (id: string) => `/pull/spaces/${id}/objects/_index` } };
++vi.mock("@/lib/starfish", () => ({
++  getActiveSession: () => SESSION,
++  getActiveSpaceId: () => "sp-1",
++  getActiveWeddingNodeId: () => "w1",
++}));
++vi.mock("@/lib/kv-storage", () => ({ readCollection: () => null, writeCollection: () => {}, getStorage: () => ({}) }));
++vi.mock("@/lib/rsvp-sync", () => ({ applyHouseholdRsvpDocs: vi.fn() }));
++
++const magasin = {
++  getState: () => ({
++    wedding: null, guests: [], tables: [], groups: [], households: [], vendors: [],
++    quotePricings: [], vendorPayments: [], accommodations: [], gifts: [],
++    invitationTypes: [], communications: [], weddingRoles: [], weddingRoleAssignments: [],
++    seatingConstraints: [], weddingEvents: [], mealSelections: [], communicationTemplates: [],
++    documents: [], legalMilestones: [], honeymoonPlans: [], categories: [], tasks: [],
++    agendaEvents: [], dayOfItems: [], collections: [], ideas: [], ceremonyItems: [],
++    speeches: [], playlistTracks: [], roles: [], assignments: [], contributors: [],
++    setWedding: vi.fn(), setGroups: vi.fn(), setTables: vi.fn(), setGuests: vi.fn(),
++    setVendors: vi.fn(), setQuotePricings: vi.fn(), setVendorPayments: vi.fn(),
++    setAccommodations: vi.fn(), setGifts: vi.fn(), setInvitationTypes: vi.fn(),
++    setCommunications: vi.fn(), setWeddingRoles: vi.fn(), setWeddingRoleAssignments: vi.fn(),
++    setSeatingConstraints: vi.fn(), setWeddingEvents: vi.fn(), setMealSelections: vi.fn(),
++    setCommunicationTemplates: vi.fn(), setDocuments: vi.fn(), setLegalMilestones: vi.fn(),
++    setHoneymoonPlans: vi.fn(), setCategories: vi.fn(), setTasks: vi.fn(),
++    setAgendaEvents: vi.fn(), setDayOfItems: vi.fn(), setCollections: vi.fn(),
++    setIdeas: vi.fn(), setCeremonyItems: vi.fn(), setSpeeches: vi.fn(),
++    setPlaylistTracks: vi.fn(), setRoles: vi.fn(), setAssignments: vi.fn(),
++  }),
++};
++for (const nom of [
++  "useWeddingStore", "useGuestsStore", "useVendorsStore", "usePlanningStore", "useIdeasStore",
++  "useAccommodationsStore", "useGiftsStore", "useInvitationTypesStore", "useCommunicationsStore",
++  "useWeddingPartyStore", "useSeatingConstraintsStore", "useWeddingEventsStore", "useMealSelectionsStore",
++  "useCommunicationTemplatesStore", "useDocumentsStore", "useLegalStore", "useHoneymoonStore",
++  "useCeremonyStore", "useSpeechesMusicStore", "usePermissionsStore", "useContributorsStore",
++]) {
++  vi.doMock(`@/store/${nom}`, () => ({ [nom]: magasin }));
++}
++vi.mock("@/store/useSyncAccessStore", () => ({
++  useSyncAccessStore: { getState: () => ({ writeDenied: false, setWriteDenied: vi.fn() }) },
++}));
++vi.mock("@/store/useSyncPendingStore", () => ({
++  useSyncPendingStore: { getState: () => ({ setUnsavedChanges: vi.fn() }) },
++}));
++
++let registre: { activeWeddingId: string; weddings: Array<{ id: string; role: string; spaceId: string; premiereHydratationAttendue?: boolean }> };
++vi.mock("@/store/useWeddingRegistryStore", () => ({
++  useWeddingRegistryStore: {
++    getState: () => ({
++      registry: registre,
++      updateWedding: async (id: string, maj: Record<string, unknown>) => {
++        registre = { ...registre, weddings: registre.weddings.map((w) => (w.id === id ? { ...w, ...maj } : w)) };
++      },
++    }),
++  },
++}));
++
++const sousGarde = () => registre.weddings[0].premiereHydratationAttendue === true;
++
++describe("hydratation d'un espace dont la lecture est refusée", () => {
++  beforeEach(async () => {
++    vi.resetModules();
++    mockArbre = [];
++    mockLireIndex = async () => { throw new StarfishHttpError(401, '{"error":"Unauthorized"}'); };
++    mockEntree = { kind: "link", cap: { nonce: "n1" } };
++    registre = { activeWeddingId: "w1", weddings: [{ id: "w1", role: "member", spaceId: "sp-1", premiereHydratationAttendue: true }] };
++    const { useAccesRefuseStore } = await import("@/store/useAccesRefuseStore");
++    useAccesRefuseStore.getState().lever();
++  });
++
++  async function hydrater() {
++    const { hydrateFromSpace } = await import("@/lib/space-sync");
++    const { useAccesRefuseStore } = await import("@/store/useAccesRefuseStore");
++    const n = await hydrateFromSpace(SESSION as never, "sp-1", "w1");
++    return { n, refus: useAccesRefuseStore.getState().refus };
++  }
++
++  it("membre, 401 : le refus est signalé, et la garde de première lecture tient", async () => {
++    const { n, refus } = await hydrater();
++    expect(n).toBe(0);
++    expect(refus).toEqual({ spaceId: "sp-1", statut: 401 });
++    expect(sousGarde()).toBe(true);
++  });
++
++  it("membre, 403 : même chose", async () => {
++    mockLireIndex = async () => { throw new StarfishHttpError(403, '{"error":"Forbidden"}'); };
++    expect((await hydrater()).refus).toEqual({ spaceId: "sp-1", statut: 403 });
++  });
++
++  it("un index réellement vide n'est pas un refus", async () => {
++    mockLireIndex = async () => ({ hash: "", data: {} });
++    const { refus } = await hydrater();
++    expect(refus).toBeNull();
++    expect(sousGarde()).toBe(false);
++  });
++
++  it("une panne réseau ne prouve rien", async () => {
++    mockLireIndex = async () => { throw new TypeError("Failed to fetch"); };
++    expect((await hydrater()).refus).toBeNull();
++  });
++
++  it("l'appareil du propriétaire n'est jamais signalé", async () => {
++    registre.weddings[0].role = "owner";
++    expect((await hydrater()).refus).toBeNull();
++  });
++
++  it("un accès remplacé pendant la relecture : le refus visait l'ancien", async () => {
++    mockLireIndex = async () => {
++      mockEntree = { kind: "link", cap: { nonce: "n2" } };
++      throw new StarfishHttpError(401, "");
++    };
++    expect((await hydrater()).refus).toBeNull();
++  });
++
++  it("une lecture qui aboutit lève le refus", async () => {
++    await hydrater();
++    mockArbre = [{ id: "w1", type: "wedding", parentId: null, updatedAt: 1, contentKind: "merge", access: "space", enc: false }];
++    expect((await hydrater()).refus).toBeNull();
++  });
++});
+diff --git a/apps/mobile/__tests__/invite-link-acces.test.ts b/apps/mobile/__tests__/invite-link-acces.test.ts
+new file mode 100644
+index 0000000..dd05050
+--- /dev/null
++++ b/apps/mobile/__tests__/invite-link-acces.test.ts
+@@ -0,0 +1,94 @@
++/**
++ * Le lien d'invitation : un accès de trois ans, émis sur un contenu à l'époque
++ * courante, et un magasin d'invitations qui ne perd pas les liens passés.
++ */
++import { beforeEach, describe, expect, it, vi } from "vitest";
++
++const mockCreer = vi.fn(async () => ({
++  token: { cap: { subUserId: "sujet-neuf" } },
++  link: "https://mariage.example/join#JETON",
++  inviteUserId: "sujet-neuf",
++}));
++const mockHydraterMagasin = vi.fn();
++let mockResceller: () => Promise<{ epoque: number | null; rescellees: string[]; dejaAJour: string[]; restant: string[] }>;
++
++vi.mock("expo-linking", () => ({ createURL: () => "https://mariage.example/" }));
++vi.mock("@fiance/sdk", async (importOriginal) => ({
++  ...(await importOriginal<Record<string, unknown>>()),
++  createSpaceInviteLink: (...args: unknown[]) => mockCreer(...(args as [])),
++  serializeSpaceInviteStore: () => "{}",
++  hydrateSpaceInviteStore: (...args: unknown[]) => mockHydraterMagasin(...args),
++  getSyncNamespace: () => "dk",
++}));
++vi.mock("@/lib/server", () => ({
++  resolveSessionConfig: async () => ({
++    serverUrl: "https://mariage.example/sync",
++    userId: "proprietaire",
++    session: {
++      userId: "proprietaire",
++      accountClient: { pull: async () => ({ data: { members: [] } }) },
++      layout: { spaceAccessPull: () => "/pull/spaces/sp-1/_access" },
++    },
++  }),
++  normalizeSyncBase: (u: string) => u,
++  resolveServerUrl: () => "https://mariage.example/sync",
++}));
++vi.mock("@/lib/invitation-courte", () => ({
++  chiffrerLeJeton: async () => ({ depot: { iv: "iv", ct: "ct" }, cle: "cle" }),
++  construireLeLienCourt: (_o: string, code: string, cle: string) => `https://mariage.example/i/${code}#${cle}`,
++  deposer: async () => {},
++  emballerLInvitation: () => "clair",
++  retirer: async () => {},
++  tirerUnCode: () => "ABCDEFGHJK",
++}));
++vi.mock("@/lib/space-provision", () => ({ ensureSpaceProvisioned: async () => "sp-1" }));
++vi.mock("@/lib/space-sync", () => ({ pushSpaceSnapshot: vi.fn(async () => true) }));
++vi.mock("@/lib/compte-session", () => ({ planifierLeCoffre: vi.fn() }));
++vi.mock("@/lib/rescellement", () => ({ rescellerEspace: () => mockResceller() }));
++vi.mock("@/lib/premium", () => ({ isPremium: () => true }));
++vi.mock("@/store/usePermissionsStore", () => ({
++  usePermissionsStore: { getState: () => ({ assignments: [], roles: [], upsertAssignment: vi.fn() }) },
++}));
++const kv = new Map<string, unknown>();
++vi.mock("@/lib/kv-storage", () => ({
++  readCollection: (cle: string) => (kv.has(cle) ? kv.get(cle) : null),
++  writeCollection: (cle: string, v: unknown) => { kv.set(cle, v); },
++}));
++
++const ENTREE = { id: "w1", label: "Mariage", dbFileName: "w1.db", createdAt: "", seedPhrase: "x", spaceId: "sp-1" };
++
++describe("createInviteLink", () => {
++  beforeEach(() => {
++    vi.resetModules();
++    kv.clear();
++    mockCreer.mockClear();
++    mockHydraterMagasin.mockClear();
++    mockResceller = async () => ({ epoque: 4, rescellees: [], dejaAJour: ["guest"], restant: [] });
++    vi.spyOn(console, "log").mockImplementation(() => {});
++  });
++
++  it("émet un accès de trois ans", async () => {
++    const { createInviteLink } = await import("@/lib/invite-link");
++    const lien = await createInviteLink(ENTREE as never, undefined, "Emma");
++
++    expect(lien).toBe("https://mariage.example/i/ABCDEFGHJK#cle");
++    const args = mockCreer.mock.calls[0] as unknown[];
++    expect(args[5]).toEqual({ ttlSec: 3 * 365 * 24 * 3600 });
++  });
++
++  it("un contenu qui n'a pas pu être ramené à l'époque courante bloque le lien, avant toute émission", async () => {
++    mockResceller = async () => ({ epoque: 4, rescellees: [], dejaAJour: [], restant: ["weddingEvent", "legalMilestone"] });
++    const { createInviteLink } = await import("@/lib/invite-link");
++
++    await expect(createInviteLink(ENTREE as never, undefined, "Emma")).rejects.toThrow(/weddingEvent, legalMilestone/);
++    expect(mockCreer).not.toHaveBeenCalled();
++  });
++
++  it("recharge le magasin persisté avant de le réécrire", async () => {
++    kv.set("spaceInviteStore", '{"sp-1:ancien":{"edPub":"e","kemPub":"k"}}');
++    const { createInviteLink } = await import("@/lib/invite-link");
++    await createInviteLink(ENTREE as never, undefined, "Emma");
++
++    expect(mockHydraterMagasin).toHaveBeenCalledWith('{"sp-1:ancien":{"edPub":"e","kemPub":"k"}}');
++  });
++});
+diff --git a/apps/mobile/__tests__/renouvellement-automatique.test.ts b/apps/mobile/__tests__/renouvellement-automatique.test.ts
+new file mode 100644
+index 0000000..98fa56c
+--- /dev/null
++++ b/apps/mobile/__tests__/renouvellement-automatique.test.ts
+@@ -0,0 +1,343 @@
++/**
++ * Le renouvellement automatique de bout en bout, serveur de dépôt simulé :
++ * le propriétaire réémet et dépose, le membre retrouve et adopte — ou, faute de
++ * dépôt, se fait connaître par une demande.
++ */
++import { beforeEach, describe, expect, it, vi } from "vitest";
++import { generateDeviceKeys } from "@drakkar.software/starfish-identities";
++import { mintMemberCap } from "@drakkar.software/starfish-sharing";
++import { userIdFromPubHex, verifyCapCertSignature } from "@drakkar.software/starfish-protocol";
++
++const JOUR = 24 * 3600;
++const ESPACE = "sp-f88da0e30ce94f4dabcc6d050103e931";
++const BASE = "https://mariage.example/sync";
++
++const proprietaire = generateDeviceKeys();
++const lienEmma = generateDeviceKeys();
++const lienRevoque = generateDeviceKeys();
++const lienSansRole = generateDeviceKeys();
++const EMMA = userIdFromPubHex(lienEmma.edPub);
++const REVOQUE = userIdFromPubHex(lienRevoque.edPub);
++const SANS_ROLE = userIdFromPubHex(lienSansRole.edPub);
++
++let mockMagasin = "{}";
++let mockMembres: string[] = [];
++let mockEntree: unknown = null;
++const mockJoin = vi.fn(async () => ({}));
++const mockVider = vi.fn();
++const mockSauver = vi.fn((spaceId: string, userId: string, entree: unknown) => {
++  mockMagasin = JSON.stringify({ ...JSON.parse(mockMagasin), [`${spaceId}:${userId}`]: entree });
++});
++const mockPersister = vi.fn();
++const mockCoffre = vi.fn();
++
++vi.mock("@fiance/sdk", async (importOriginal) => ({
++  ...(await importOriginal<Record<string, unknown>>()),
++  getSyncNamespace: () => "dk",
++  serializeSpaceInviteStore: () => mockMagasin,
++  saveSpaceInviteEntry: (...args: [string, string, unknown]) => mockSauver(...args),
++  readSpaceAccess: vi.fn(async () => ({ owner: "owner", members: mockMembres, name: null, image: null, hash: "h" })),
++  getSpaceAccessEntry: () => mockEntree,
++  hydrateSpaceAccessStore: vi.fn(async () => {}),
++  joinSpaceByLink: (...args: unknown[]) => mockJoin(...(args as [])),
++  clearNodeAccessCache: () => mockVider(),
++}));
++
++const kv = new Map<string, unknown>();
++vi.mock("@/lib/kv-storage", () => ({
++  readCollection: (cle: string) => (kv.has(cle) ? kv.get(cle) : null),
++  writeCollection: (cle: string, v: unknown) => { kv.set(cle, JSON.parse(JSON.stringify(v))); },
++}));
++vi.mock("@/lib/invite-link", () => ({ hydraterLeMagasinDInvitations: vi.fn(), persisterLeMagasinDInvitations: () => mockPersister() }));
++vi.mock("@/lib/compte-session", () => ({ planifierLeCoffre: () => mockCoffre() }));
++
++const ROLES = [
++  { id: "r-edit", name: "Édition", isSystem: false, tier: "app-cosmetic", matrix: { guests: "edit" }, createdAt: null, updatedAt: null },
++];
++let mockAffectations: { id: string; subjectUserId: string; roleId: string; label: null; createdAt: null; updatedAt: null }[] = [];
++vi.mock("@/store/usePermissionsStore", () => ({
++  usePermissionsStore: { getState: () => ({ roles: ROLES, assignments: mockAffectations }) },
++}));
++
++/** Le dépôt `_invite/{code}` : lecture et écriture publiques, CAS sur `baseHash`. */
++const depots = new Map<string, { hash: string; data: unknown }>();
++let compteur = 0;
++const lectures: string[] = [];
++const ecritures: string[] = [];
++function serveurDeDepot() {
++  return vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
++    const m = /\/v1\/dk\/(pull|push)\/_invite\/([^/?#]+)$/.exec(url);
++    if (!m) return new Response("introuvable", { status: 404 });
++    const [, sens, code] = m;
++    if (sens === "pull") {
++      lectures.push(code);
++      return Response.json(depots.get(code) ?? { hash: "", data: {} });
++    }
++    const { data, baseHash } = JSON.parse(init?.body ?? "{}") as { data: unknown; baseHash: string | null };
++    const actuel = depots.get(code);
++    if (actuel && actuel.hash !== baseHash) {
++      return Response.json({ error: "hash_mismatch", currentHash: actuel.hash }, { status: 409 });
++    }
++    const hash = `h${++compteur}`;
++    depots.set(code, { hash, data });
++    ecritures.push(code);
++    return Response.json({ hash });
++  });
++}
++
++const sujetDe = (k: ReturnType<typeof generateDeviceKeys>) => ({
++  edPubHex: k.edPub,
++  kemPubHex: k.kemPub,
++  userIdHex: userIdFromPubHex(k.edPub),
++});
++
++async function sessionProprietaire() {
++  const { defaultSpaceLayout } = await import("@fiance/sdk");
++  return {
++    userId: userIdFromPubHex(proprietaire.edPub),
++    keys: proprietaire,
++    layout: defaultSpaceLayout,
++    accountClient: {},
++  } as never;
++}
++
++/** Le cap du lien d'Emma, émis il y a 40 jours pour 30 : expiré. */
++async function capExpire() {
++  const maintenant = Math.floor(Date.now() / 1000);
++  return mintMemberCap(
++    proprietaire.edPriv,
++    proprietaire.edPub,
++    sujetDe(lienEmma),
++    "content",
++    { ops: ["read", "write", "list"], collections: ["objdoc"], paths: [`spaces/${ESPACE}/**`] },
++    { nbf: maintenant - 40 * JOUR, ttlSec: 30 * JOUR },
++  );
++}
++
++const affecte = (subjectUserId: string) => ({ id: `a-${subjectUserId}`, subjectUserId, roleId: "r-edit", label: null, createdAt: null, updatedAt: null });
++
++describe("renouvellement automatique", () => {
++  beforeEach(async () => {
++    vi.resetModules();
++    kv.clear();
++    depots.clear();
++    lectures.length = 0;
++    ecritures.length = 0;
++    for (const m of [mockJoin, mockVider, mockSauver, mockPersister, mockCoffre]) m.mockClear();
++    vi.stubGlobal("fetch", serveurDeDepot());
++    const expire = Math.floor(Date.now() / 1000) - 10 * JOUR;
++    const entree = (k: ReturnType<typeof generateDeviceKeys>) => ({ edPub: k.edPub, kemPub: k.kemPub, cap: { nonce: "n", exp: expire } });
++    mockMagasin = JSON.stringify({
++      [`${ESPACE}:${EMMA}`]: entree(lienEmma),
++      [`${ESPACE}:${REVOQUE}`]: entree(lienRevoque),
++      [`${ESPACE}:${SANS_ROLE}`]: entree(lienSansRole),
++    });
++    // Le révoqué a quitté `_access` ; l'autre n'a plus d'affectation.
++    mockMembres = [EMMA, SANS_ROLE];
++    mockAffectations = [affecte(EMMA), affecte(REVOQUE)];
++    mockEntree = { kind: "link", cap: await capExpire(), key: lienEmma.edPriv, kemPriv: lienEmma.kemPriv, kemPub: lienEmma.kemPub, write: true };
++  });
++
++  it("le propriétaire réémet et dépose pour le seul membre encore affecté", async () => {
++    const { reemettreLesAcces } = await import("@/lib/renouvellement-automatique");
++    const { deriverLeDepot, dechiffrerLeRenouvellement, DUREE_D_UN_ACCES_SEC } = await import("@/lib/renouvellement-des-acces");
++
++    expect(await reemettreLesAcces(await sessionProprietaire(), ESPACE, BASE)).toBe(1);
++
++    const { code, cle } = await deriverLeDepot(ESPACE, EMMA);
++    expect([...depots.keys()]).toEqual([code]);
++    const cap = (await dechiffrerLeRenouvellement(depots.get(code)!.data as never, cle)) as Record<string, unknown>;
++    expect(cap).toMatchObject({ kind: "member", iss: proprietaire.edPub, sub: lienEmma.edPub, subKem: lienEmma.kemPub, subUserId: EMMA });
++    expect(verifyCapCertSignature(cap as never)).toBe(true);
++    expect((cap.exp as number) - (cap.nbf as number)).toBe(DUREE_D_UN_ACCES_SEC);
++    expect((cap.scope as { ops: string[] }).ops).toContain("write");
++  });
++
++  it("ne remint pas à chaque démarrage, et ne redépose qu'après trois jours", async () => {
++    const { reemettreLesAcces, REEMISSIONS_KEY } = await import("@/lib/renouvellement-automatique");
++    const session = await sessionProprietaire();
++    await reemettreLesAcces(session, ESPACE, BASE);
++    const premier = (kv.get(REEMISSIONS_KEY) as Record<string, { cap: { nonce: string } }>)[EMMA].cap.nonce;
++
++    expect(await reemettreLesAcces(session, ESPACE, BASE)).toBe(0);
++    expect(await reemettreLesAcces(session, ESPACE, BASE, Date.now() + 4 * JOUR * 1000)).toBe(1);
++    expect((kv.get(REEMISSIONS_KEY) as Record<string, { cap: { nonce: string } }>)[EMMA].cap.nonce).toBe(premier);
++  });
++
++  it("le membre retrouve le dépôt et adopte le nouvel accès, avec sa clé de lien", async () => {
++    const { reemettreLesAcces, adopterUnAccesReemis } = await import("@/lib/renouvellement-automatique");
++    await reemettreLesAcces(await sessionProprietaire(), ESPACE, BASE);
++
++    const membre = { userId: "emma" } as never;
++    expect(await adopterUnAccesReemis(membre, ESPACE, BASE, "Mariage")).toBe(true);
++
++    expect(mockJoin).toHaveBeenCalledTimes(1);
++    const [session, jeton] = mockJoin.mock.calls[0] as unknown as [unknown, Record<string, unknown>];
++    expect(session).toBe(membre);
++    expect(jeton).toMatchObject({ v: 1, spaceId: ESPACE, key: lienEmma.edPriv, kemPriv: lienEmma.kemPriv, kemPub: lienEmma.kemPub, write: true });
++    expect((jeton.cap as { exp: number }).exp).toBeGreaterThan(Math.floor(Date.now() / 1000) + 1000 * JOUR);
++    expect(mockVider).toHaveBeenCalled();
++  });
++
++  it("sans dépôt de réémission, rien n'est adopté", async () => {
++    const { adopterUnAccesReemis } = await import("@/lib/renouvellement-automatique");
++    expect(await adopterUnAccesReemis({ userId: "emma" } as never, ESPACE, BASE, "Mariage")).toBe(false);
++    expect(mockJoin).not.toHaveBeenCalled();
++  });
++
++  it("un dépôt planté par un tiers à l'adresse du sujet est écarté", async () => {
++    const { adopterUnAccesReemis } = await import("@/lib/renouvellement-automatique");
++    const { deriverLeDepot, chiffrerLeRenouvellement } = await import("@/lib/renouvellement-des-acces");
++    // Code et clé se recalculent depuis l'espace et le sujet : un tiers peut écrire là.
++    const intrus = generateDeviceKeys();
++    const contrefait = await mintMemberCap(
++      intrus.edPriv,
++      intrus.edPub,
++      sujetDe(lienEmma),
++      "content",
++      { ops: ["read", "write", "list"], collections: ["objdoc"], paths: [`spaces/${ESPACE}/**`] },
++      { ttlSec: 3 * 365 * JOUR },
++    );
++    const { code, cle } = await deriverLeDepot(ESPACE, EMMA);
++    depots.set(code, { hash: "h0", data: await chiffrerLeRenouvellement(contrefait, cle) });
++
++    expect(await adopterUnAccesReemis({ userId: "emma" } as never, ESPACE, BASE, "Mariage")).toBe(false);
++    expect(mockJoin).not.toHaveBeenCalled();
++  });
++
++  it("un accès loin de son terme ne cherche même pas de dépôt", async () => {
++    const { adopterUnAccesReemis } = await import("@/lib/renouvellement-automatique");
++    const cap = await mintMemberCap(
++      proprietaire.edPriv,
++      proprietaire.edPub,
++      sujetDe(lienEmma),
++      "content",
++      { ops: ["read", "list"], collections: ["objdoc"], paths: [`spaces/${ESPACE}/**`] },
++      { ttlSec: 90 * JOUR },
++    );
++    mockEntree = { kind: "link", cap, key: lienEmma.edPriv, write: false };
++    expect(await adopterUnAccesReemis({ userId: "emma" } as never, ESPACE, BASE, "Mariage")).toBe(false);
++    expect(lectures).toEqual([]);
++  });
++});
++
++describe("la demande de renouvellement", () => {
++  beforeEach(async () => {
++    vi.resetModules();
++    kv.clear();
++    depots.clear();
++    lectures.length = 0;
++    ecritures.length = 0;
++    for (const m of [mockJoin, mockVider, mockSauver, mockPersister, mockCoffre]) m.mockClear();
++    vi.stubGlobal("fetch", serveurDeDepot());
++    // Le propriétaire a perdu son magasin d'invitations ; Emma est encore membre, encore affectée.
++    mockMagasin = "{}";
++    mockMembres = [EMMA];
++    mockAffectations = [affecte(EMMA)];
++    mockEntree = { kind: "link", cap: await capExpire(), key: lienEmma.edPriv, kemPriv: lienEmma.kemPriv, kemPub: lienEmma.kemPub, write: true };
++  });
++
++  async function deposerUneDemande(cap: unknown) {
++    const { deriverLaDemande, chiffrerLaDemande } = await import("@/lib/renouvellement-des-acces");
++    const { code, cle } = await deriverLaDemande(ESPACE, EMMA);
++    depots.set(code, { hash: "h0", data: await chiffrerLaDemande(cap, cle) });
++    return code;
++  }
++
++  it("le membre sans réémission dépose une demande chiffrée qui ne porte que son cap", async () => {
++    const { adopterUnAccesReemis } = await import("@/lib/renouvellement-automatique");
++    const { deriverLaDemande } = await import("@/lib/renouvellement-des-acces");
++    const { dechiffrerLeDepot } = await import("@/lib/invitation-courte");
++
++    expect(await adopterUnAccesReemis({ userId: "emma" } as never, ESPACE, BASE, "Mariage")).toBe(false);
++
++    const { code, cle } = await deriverLaDemande(ESPACE, EMMA);
++    expect(ecritures).toEqual([code]);
++    const clair = await dechiffrerLeDepot(depots.get(code)!.data as never, cle);
++    expect(JSON.parse(clair)).toEqual({ v: 1, type: "demande-de-renouvellement", cap: (mockEntree as { cap: unknown }).cap });
++    expect(clair).not.toContain(lienEmma.edPriv);
++    expect(clair).not.toContain(lienEmma.kemPriv);
++  });
++
++  it("la demande n'est redéposée qu'après trois jours", async () => {
++    const { adopterUnAccesReemis } = await import("@/lib/renouvellement-automatique");
++    const membre = { userId: "emma" } as never;
++    await adopterUnAccesReemis(membre, ESPACE, BASE, "Mariage");
++    await adopterUnAccesReemis(membre, ESPACE, BASE, "Mariage", Date.now() + 2 * JOUR * 1000);
++    expect(ecritures).toHaveLength(1);
++    await adopterUnAccesReemis(membre, ESPACE, BASE, "Mariage", Date.now() + 3 * JOUR * 1000 + 1000);
++    expect(ecritures).toHaveLength(2);
++  });
++
++  it("le propriétaire lit la demande d'un sujet qu'il ne connaît plus, l'enregistre et réémet", async () => {
++    const { reemettreLesAcces } = await import("@/lib/renouvellement-automatique");
++    const { deriverLeDepot, dechiffrerLeRenouvellement } = await import("@/lib/renouvellement-des-acces");
++    const demande = await deposerUneDemande(await capExpire());
++
++    expect(await reemettreLesAcces(await sessionProprietaire(), ESPACE, BASE)).toBe(1);
++
++    expect(mockSauver).toHaveBeenCalledWith(ESPACE, EMMA, expect.objectContaining({ edPub: lienEmma.edPub, kemPub: lienEmma.kemPub }));
++    expect(mockPersister).toHaveBeenCalled();
++    expect(mockCoffre).toHaveBeenCalled();
++    const { code, cle } = await deriverLeDepot(ESPACE, EMMA);
++    const cap = (await dechiffrerLeRenouvellement(depots.get(code)!.data as never, cle)) as Record<string, unknown>;
++    expect(cap).toMatchObject({ iss: proprietaire.edPub, sub: lienEmma.edPub, subKem: lienEmma.kemPub, subUserId: EMMA });
++    expect(verifyCapCertSignature(cap as never)).toBe(true);
++
++    // Désormais connu : sa demande n'est plus relue.
++    lectures.length = 0;
++    await reemettreLesAcces(await sessionProprietaire(), ESPACE, BASE);
++    expect(lectures).not.toContain(demande);
++  });
++
++  it("une demande signée par une autre clé est écartée", async () => {
++    const { reemettreLesAcces } = await import("@/lib/renouvellement-automatique");
++    const intrus = generateDeviceKeys();
++    await deposerUneDemande(
++      await mintMemberCap(intrus.edPriv, intrus.edPub, sujetDe(lienEmma), "content",
++        { ops: ["read", "write", "list"], collections: ["objdoc"], paths: [`spaces/${ESPACE}/**`] }, { ttlSec: 30 * JOUR }),
++    );
++    expect(await reemettreLesAcces(await sessionProprietaire(), ESPACE, BASE)).toBe(0);
++    expect(mockSauver).not.toHaveBeenCalled();
++    expect(ecritures).toEqual([]);
++  });
++
++  it("une demande dont la portée vise un autre espace est écartée", async () => {
++    const { reemettreLesAcces } = await import("@/lib/renouvellement-automatique");
++    await deposerUneDemande(
++      await mintMemberCap(proprietaire.edPriv, proprietaire.edPub, sujetDe(lienEmma), "content",
++        { ops: ["read", "write", "list"], collections: ["objdoc"], paths: ["spaces/sp-autre/**"] }, { ttlSec: 30 * JOUR }),
++    );
++    expect(await reemettreLesAcces(await sessionProprietaire(), ESPACE, BASE)).toBe(0);
++    expect(ecritures).toEqual([]);
++  });
++
++  it("un sujet retiré de `_access`, ou sans affectation, n'est même pas interrogé", async () => {
++    const { reemettreLesAcces } = await import("@/lib/renouvellement-automatique");
++    const demande = await deposerUneDemande(await capExpire());
++
++    mockMembres = [];
++    expect(await reemettreLesAcces(await sessionProprietaire(), ESPACE, BASE)).toBe(0);
++    mockMembres = [EMMA];
++    mockAffectations = [];
++    expect(await reemettreLesAcces(await sessionProprietaire(), ESPACE, BASE)).toBe(0);
++
++    expect(lectures).not.toContain(demande);
++    expect(ecritures).toEqual([]);
++    expect(mockSauver).not.toHaveBeenCalled();
++  });
++
++  it("aller-retour : le membre demande, le propriétaire réémet, le membre adopte — sans nouveau lien", async () => {
++    const { adopterUnAccesReemis, reemettreLesAcces } = await import("@/lib/renouvellement-automatique");
++    const membre = { userId: "emma" } as never;
++
++    expect(await adopterUnAccesReemis(membre, ESPACE, BASE, "Mariage")).toBe(false);
++    expect(await reemettreLesAcces(await sessionProprietaire(), ESPACE, BASE)).toBe(1);
++    expect(await adopterUnAccesReemis(membre, ESPACE, BASE, "Mariage")).toBe(true);
++
++    const [, jeton] = mockJoin.mock.calls[0] as unknown as [unknown, Record<string, unknown>];
++    expect(jeton).toMatchObject({ spaceId: ESPACE, key: lienEmma.edPriv, kemPriv: lienEmma.kemPriv, kemPub: lienEmma.kemPub, write: true });
++    expect(jeton.cap).toMatchObject({ sub: lienEmma.edPub, subUserId: EMMA });
++    expect((jeton.cap as { exp: number }).exp).toBeGreaterThan(Math.floor(Date.now() / 1000) + 1000 * JOUR);
++  });
++});
+diff --git a/apps/mobile/__tests__/renouvellement-des-acces.test.ts b/apps/mobile/__tests__/renouvellement-des-acces.test.ts
+new file mode 100644
+index 0000000..dd1d6af
+--- /dev/null
++++ b/apps/mobile/__tests__/renouvellement-des-acces.test.ts
+@@ -0,0 +1,381 @@
++/**
++ * Le renouvellement des accès, sans réseau : dérivation du dépôt, chiffrement,
++ * validation du cap déposé, et décision du propriétaire.
++ */
++import { describe, expect, it } from "vitest";
++import { generateDeviceKeys } from "@drakkar.software/starfish-identities";
++import { mintMemberCap } from "@drakkar.software/starfish-sharing";
++import { userIdFromPubHex } from "@drakkar.software/starfish-protocol";
++import type { PermissionAssignment, RoleDefinition } from "@fiance/sdk";
++
++import {
++  DUREE_D_UN_ACCES_SEC,
++  capDeRenouvellementValide,
++  capPermetLEcriture,
++  chiffrerLaDemande,
++  chiffrerLeRenouvellement,
++  deballerLaDemande,
++  deballerLeRenouvellement,
++  dechiffrerLaDemande,
++  dechiffrerLeRenouvellement,
++  demandeARedeposer,
++  deriverLaDemande,
++  deriverLeDepot,
++  emballerLaDemande,
++  expireBientot,
++  lireLeCap,
++  nonceDuCap,
++  planDeReemission,
++  sujetDeLaDemande,
++  sujetDuCap,
++  sujetsADemander,
++  sujetsDuMagasin,
++  type ReemissionConnue,
++  type SujetDeLien,
++} from "@/lib/renouvellement-des-acces";
++import { decoderBase64Url, emballerLInvitation } from "@/lib/invitation-courte";
++
++const JOUR = 24 * 3600;
++const ESPACE = "sp-f88da0e30ce94f4dabcc6d050103e931";
++const proprietaire = generateDeviceKeys();
++const intrus = generateDeviceKeys();
++const lien = generateDeviceKeys();
++const autreLien = generateDeviceKeys();
++type Cles = ReturnType<typeof generateDeviceKeys>;
++
++const sujet = (k: Cles) => ({ edPubHex: k.edPub, kemPubHex: k.kemPub, userIdHex: userIdFromPubHex(k.edPub) });
++
++function minter(o: {
++  iss?: Cles;
++  sub?: Cles;
++  espace?: string;
++  ecrire?: boolean;
++  collection?: string;
++  nbf?: number;
++  ttlSec?: number;
++  expiresAt?: number;
++} = {}): Promise<Record<string, unknown>> {
++  const iss = o.iss ?? proprietaire;
++  return mintMemberCap(
++    iss.edPriv,
++    iss.edPub,
++    sujet(o.sub ?? lien),
++    o.collection ?? "content",
++    {
++      ops: o.ecrire === false ? ["read", "list"] : ["read", "write", "list"],
++      collections: ["objdoc"],
++      paths: [`spaces/${o.espace ?? ESPACE}/**`],
++    },
++    { nbf: o.nbf, ttlSec: o.ttlSec, expiresAt: o.expiresAt },
++  ) as Promise<Record<string, unknown>>;
++}
++
++const maintenant = () => Math.floor(Date.now() / 1000);
++/** Un cap de lien de 30 jours, expiré depuis dix jours. */
++const ancienExpire = () => minter({ nbf: maintenant() - 40 * JOUR, ttlSec: 30 * JOUR });
++
++describe("le dépôt de renouvellement", () => {
++  it("code et clé sont stables, et propres à l'espace et au sujet", async () => {
++    const a = await deriverLeDepot(ESPACE, "sujet-1");
++    expect(await deriverLeDepot(ESPACE, "sujet-1")).toEqual(a);
++    const autreSujet = await deriverLeDepot(ESPACE, "sujet-2");
++    const autreEspace = await deriverLeDepot("sp-autre", "sujet-1");
++    expect(autreSujet.code).not.toBe(a.code);
++    expect(autreSujet.cle).not.toBe(a.cle);
++    expect(autreEspace.code).not.toBe(a.code);
++    expect(autreEspace.cle).not.toBe(a.cle);
++  });
++
++  it("le code est accepté par le serveur et ne peut pas croiser un code de lien court", async () => {
++    const { code, cle } = await deriverLeDepot(ESPACE, "sujet-1");
++    expect(code).toMatch(/^RN[0-9A-HJKMNP-TV-Z]{24}$/);
++    expect(code).toMatch(/^[a-zA-Z0-9._:@-]+$/);
++    expect(code).toHaveLength(26);
++    expect(decoderBase64Url(cle)).toHaveLength(32);
++    expect(code).not.toContain(cle.slice(0, 8));
++  });
++
++  it("aller-retour chiffré : le cap revient tel quel", async () => {
++    const cap = await minter({ ttlSec: DUREE_D_UN_ACCES_SEC });
++    const { cle } = await deriverLeDepot(ESPACE, "sujet-1");
++    const depot = await chiffrerLeRenouvellement(cap, cle);
++    expect(JSON.stringify(depot)).not.toContain(String(cap.nonce));
++    expect(await dechiffrerLeRenouvellement(depot, cle)).toEqual(cap);
++  });
++
++  it("un dépôt ne s'ouvre pas sous la clé d'un autre sujet, ni altéré", async () => {
++    const cap = await minter();
++    const { cle } = await deriverLeDepot(ESPACE, "sujet-1");
++    const { cle: autre } = await deriverLeDepot(ESPACE, "sujet-2");
++    const depot = await chiffrerLeRenouvellement(cap, cle);
++    expect(await dechiffrerLeRenouvellement(depot, autre)).toBeNull();
++    const altere = { ...depot, ct: depot.ct.slice(0, -4) + (depot.ct.endsWith("AAAA") ? "BBBB" : "AAAA") };
++    expect(await dechiffrerLeRenouvellement(altere, cle)).toBeNull();
++  });
++
++  it("seul un clair de renouvellement se déballe", () => {
++    expect(deballerLeRenouvellement(emballerLInvitation({ jeton: "abc" }))).toBeNull();
++    expect(deballerLeRenouvellement("pas du json")).toBeNull();
++    expect(deballerLeRenouvellement(JSON.stringify({ v: 2, type: "renouvellement", cap: {} }))).toBeNull();
++    expect(deballerLeRenouvellement(JSON.stringify({ v: 1, type: "renouvellement", cap: { a: 1 } }))).toEqual({ a: 1 });
++  });
++});
++
++describe("le cap déposé", () => {
++  it("même émetteur, même sujet, même espace, plus lointain : accepté", async () => {
++    const ancien = await ancienExpire();
++    const nouveau = await minter({ ttlSec: DUREE_D_UN_ACCES_SEC });
++    expect(capDeRenouvellementValide(ancien, nouveau, ESPACE, maintenant())).toBe(true);
++  });
++
++  it("un cap pour un autre sujet est refusé", async () => {
++    const ancien = await ancienExpire();
++    expect(capDeRenouvellementValide(ancien, await minter({ sub: autreLien, ttlSec: DUREE_D_UN_ACCES_SEC }), ESPACE, maintenant())).toBe(false);
++  });
++
++  it("un cap signé par un autre que le propriétaire est refusé", async () => {
++    const ancien = await ancienExpire();
++    expect(capDeRenouvellementValide(ancien, await minter({ iss: intrus, ttlSec: DUREE_D_UN_ACCES_SEC }), ESPACE, maintenant())).toBe(false);
++  });
++
++  it("un cap sur un autre espace est refusé", async () => {
++    const ancien = await ancienExpire();
++    expect(
++      capDeRenouvellementValide(ancien, await minter({ espace: "sp-autre", ttlSec: DUREE_D_UN_ACCES_SEC }), ESPACE, maintenant()),
++    ).toBe(false);
++  });
++
++  it("une signature fausse est refusée", async () => {
++    const ancien = await ancienExpire();
++    const nouveau = await minter({ ttlSec: DUREE_D_UN_ACCES_SEC });
++    expect(capDeRenouvellementValide(ancien, { ...nouveau, exp: (nouveau.exp as number) + 1 }, ESPACE, maintenant())).toBe(false);
++    expect(capDeRenouvellementValide(ancien, { ...nouveau, subKem: autreLien.kemPub }, ESPACE, maintenant())).toBe(false);
++  });
++
++  it("une échéance qui n'est pas plus lointaine, ou déjà passée, est refusée", async () => {
++    const ancien = await minter({ ttlSec: 30 * JOUR });
++    expect(capDeRenouvellementValide(ancien, await minter({ expiresAt: ancien.exp as number }), ESPACE, maintenant())).toBe(false);
++    const expire = await ancienExpire();
++    const aussiExpire = await minter({ nbf: maintenant() - 20 * JOUR, ttlSec: 15 * JOUR });
++    expect(capDeRenouvellementValide(expire, aussiExpire, ESPACE, maintenant())).toBe(false);
++  });
++
++  it("un cap pas encore valide, ou d'une autre collection, est refusé", async () => {
++    const ancien = await ancienExpire();
++    expect(capDeRenouvellementValide(ancien, await minter({ nbf: maintenant() + JOUR, ttlSec: DUREE_D_UN_ACCES_SEC }), ESPACE, maintenant())).toBe(false);
++    expect(
++      capDeRenouvellementValide(ancien, await minter({ collection: "objinv", ttlSec: DUREE_D_UN_ACCES_SEC }), ESPACE, maintenant()),
++    ).toBe(false);
++  });
++
++  it("n'importe quoi d'autre est refusé", async () => {
++    const ancien = await ancienExpire();
++    expect(capDeRenouvellementValide(ancien, null, ESPACE, maintenant())).toBe(false);
++    expect(capDeRenouvellementValide(ancien, "{", ESPACE, maintenant())).toBe(false);
++    expect(capDeRenouvellementValide(ancien, { ...ancien, kind: "device" }, ESPACE, maintenant())).toBe(false);
++  });
++
++  it("lit le cap, objet ou JSON, et ce qu'il accorde", async () => {
++    const cap = await minter({ ecrire: false, ttlSec: 10 * JOUR });
++    expect(lireLeCap(JSON.stringify(cap))).toEqual(cap);
++    expect(nonceDuCap(JSON.stringify(cap))).toBe(cap.nonce);
++    expect(sujetDuCap(cap)).toBe(userIdFromPubHex(lien.edPub));
++    expect(capPermetLEcriture(cap)).toBe(false);
++    expect(capPermetLEcriture(await minter())).toBe(true);
++    expect(expireBientot(cap, maintenant(), 30 * JOUR)).toBe(true);
++    expect(expireBientot(cap, maintenant(), 5 * JOUR)).toBe(false);
++    expect(expireBientot({}, maintenant(), 30 * JOUR)).toBe(false);
++  });
++
++  it("un lien émis par l'app vaut trois ans", async () => {
++    const cap = await minter({ ttlSec: DUREE_D_UN_ACCES_SEC });
++    expect((cap.exp as number) - (cap.nbf as number)).toBe(3 * 365 * JOUR);
++  });
++});
++
++describe("le magasin d'invitations", () => {
++  it("rend les sujets de cet espace, avec l'échéance de leur lien", () => {
++    const brut = JSON.stringify({
++      [`${ESPACE}:sujet-1`]: { edPub: "ed1", kemPub: "kem1", cap: { nonce: "n1", exp: 123 } },
++      [`${ESPACE}:sujet-2`]: { edPub: "ed2", kemPub: "kem2" },
++      [`sp-autre:sujet-3`]: { edPub: "ed3", kemPub: "kem3", cap: { nonce: "n3", exp: 1 } },
++      [`${ESPACE}:sujet-4`]: { edPub: 4 },
++    });
++    expect(sujetsDuMagasin(brut, ESPACE)).toEqual([
++      { subUserId: "sujet-1", edPub: "ed1", kemPub: "kem1", exp: 123 },
++      { subUserId: "sujet-2", edPub: "ed2", kemPub: "kem2", exp: null },
++    ]);
++    expect(sujetsDuMagasin("{", ESPACE)).toEqual([]);
++    expect(sujetsDuMagasin(null, ESPACE)).toEqual([]);
++  });
++});
++
++describe("ce que le propriétaire réémet", () => {
++  const MAINTENANT_MS = 1_800_000_000_000;
++  const MAINTENANT = MAINTENANT_MS / 1000;
++  const role = (id: string, edit: boolean): RoleDefinition => ({
++    id,
++    name: id,
++    isSystem: false,
++    tier: edit ? "app-cosmetic" : "app-readonly",
++    matrix: { guests: edit ? "edit" : "view" },
++    createdAt: null,
++    updatedAt: null,
++  });
++  const ROLES = [role("r-edit", true), role("r-vue", false)];
++  const affecte = (subjectUserId: string, roleId: string): PermissionAssignment => ({
++    id: `a-${subjectUserId}`,
++    subjectUserId,
++    roleId,
++    label: null,
++    createdAt: null,
++    updatedAt: null,
++  });
++  const s = (subUserId: string, exp: number | null): SujetDeLien => ({ subUserId, edPub: `ed-${subUserId}`, kemPub: `kem-${subUserId}`, exp });
++  const plan = (o: {
++    sujets: SujetDeLien[];
++    membres?: string[];
++    affectations?: PermissionAssignment[];
++    connues?: Record<string, ReemissionConnue>;
++  }) =>
++    planDeReemission({
++      sujets: o.sujets,
++      membres: o.membres ?? o.sujets.map((x) => x.subUserId),
++      affectations: o.affectations ?? o.sujets.map((x) => affecte(x.subUserId, "r-edit")),
++      roles: ROLES,
++      connues: o.connues ?? {},
++      maintenantMs: MAINTENANT_MS,
++    });
++
++  it("un membre retiré de `_access` n'est jamais réémis", () => {
++    expect(plan({ sujets: [s("u1", MAINTENANT - JOUR)], membres: [] })).toEqual([]);
++  });
++
++  it("un sujet sans affectation, ou au rôle supprimé, n'est jamais réémis", () => {
++    expect(plan({ sujets: [s("u1", MAINTENANT - JOUR)], affectations: [] })).toEqual([]);
++    expect(plan({ sujets: [s("u1", MAINTENANT - JOUR)], affectations: [affecte("u1", "r-disparu")] })).toEqual([]);
++  });
++
++  it("un accès loin de son échéance n'est pas touché", () => {
++    expect(plan({ sujets: [s("u1", MAINTENANT + 90 * JOUR)] })).toEqual([]);
++  });
++
++  it("expiré, à moins de 60 jours, ou d'échéance inconnue : réémis, avec le droit d'écrire de son rôle", () => {
++    const decisions = plan({
++      sujets: [s("u1", MAINTENANT - JOUR), s("u2", MAINTENANT + 59 * JOUR), s("u3", null)],
++      affectations: [affecte("u1", "r-edit"), affecte("u2", "r-vue"), affecte("u3", "r-edit")],
++    });
++    expect(decisions.map((d) => [d.sujet.subUserId, d.reemettre, d.peutEcrire])).toEqual([
++      ["u1", true, true],
++      ["u2", true, false],
++      ["u3", true, true],
++    ]);
++  });
++
++  it("déjà réémis : redéposé seulement après trois jours, sans reminter", () => {
++    const connue = (deposeIlYA: number): Record<string, ReemissionConnue> => ({
++      u1: { cap: {}, exp: MAINTENANT + 1000 * JOUR, deposeLe: MAINTENANT_MS - deposeIlYA * 1000 },
++    });
++    expect(plan({ sujets: [s("u1", MAINTENANT - JOUR)], connues: connue(2 * JOUR) })).toEqual([]);
++    expect(plan({ sujets: [s("u1", MAINTENANT - JOUR)], connues: connue(3 * JOUR) }).map((d) => d.reemettre)).toEqual([false]);
++  });
++
++  it("un cap réémis qui approche lui-même de son terme est réémis à son tour", () => {
++    const connues = { u1: { cap: {}, exp: MAINTENANT + 30 * JOUR, deposeLe: MAINTENANT_MS } };
++    expect(plan({ sujets: [s("u1", MAINTENANT - JOUR)], connues }).map((d) => d.reemettre)).toEqual([true]);
++  });
++});
++
++describe("la demande de renouvellement (le membre se fait connaître)", () => {
++  const SUJET = userIdFromPubHex(lien.edPub);
++  const attendu = { spaceId: ESPACE, subUserId: SUJET, issEdPub: proprietaire.edPub };
++
++  it("code et clé distincts de ceux de la réémission, pour le même sujet", async () => {
++    const reemission = await deriverLeDepot(ESPACE, SUJET);
++    const demande = await deriverLaDemande(ESPACE, SUJET);
++    expect(demande.code).toMatch(/^RQ[0-9A-HJKMNP-TV-Z]{24}$/);
++    expect(reemission.code).toMatch(/^RN/);
++    expect(demande.code.slice(2)).not.toBe(reemission.code.slice(2));
++    expect(demande.cle).not.toBe(reemission.cle);
++    expect(await deriverLaDemande(ESPACE, SUJET)).toEqual(demande);
++  });
++
++  it("une demande ne s'ouvre ni sous la clé de la réémission, ni comme une réémission", async () => {
++    const cap = await ancienExpire();
++    const demande = await deriverLaDemande(ESPACE, SUJET);
++    const reemission = await deriverLeDepot(ESPACE, SUJET);
++    const depot = await chiffrerLaDemande(cap, demande.cle);
++    expect(await dechiffrerLaDemande(depot, demande.cle)).toEqual(cap);
++    expect(await dechiffrerLaDemande(depot, reemission.cle)).toBeNull();
++    expect(await dechiffrerLeRenouvellement(depot, demande.cle)).toBeNull();
++    expect(await dechiffrerLaDemande(await chiffrerLeRenouvellement(cap, demande.cle), demande.cle)).toBeNull();
++  });
++
++  it("le clair ne porte que le cap : jamais `key` ni `kemPriv`", async () => {
++    const cap = await ancienExpire();
++    const clair = emballerLaDemande(cap);
++    expect(Object.keys(JSON.parse(clair))).toEqual(["v", "type", "cap"]);
++    expect(JSON.parse(clair).type).toBe("demande-de-renouvellement");
++    expect(clair).not.toContain(lien.edPriv);
++    expect(clair).not.toContain(lien.kemPriv);
++    expect(deballerLaDemande(clair)).toEqual(cap);
++    expect(deballerLaDemande(JSON.stringify({ v: 1, type: "renouvellement", cap }))).toBeNull();
++  });
++
++  it("acceptée : le cap, même expiré, signé par le propriétaire pour ce sujet et cet espace", async () => {
++    const cap = await ancienExpire();
++    expect(sujetDeLaDemande(cap, attendu)).toEqual({ subUserId: SUJET, edPub: lien.edPub, kemPub: lien.kemPub, exp: cap.exp });
++    expect(sujetDeLaDemande(JSON.stringify(cap), attendu)).not.toBeNull();
++  });
++
++  it("refusée si signée par une autre clé que celle du propriétaire courant", async () => {
++    expect(sujetDeLaDemande(await minter({ iss: intrus }), attendu)).toBeNull();
++    expect(sujetDeLaDemande(await minter(), { ...attendu, issEdPub: intrus.edPub })).toBeNull();
++  });
++
++  it("refusée si la signature est fausse", async () => {
++    const cap = await ancienExpire();
++    expect(sujetDeLaDemande({ ...cap, subKem: autreLien.kemPub }, attendu)).toBeNull();
++    expect(sujetDeLaDemande({ ...cap, exp: (cap.exp as number) + 1 }, attendu)).toBeNull();
++  });
++
++  it("refusée pour un autre sujet, un autre espace, une autre collection, un autre genre de cap", async () => {
++    expect(sujetDeLaDemande(await minter({ sub: autreLien }), attendu)).toBeNull();
++    expect(sujetDeLaDemande(await minter({ espace: "sp-autre" }), attendu)).toBeNull();
++    expect(sujetDeLaDemande(await minter(), { ...attendu, spaceId: "sp-autre" })).toBeNull();
++    expect(sujetDeLaDemande(await minter({ collection: "objinv" }), attendu)).toBeNull();
++    expect(sujetDeLaDemande({ ...(await minter()), kind: "device" }, attendu)).toBeNull();
++    expect(sujetDeLaDemande(null, attendu)).toBeNull();
++  });
++
++  it("redéposée si jamais déposée, ou déposée il y a trois jours ou plus", () => {
++    const T = 1_800_000_000_000;
++    expect(demandeARedeposer(undefined, T)).toBe(true);
++    expect(demandeARedeposer(T - 2 * JOUR * 1000, T)).toBe(false);
++    expect(demandeARedeposer(T - 3 * JOUR * 1000, T)).toBe(true);
++  });
++});
++
++describe("les sujets que le propriétaire interroge", () => {
++  const role: RoleDefinition = {
++    id: "r", name: "r", isSystem: false, tier: "app-cosmetic", matrix: { guests: "edit" }, createdAt: null, updatedAt: null,
++  };
++  const affecte = (subjectUserId: string, roleId = "r"): PermissionAssignment => ({
++    id: `a-${subjectUserId}`, subjectUserId, roleId, label: null, createdAt: null, updatedAt: null,
++  });
++
++  it("membres de `_access`, affectés à un rôle qui existe, et inconnus du magasin local", () => {
++    expect(
++      sujetsADemander({
++        membres: ["connu", "affecte", "sans-affectation", "role-disparu", "affecte"],
++        affectations: [affecte("connu"), affecte("affecte"), affecte("role-disparu", "x"), affecte("hors-access")],
++        roles: [role],
++        connus: ["connu"],
++      }),
++    ).toEqual(["affecte"]);
++  });
++
++  it("personne à interroger sans membre", () => {
++    expect(sujetsADemander({ membres: [], affectations: [affecte("u")], roles: [role], connus: [] })).toEqual([]);
++  });
++});
+diff --git a/apps/mobile/__tests__/renouvellement-par-lien.test.ts b/apps/mobile/__tests__/renouvellement-par-lien.test.ts
+new file mode 100644
+index 0000000..353b705
+--- /dev/null
++++ b/apps/mobile/__tests__/renouvellement-par-lien.test.ts
+@@ -0,0 +1,115 @@
++/**
++ * Un lien neuf ouvert sur un appareil qui a déjà le mariage : l'appareil adopte
++ * l'accès du lien sous son identité existante, et relance sa synchronisation.
++ */
++import { beforeEach, describe, expect, it, vi } from "vitest";
++
++const mockAdopter = vi.fn(async () => {});
++const mockClearActivation = vi.fn();
++const mockRelancer = vi.fn();
++const mockPlanifier = vi.fn();
++const mockResoudre = vi.fn(async () => {});
++const SESSION = { userId: "emma-existante" };
++let mockEntreeDAcces: unknown = null;
++
++vi.mock("@fiance/sdk", async (importOriginal) => ({
++  ...(await importOriginal<Record<string, unknown>>()),
++  getSpaceAccessEntry: () => mockEntreeDAcces,
++  joinSpaceByLink: vi.fn(),
++}));
++vi.mock("@/lib/identity", () => ({ generatePassphrase: vi.fn(), deriveSessionFromPhrase: vi.fn() }));
++vi.mock("@/lib/server", () => ({
++  resolveServerUrl: () => "https://mariage.example/sync",
++  resolveSessionConfig: vi.fn(async (entree: { seedPhrase?: string }) =>
++    entree.seedPhrase ? { session: SESSION, serverUrl: "https://mariage.example/sync", userId: SESSION.userId } : null,
++  ),
++}));
++vi.mock("@/lib/permissions/resolve", () => ({ resolveActiveMemberPermissions: () => mockResoudre() }));
++vi.mock("@/lib/compte-session", () => ({ planifierLeCoffre: () => mockPlanifier() }));
++vi.mock("@/lib/renouvellement-automatique", () => ({ adopterLeJeton: (...a: unknown[]) => mockAdopter(...(a as [])) }));
++vi.mock("@/lib/providers", () => ({ clearActivation: (id: string) => mockClearActivation(id) }));
++vi.mock("@/store/useCompteStore", () => ({ useCompteStore: { getState: () => ({ relancer: mockRelancer }) } }));
++
++type Entree = { id: string; spaceId?: string; role?: string; seedPhrase?: string; inviteSubjectId?: string; roleId?: string; permissions?: unknown };
++let registre: { activeWeddingId: string | null; weddings: Entree[] };
++const mockSwitch = vi.fn(async (id: string) => { registre = { ...registre, activeWeddingId: id }; });
++const mockUpdate = vi.fn(async (id: string, maj: Partial<Entree>) => {
++  registre = { ...registre, weddings: registre.weddings.map((w) => (w.id === id ? { ...w, ...maj } : w)) };
++});
++vi.mock("@/store/useWeddingRegistryStore", () => ({
++  useWeddingRegistryStore: {
++    getState: () => ({ registry: registre, switchWedding: mockSwitch, updateWedding: mockUpdate, createWedding: vi.fn() }),
++  },
++}));
++
++const jeton = (nonce: string, subUserId: string) => ({
++  v: 1 as const,
++  spaceId: "sp-1",
++  spaceName: "Mariage",
++  cap: { kind: "member", nonce, subUserId, exp: 9_999_999_999 },
++  key: "cle",
++  write: true,
++});
++
++describe("renouvellement de l'accès par un lien neuf", () => {
++  beforeEach(async () => {
++    vi.resetModules();
++    for (const m of [mockAdopter, mockClearActivation, mockRelancer, mockPlanifier, mockResoudre, mockSwitch, mockUpdate]) m.mockClear();
++    mockEntreeDAcces = { kind: "link", cap: { nonce: "ancien", subUserId: "sujet-ancien" } };
++    registre = {
++      activeWeddingId: "w-emma",
++      weddings: [{
++        id: "w-emma", spaceId: "sp-1", role: "member", seedPhrase: "phrase existante",
++        inviteSubjectId: "sujet-ancien", roleId: "r-ancien", permissions: { guests: "view" },
++      }],
++    };
++  });
++
++  it("adopte le lien sous l'identité existante, puis relance la sync du mariage actif", async () => {
++    const { renouvelerLAccesParLien } = await import("@/lib/join-space");
++    const { useAccesRefuseStore } = await import("@/store/useAccesRefuseStore");
++    useAccesRefuseStore.getState().signaler("sp-1", 401);
++
++    await renouvelerLAccesParLien(jeton("neuf", "sujet-neuf") as never);
++
++    expect(mockAdopter).toHaveBeenCalledWith(SESSION, expect.objectContaining({ spaceId: "sp-1" }));
++    expect(registre.weddings[0]).toMatchObject({ seedPhrase: "phrase existante", inviteSubjectId: "sujet-neuf" });
++    expect(registre.weddings[0].roleId).toBeUndefined();
++    expect(registre.weddings[0].permissions).toBeUndefined();
++    expect(useAccesRefuseStore.getState().refus).toBeNull();
++    expect(mockClearActivation).toHaveBeenCalledWith("w-emma");
++    expect(mockRelancer).toHaveBeenCalledTimes(1);
++    expect(mockSwitch).not.toHaveBeenCalled();
++    expect(mockPlanifier).toHaveBeenCalled();
++  });
++
++  it("un mariage qui n'est pas l'actif : on bascule dessus au lieu de relancer", async () => {
++    registre.activeWeddingId = "w-autre";
++    registre.weddings.push({ id: "w-autre", spaceId: "sp-2", role: "owner", seedPhrase: "x" });
++    const { renouvelerLAccesParLien } = await import("@/lib/join-space");
++
++    await renouvelerLAccesParLien(jeton("neuf", "sujet-neuf") as never);
++
++    expect(mockSwitch).toHaveBeenCalledWith("w-emma");
++    expect(mockRelancer).not.toHaveBeenCalled();
++  });
++
++  it("sans identité enregistrée pour ce mariage, l'erreur remonte et rien n'est adopté", async () => {
++    registre.weddings[0].seedPhrase = undefined;
++    const { renouvelerLAccesParLien } = await import("@/lib/join-space");
++
++    await expect(renouvelerLAccesParLien(jeton("neuf", "sujet-neuf") as never)).rejects.toThrow(/identité/);
++    expect(mockAdopter).not.toHaveBeenCalled();
++  });
++
++  it("joinWeddingByToken : un lien neuf renouvelle, le même lien ne fait que basculer", async () => {
++    const { joinWeddingByToken } = await import("@/lib/join-space");
++
++    await joinWeddingByToken(jeton("ancien", "sujet-ancien") as never);
++    expect(mockAdopter).not.toHaveBeenCalled();
++    expect(mockSwitch).toHaveBeenCalledWith("w-emma");
++
++    await joinWeddingByToken(jeton("neuf", "sujet-neuf") as never);
++    expect(mockAdopter).toHaveBeenCalledTimes(1);
++  });
++});
+diff --git a/apps/mobile/components/BandeauAccesRefuse.tsx b/apps/mobile/components/BandeauAccesRefuse.tsx
+new file mode 100644
+index 0000000..8a08abd
+--- /dev/null
++++ b/apps/mobile/components/BandeauAccesRefuse.tsx
+@@ -0,0 +1,47 @@
++import React from "react";
++import { View, Text } from "react-native-css/components";
++import { useTranslation } from "react-i18next";
++import { AlertTriangle } from "lucide-react-native";
++
++import { theme as GP } from "@/lib/theme";
++import { useAccesRefuseStore } from "@/store/useAccesRefuseStore";
++import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
++
++/**
++ * MODIFICATION LOCALE — le serveur refuse de laisser lire ce mariage à cet appareil.
++ *
++ * Sans lui, un accès expiré se présentait comme un mariage vide. Distinct de la
++ * lecture seule (écriture refusée) et du contenu illisible (époque hors de portée).
++ */
++export function BandeauAccesRefuse({ className }: { className?: string }) {
++  const { t } = useTranslation("common");
++  const refus = useAccesRefuseStore((s) => s.refus);
++  const actif = useWeddingRegistryStore((s) => {
++    const r = s.registry;
++    return r?.weddings.find((w) => w.id === r.activeWeddingId) ?? null;
++  });
++
++  if (!refus || actif?.role !== "member" || actif.spaceId !== refus.spaceId) return null;
++
++  return (
++    <View
++      testID="bandeau-acces-expire"
++      accessibilityRole="alert"
++      className={`rounded-2xl px-4 py-3 border flex-row items-center ${className ?? ""}`}
++      style={{ backgroundColor: GP.mustardSoft, borderColor: `${GP.mustard}33` }}
++    >
++      <View className="w-10 h-10 rounded-xl items-center justify-center mr-3" style={{ backgroundColor: `${GP.mustard}1f` }}>
++        <AlertTriangle size={20} color={GP.mustard} />
++      </View>
++      {/* 401 : cap expiré, renouvelable. 403 : retiré du registre, rien ne sera réémis. */}
++      <View className="flex-1">
++        <Text className="text-sm font-semibold text-ink">
++          {t(refus.statut === 403 ? "accesRefuse.titreInvalide" : "accesRefuse.titre")}
++        </Text>
++        <Text className="text-xs text-mute mt-0.5">
++          {t(refus.statut === 403 ? "accesRefuse.detailInvalide" : "accesRefuse.detail")}
++        </Text>
++      </View>
++    </View>
++  );
++}
+diff --git a/apps/mobile/components/invitation/AccesRenouvele.tsx b/apps/mobile/components/invitation/AccesRenouvele.tsx
+new file mode 100644
+index 0000000..20c6c84
+--- /dev/null
++++ b/apps/mobile/components/invitation/AccesRenouvele.tsx
+@@ -0,0 +1,39 @@
++import React from "react";
++import { View } from "react-native-css/components";
++import { useTranslation } from "react-i18next";
++import { ArrowRight, CheckCircle2 } from "lucide-react-native";
++
++import { Seo } from "@/components/Seo";
++import { PageHeader } from "@/components/PageHeader";
++import { Bouton } from "@/components/compte/Bouton";
++import { theme as GP } from "@/lib/theme";
++
++/** MODIFICATION LOCALE — l'issue d'un renouvellement d'accès, dite avant de rejoindre le mariage. */
++export function AccesRenouvele({ weddingName, onContinuer }: { weddingName?: string; onContinuer: () => void }) {
++  const { t } = useTranslation("common");
++  return (
++    <View className="flex-1 bg-accent-paper justify-center px-6" testID="acces-renouvele">
++      <Seo title="Fiancé" description="" noindex />
++      <View style={{ width: "100%", maxWidth: 480, alignSelf: "center" }}>
++        <View className="items-center mb-10">
++          <View className="w-20 h-20 rounded-full bg-primary-50 dark:bg-primary-900 items-center justify-center mb-5">
++            <CheckCircle2 size={36} color={GP.clay} />
++          </View>
++          <PageHeader
++            eyebrow={t("join.inviteEyebrow")}
++            title={t("join.accesRenouvele")}
++            tagline={weddingName ? t("join.accesRenouveleDetail", { name: weddingName }) : t("join.accesRenouveleDetailSansNom")}
++            titleSize={24}
++            style={{ paddingHorizontal: 0, paddingTop: 0 }}
++          />
++        </View>
++        <Bouton
++          libelle={t("join.allerAuMariage")}
++          icone={<ArrowRight size={20} color="#fff" />}
++          onPress={onContinuer}
++          testID="acces-renouvele-continuer"
++        />
++      </View>
++    </View>
++  );
++}
+diff --git a/apps/mobile/lib/acces-refuse.ts b/apps/mobile/lib/acces-refuse.ts
+new file mode 100644
+index 0000000..e86b1ca
+--- /dev/null
++++ b/apps/mobile/lib/acces-refuse.ts
+@@ -0,0 +1,28 @@
++/**
++ * Le serveur refuse de laisser lire l'espace.
++ *
++ * Seul un refus RÉEL du serveur compte : un cap dont l'échéance est passée côté
++ * appareil peut encore être accepté, et une panne réseau ne prouve rien.
++ */
++
++export type StatutDeRefus = 401 | 403;
++
++/** Le statut d'une erreur HTTP de refus (`StarfishHttpError`), ou `null`. */
++export function statutDeRefus(err: unknown): StatutDeRefus | null {
++  const statut = (err as { status?: unknown } | null)?.status;
++  return statut === 401 || statut === 403 ? statut : null;
++}
++
++/**
++ * Le refus à signaler, ou `null`.
++ *
++ * Membres seulement : le propriétaire n'a pas de lien à se faire renvoyer. Et
++ * jamais pour un accès remplacé pendant la lecture — le refus visait l'ancien.
++ */
++export function refusASignaler(
++  err: unknown,
++  contexte: { membre: boolean; accesInchange: boolean },
++): StatutDeRefus | null {
++  if (!contexte.membre || !contexte.accesInchange) return null;
++  return statutDeRefus(err);
++}
+diff --git a/apps/mobile/lib/renouvellement-automatique.ts b/apps/mobile/lib/renouvellement-automatique.ts
+new file mode 100644
+index 0000000..4006789
+--- /dev/null
++++ b/apps/mobile/lib/renouvellement-automatique.ts
+@@ -0,0 +1,233 @@
++/**
++ * Renouvellement automatique des accès de membre : ce que chaque appareil en fait.
++ *
++ * Le propriétaire, à l'activation, réémet un cap long pour chaque sujet de lien
++ * encore membre de l'espace et encore affecté à un rôle, puis le dépose ; le
++ * membre, à l'activation, adopte le cap déposé pour son sujet quand le sien
++ * expire — et, faute de dépôt, demande à être renouvelé. Le serveur n'en sait
++ * rien et continue d'exiger un cap non expiré.
++ */
++
++import {
++  clearNodeAccessCache,
++  getSpaceAccessEntry,
++  hydrateSpaceAccessStore,
++  joinSpaceByLink,
++  mintCap,
++  readSpaceAccess,
++  saveSpaceInviteEntry,
++  serializeSpaceInviteStore,
++  type Session,
++  type SpaceInviteLinkToken,
++} from "@fiance/sdk";
++
++import { planifierLeCoffre } from "@/lib/compte-session";
++import { deposerEnCAS, recuperer } from "@/lib/invitation-courte";
++import { hydraterLeMagasinDInvitations, persisterLeMagasinDInvitations } from "@/lib/invite-link";
++import { readCollection, writeCollection } from "@/lib/kv-storage";
++import {
++  CHERCHER_AVANT_SEC,
++  DUREE_D_UN_ACCES_SEC,
++  capDeRenouvellementValide,
++  capPermetLEcriture,
++  chiffrerLaDemande,
++  chiffrerLeRenouvellement,
++  dechiffrerLaDemande,
++  dechiffrerLeRenouvellement,
++  demandeARedeposer,
++  deriverLaDemande,
++  deriverLeDepot,
++  expireBientot,
++  planDeReemission,
++  sujetDeLaDemande,
++  sujetDuCap,
++  sujetsADemander,
++  sujetsDuMagasin,
++  type ReemissionConnue,
++  type SujetDeLien,
++} from "@/lib/renouvellement-des-acces";
++import { usePermissionsStore } from "@/store/usePermissionsStore";
++
++/** Les caps réémis par cet appareil, par sujet : on ne remint pas à chaque démarrage. */
++export const REEMISSIONS_KEY = "reemissionsDAcces";
++/** Côté membre : la date du dernier dépôt de demande, par `spaceId:subUserId`. */
++export const DEMANDES_KEY = "demandesDeRenouvellement";
++
++/** Adopte l'accès d'un jeton pour un espace que cette identité connaît déjà. */
++export async function adopterLeJeton(session: Session, token: SpaceInviteLinkToken): Promise<void> {
++  // Même épinglage que la jonction : l'entrée s'enregistre sous CETTE identité.
++  await hydrateSpaceAccessStore(session.userId, {}, {});
++  await joinSpaceByLink(session, token);
++  // Poignées et chiffreurs en cache portent encore l'ancien cap.
++  clearNodeAccessCache();
++}
++
++function reemissionsConnues(): Record<string, ReemissionConnue> {
++  try {
++    return readCollection<Record<string, ReemissionConnue>>(REEMISSIONS_KEY) ?? {};
++  } catch {
++    return {};
++  }
++}
++
++function noterLaReemission(subUserId: string, connue: ReemissionConnue): void {
++  try {
++    writeCollection(REEMISSIONS_KEY, { ...reemissionsConnues(), [subUserId]: connue });
++  } catch { /* KV fermé : on réémettra au prochain démarrage */ }
++}
++
++/**
++ * Propriétaire : réémet et dépose les accès qui en ont besoin.
++ *
++ * Ne lève jamais, et ne retient rien : appelée sans attente après la lecture de démarrage.
++ * Rend le nombre de dépôts faits.
++ */
++export async function reemettreLesAcces(
++  session: Session,
++  spaceId: string,
++  syncBase: string,
++  maintenantMs: number = Date.now(),
++): Promise<number> {
++  try {
++    hydraterLeMagasinDInvitations();
++    const sujets = sujetsDuMagasin(serializeSpaceInviteStore(), spaceId);
++    const { members } = await readSpaceAccess(session.accountClient, spaceId, session);
++    const { roles, assignments } = usePermissionsStore.getState();
++    sujets.push(
++      ...(await sujetsQuiSeFontConnaitre(session, spaceId, syncBase, {
++        membres: members,
++        affectations: assignments,
++        roles,
++        connus: sujets.map((s) => s.subUserId),
++      })),
++    );
++    const plan = planDeReemission({
++      sujets,
++      membres: members,
++      affectations: assignments,
++      roles,
++      connues: reemissionsConnues(),
++      maintenantMs,
++    });
++    let deposes = 0;
++    for (const { sujet, peutEcrire, reemettre } of plan) {
++      try {
++        let connue = reemissionsConnues()[sujet.subUserId];
++        if (reemettre || !connue) {
++          const cap = await mintCap(
++            session,
++            { edPubHex: sujet.edPub, kemPubHex: sujet.kemPub, userIdHex: sujet.subUserId },
++            "content",
++            session.layout.spaceMemberScope(spaceId, peutEcrire),
++            { ttlSec: DUREE_D_UN_ACCES_SEC },
++          );
++          connue = { cap, exp: (cap as { exp: number }).exp, deposeLe: 0 };
++          noterLaReemission(sujet.subUserId, connue);
++        }
++        const { code, cle } = await deriverLeDepot(spaceId, sujet.subUserId);
++        await deposerEnCAS(syncBase, code, await chiffrerLeRenouvellement(connue.cap, cle));
++        noterLaReemission(sujet.subUserId, { ...connue, deposeLe: maintenantMs });
++        deposes += 1;
++      } catch (err) {
++        console.warn(`[renouvellement] accès de ${sujet.subUserId.slice(0, 8)} non redéposé`, err);
++      }
++    }
++    return deposes;
++  } catch (err) {
++    console.warn("[renouvellement] réémission des accès impossible", err);
++    return 0;
++  }
++}
++
++/** Propriétaire : les sujets inconnus du magasin local qui ont déposé une demande valide, enregistrés au passage. */
++async function sujetsQuiSeFontConnaitre(
++  session: Session,
++  spaceId: string,
++  syncBase: string,
++  args: Parameters<typeof sujetsADemander>[0],
++): Promise<SujetDeLien[]> {
++  const lus = await Promise.all(
++    sujetsADemander(args).map(async (subUserId) => {
++      try {
++        const { code, cle } = await deriverLaDemande(spaceId, subUserId);
++        const cap = await dechiffrerLaDemande(await recuperer(syncBase, code), cle);
++        // Ne fait réémettre que pour une clé déjà certifiée par le propriétaire, pour ce sujet encore membre et affecté : rejouée par un tiers, elle ne lui vaut qu'un cap inutilisable sans la clé privée du sujet.
++        const sujet = cap ? sujetDeLaDemande(cap, { spaceId, subUserId, issEdPub: session.keys.edPub }) : null;
++        if (sujet) {
++          const { nonce, exp } = cap as { nonce: string; exp: number };
++          saveSpaceInviteEntry(spaceId, subUserId, { edPub: sujet.edPub, kemPub: sujet.kemPub, cap: { nonce, exp } });
++        }
++        return sujet;
++      } catch {
++        return null;
++      }
++    }),
++  );
++  const connus = lus.filter((s): s is SujetDeLien => s !== null);
++  if (connus.length) {
++    persisterLeMagasinDInvitations();
++    planifierLeCoffre();
++  }
++  return connus;
++}
++
++/** Membre : dépose sa demande de renouvellement, au plus une fois tous les trois jours. Ne lève jamais. */
++async function demanderUnRenouvellement(
++  spaceId: string,
++  subUserId: string,
++  cap: unknown,
++  syncBase: string,
++  maintenantMs: number,
++): Promise<void> {
++  try {
++    const deposees = readCollection<Record<string, number>>(DEMANDES_KEY) ?? {};
++    const cle = `${spaceId}:${subUserId}`;
++    if (!demandeARedeposer(deposees[cle], maintenantMs)) return;
++    const depot = await deriverLaDemande(spaceId, subUserId);
++    await deposerEnCAS(syncBase, depot.code, await chiffrerLaDemande(cap, depot.cle));
++    writeCollection(DEMANDES_KEY, { ...deposees, [cle]: maintenantMs });
++  } catch (err) {
++    console.warn("[renouvellement] demande non déposée", err);
++  }
++}
++
++/**
++ * Membre : adopte le cap réémis pour son sujet quand le sien expire bientôt.
++ *
++ * Tout échec — dépôt absent, illisible, cap invalide — est silencieux et laisse
++ * l'accès tel quel ; le membre dépose alors une demande. Rend vrai si un nouvel
++ * accès a été adopté.
++ */
++export async function adopterUnAccesReemis(
++  session: Session,
++  spaceId: string,
++  syncBase: string,
++  nomDuMariage: string,
++  maintenantMs: number = Date.now(),
++): Promise<boolean> {
++  const entree = getSpaceAccessEntry(spaceId);
++  if (entree?.kind !== "link") return false;
++  const maintenantSec = Math.floor(maintenantMs / 1000);
++  if (!expireBientot(entree.cap, maintenantSec, CHERCHER_AVANT_SEC)) return false;
++  const sujet = sujetDuCap(entree.cap);
++  if (!sujet) return false;
++  try {
++    const { code, cle } = await deriverLeDepot(spaceId, sujet);
++    const cap = await dechiffrerLeRenouvellement(await recuperer(syncBase, code), cle);
++    if (cap && capDeRenouvellementValide(entree.cap, cap, spaceId, maintenantSec)) {
++      await adopterLeJeton(session, {
++        v: 1,
++        spaceId,
++        spaceName: nomDuMariage,
++        cap,
++        key: entree.key,
++        kemPriv: entree.kemPriv,
++        kemPub: entree.kemPub,
++        write: capPermetLEcriture(cap),
++      });
++      return true;
++    }
++  } catch { /* dépôt absent ou illisible : on se fait connaître */ }
++  await demanderUnRenouvellement(spaceId, sujet, entree.cap, syncBase, maintenantMs);
++  return false;
++}
+diff --git a/apps/mobile/lib/renouvellement-des-acces.ts b/apps/mobile/lib/renouvellement-des-acces.ts
+new file mode 100644
+index 0000000..4f26b63
+--- /dev/null
++++ b/apps/mobile/lib/renouvellement-des-acces.ts
+@@ -0,0 +1,327 @@
++/**
++ * Renouvellement des accès de membre : la partie sans effet de bord.
++ *
++ * Un accès de membre est un cap signé par le propriétaire pour la clé éphémère
++ * d'un lien. Le propriétaire en réémet un plus long pour le MÊME sujet et le
++ * dépose, chiffré, à une adresse que le membre sait recalculer. Le cap déposé
++ * ne sert à rien sans la clé privée du sujet, qui ne quitte jamais le lien.
++ *
++ * Un membre que le propriétaire ne connaît plus se fait connaître : il dépose
++ * une DEMANDE, à une adresse distincte, qui ne porte que son cap actuel.
++ */
++
++import { userIdFromPubHex, verifyCapCertSignature, type CapCert } from "@drakkar.software/starfish-protocol";
++import { resolvePermissionForSubject, roleCanWrite, type PermissionAssignment, type RoleDefinition } from "@fiance/sdk";
++
++import {
++  chiffrerSousLaCle,
++  dechiffrerLeDepot,
++  encoderBase64Url,
++  type DepotChiffre,
++} from "@/lib/invitation-courte";
++
++const JOUR_SEC = 24 * 3600;
++
++/** Validité d'un accès émis par l'app, lien d'invitation comme réémission. */
++export const DUREE_D_UN_ACCES_SEC = 3 * 365 * JOUR_SEC;
++/** Le propriétaire réémet quand l'accès connu expire avant ce délai. */
++export const REEMETTRE_AVANT_SEC = 60 * JOUR_SEC;
++/** Le membre cherche un renouvellement quand son accès expire avant ce délai. */
++export const CHERCHER_AVANT_SEC = 30 * JOUR_SEC;
++/** Le dépôt expire au bout de 7 jours côté serveur : on le refait avant. */
++export const REDEPOSER_APRES_MS = 3 * JOUR_SEC * 1000;
++
++const DERIVE_D_HORLOGE_SEC = 300;
++
++// ---------------------------------------------------------------------------
++// Le cap
++// ---------------------------------------------------------------------------
++
++export interface CapDeMembre {
++  kind?: unknown;
++  iss?: unknown;
++  sub?: unknown;
++  subKem?: unknown;
++  subUserId?: unknown;
++  scope?: { ops?: unknown; paths?: unknown; collections?: unknown };
++  nbf?: unknown;
++  exp?: unknown;
++}
++
++/** Un cap lu tel quel, objet ou JSON (les entrées `member` le stockent en texte). */
++export function lireLeCap(cap: unknown): CapDeMembre | null {
++  let valeur = cap;
++  if (typeof valeur === "string") {
++    try { valeur = JSON.parse(valeur); } catch { return null; }
++  }
++  return valeur && typeof valeur === "object" ? (valeur as CapDeMembre) : null;
++}
++
++/** Le nonce d'un cap, ou `null`. */
++export function nonceDuCap(cap: unknown): string | null {
++  const nonce = (lireLeCap(cap) as { nonce?: unknown } | null)?.nonce;
++  return typeof nonce === "string" && nonce ? nonce : null;
++}
++
++/** Le sujet d'un cap de lien, ou `null`. */
++export function sujetDuCap(cap: unknown): string | null {
++  const sujet = lireLeCap(cap)?.subUserId;
++  return typeof sujet === "string" && sujet ? sujet : null;
++}
++
++export function capPermetLEcriture(cap: unknown): boolean {
++  const ops = lireLeCap(cap)?.scope?.ops;
++  return Array.isArray(ops) && ops.includes("write");
++}
++
++/** Vrai quand le cap expire dans moins de `avantSec` (ou a déjà expiré). Sans `exp`, jamais. */
++export function expireBientot(cap: unknown, maintenantSec: number, avantSec: number): boolean {
++  const exp = lireLeCap(cap)?.exp;
++  return typeof exp === "number" && exp - maintenantSec < avantSec;
++}
++
++/**
++ * Le cap déposé peut-il remplacer l'ancien ?
++ *
++ * Même émetteur, même sujet (clé de signature, clé KEM, identifiant), portée
++ * limitée au même espace et aux mêmes collections, échéance plus lointaine, et
++ * signature valide. Tout le reste est écarté : le dépôt est public en écriture.
++ */
++export function capDeRenouvellementValide(
++  ancien: unknown,
++  nouveau: unknown,
++  spaceId: string,
++  maintenantSec: number,
++): boolean {
++  const a = lireLeCap(ancien);
++  const n = lireLeCap(nouveau);
++  if (!a || !n || n.kind !== "member") return false;
++  for (const champ of ["iss", "sub", "subKem", "subUserId"] as const) {
++    if (typeof n[champ] !== "string" || n[champ] !== a[champ]) return false;
++  }
++  const chemins = n.scope?.paths;
++  if (
++    !Array.isArray(chemins) ||
++    chemins.length === 0 ||
++    !chemins.every((c) => typeof c === "string" && c.startsWith(`spaces/${spaceId}/`))
++  ) {
++    return false;
++  }
++  if (JSON.stringify(n.scope?.collections) !== JSON.stringify(a.scope?.collections)) return false;
++  if (typeof n.exp !== "number" || typeof n.nbf !== "number") return false;
++  if (n.exp <= maintenantSec || (typeof a.exp === "number" && n.exp <= a.exp)) return false;
++  if (n.nbf > maintenantSec + DERIVE_D_HORLOGE_SEC) return false;
++  return verifyCapCertSignature(n as unknown as CapCert);
++}
++
++/** Portée d'un cap de membre d'espace : collection `content`, chemins sous cet espace seulement. */
++function porteeDeMembreDeLEspace(cap: CapDeMembre, spaceId: string): boolean {
++  const chemins = cap.scope?.paths;
++  return (
++    JSON.stringify(cap.scope?.collections) === JSON.stringify(["content"]) &&
++    Array.isArray(chemins) &&
++    chemins.length > 0 &&
++    chemins.every((c) => typeof c === "string" && c.startsWith(`spaces/${spaceId}/`))
++  );
++}
++
++/**
++ * Le sujet qu'une demande fait connaître, ou `null`.
++ *
++ * N'en est cru que ce que le propriétaire a lui-même signé : la clé ed et la
++ * clé KEM d'un sujet, pour ce sujet et cet espace.
++ */
++export function sujetDeLaDemande(
++  cap: unknown,
++  attendu: { spaceId: string; subUserId: string; issEdPub: string },
++): SujetDeLien | null {
++  const c = lireLeCap(cap) as (CapDeMembre & { issUserId?: unknown; nonce?: unknown }) | null;
++  if (!c || c.kind !== "member" || c.iss !== attendu.issEdPub) return null;
++  if (c.issUserId !== userIdFromPubHex(attendu.issEdPub)) return null;
++  if (c.subUserId !== attendu.subUserId || typeof c.sub !== "string" || typeof c.subKem !== "string") return null;
++  if (userIdFromPubHex(c.sub) !== c.subUserId) return null;
++  if (!porteeDeMembreDeLEspace(c, attendu.spaceId)) return null;
++  if (typeof c.nonce !== "string" || typeof c.exp !== "number") return null;
++  if (!verifyCapCertSignature(c as unknown as CapCert)) return null;
++  return { subUserId: c.subUserId, edPub: c.sub, kemPub: c.subKem, exp: c.exp };
++}
++
++// ---------------------------------------------------------------------------
++// Le dépôt
++// ---------------------------------------------------------------------------
++
++const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
++type NatureDuDepot = "renouvellement" | "demande-de-renouvellement";
++/** Préfixes qui séparent ces dépôts entre eux et des codes à 10 caractères des liens courts. */
++export const PREFIXES_DU_CODE: Record<NatureDuDepot, string> = { renouvellement: "RN", "demande-de-renouvellement": "RQ" };
++const LONGUEUR_DU_CODE = 24;
++
++function crypto(): Crypto {
++  const c = globalThis.crypto;
++  if (!c?.subtle) throw new Error("renouvellement : WebCrypto indisponible");
++  return c;
++}
++
++async function empreinte(nature: NatureDuDepot, etiquette: string, spaceId: string, subUserId: string): Promise<Uint8Array> {
++  const entree = new TextEncoder().encode(`fiance/${nature}/${etiquette}/v1\u0000${spaceId}\u0000${subUserId}`);
++  return new Uint8Array(await crypto().subtle.digest("SHA-256", entree));
++}
++
++function enBase32(octets: Uint8Array): string {
++  let valeur = 0;
++  let bits = 0;
++  let out = "";
++  for (const o of octets) {
++    valeur = ((valeur << 8) | o) & 0xfff;
++    bits += 8;
++    while (bits >= 5) {
++      out += ALPHABET[(valeur >>> (bits - 5)) & 31];
++      bits -= 5;
++    }
++  }
++  return out;
++}
++
++async function deriver(nature: NatureDuDepot, spaceId: string, subUserId: string): Promise<{ code: string; cle: string }> {
++  const [code, cle] = await Promise.all([
++    empreinte(nature, "code", spaceId, subUserId),
++    empreinte(nature, "cle", spaceId, subUserId),
++  ]);
++  return { code: PREFIXES_DU_CODE[nature] + enBase32(code).slice(0, LONGUEUR_DU_CODE), cle: encoderBase64Url(cle) };
++}
++
++function emballer(nature: NatureDuDepot, cap: unknown): string {
++  return JSON.stringify({ v: 1, type: nature, cap });
++}
++
++function deballer(nature: NatureDuDepot, clair: string): unknown | null {
++  try {
++    const v = JSON.parse(clair) as { v?: unknown; type?: unknown; cap?: unknown } | null;
++    return v?.v === 1 && v.type === nature && v.cap && typeof v.cap === "object" ? v.cap : null;
++  } catch {
++    return null;
++  }
++}
++
++/** `null` pour tout dépôt illisible : substitué, tronqué, ou d'une autre nature. */
++async function dechiffrer(nature: NatureDuDepot, depot: DepotChiffre, cle: string): Promise<unknown | null> {
++  try {
++    return deballer(nature, await dechiffrerLeDepot(depot, cle));
++  } catch {
++    return null;
++  }
++}
++
++/** Code et clé du dépôt de réémission d'un sujet, dérivés séparément de l'espace et du sujet. */
++export const deriverLeDepot = (spaceId: string, subUserId: string) => deriver("renouvellement", spaceId, subUserId);
++export const emballerLeRenouvellement = (cap: unknown) => emballer("renouvellement", cap);
++export const deballerLeRenouvellement = (clair: string) => deballer("renouvellement", clair);
++export const chiffrerLeRenouvellement = (cap: unknown, cle: string): Promise<DepotChiffre> =>
++  chiffrerSousLaCle(emballerLeRenouvellement(cap), cle);
++export const dechiffrerLeRenouvellement = (depot: DepotChiffre, cle: string) => dechiffrer("renouvellement", depot, cle);
++
++/** Code et clé de la demande d'un sujet : étiquettes distinctes de celles de la réémission. */
++export const deriverLaDemande = (spaceId: string, subUserId: string) => deriver("demande-de-renouvellement", spaceId, subUserId);
++/** Le clair d'une demande : le cap actuel, certificat public, jamais `key` ni `kemPriv`. */
++export const emballerLaDemande = (cap: unknown) => emballer("demande-de-renouvellement", cap);
++export const deballerLaDemande = (clair: string) => deballer("demande-de-renouvellement", clair);
++export const chiffrerLaDemande = (cap: unknown, cle: string): Promise<DepotChiffre> =>
++  chiffrerSousLaCle(emballerLaDemande(cap), cle);
++export const dechiffrerLaDemande = (depot: DepotChiffre, cle: string) => dechiffrer("demande-de-renouvellement", depot, cle);
++
++/** Le membre redépose sa demande si elle n'a jamais été déposée, ou l'a été il y a plus de trois jours. */
++export function demandeARedeposer(deposeeLe: number | undefined, maintenantMs: number): boolean {
++  return deposeeLe === undefined || maintenantMs - deposeeLe >= REDEPOSER_APRES_MS;
++}
++
++// ---------------------------------------------------------------------------
++// Côté propriétaire : qui réémettre
++// ---------------------------------------------------------------------------
++
++/** Un sujet de lien tel que le magasin d'invitations le retient. */
++export interface SujetDeLien {
++  subUserId: string;
++  edPub: string;
++  kemPub: string;
++  /** L'échéance du cap du lien, si le magasin la porte. */
++  exp: number | null;
++}
++
++/** Le dernier cap réémis pour un sujet, et la date de son dernier dépôt. */
++export interface ReemissionConnue {
++  cap: unknown;
++  exp: number;
++  deposeLe: number;
++}
++
++export interface DecisionDeReemission {
++  sujet: SujetDeLien;
++  peutEcrire: boolean;
++  /** Minter un cap neuf. Sinon, redéposer le dernier connu. */
++  reemettre: boolean;
++}
++
++/** Les sujets de cet espace dans le magasin d'invitations sérialisé (`spaceId:userId` → entrée). */
++export function sujetsDuMagasin(brut: unknown, spaceId: string): SujetDeLien[] {
++  let entrees: unknown = brut;
++  if (typeof brut === "string") {
++    try { entrees = JSON.parse(brut); } catch { return []; }
++  }
++  if (!entrees || typeof entrees !== "object") return [];
++  const prefixe = `${spaceId}:`;
++  const out: SujetDeLien[] = [];
++  for (const [cle, valeur] of Object.entries(entrees as Record<string, unknown>)) {
++    if (!cle.startsWith(prefixe)) continue;
++    const v = valeur as { edPub?: unknown; kemPub?: unknown; cap?: { exp?: unknown } } | null;
++    const subUserId = cle.slice(prefixe.length);
++    if (!subUserId || typeof v?.edPub !== "string" || typeof v.kemPub !== "string") continue;
++    out.push({
++      subUserId,
++      edPub: v.edPub,
++      kemPub: v.kemPub,
++      exp: typeof v.cap?.exp === "number" ? v.cap.exp : null,
++    });
++  }
++  return out;
++}
++
++/** Les sujets à interroger : membres de `_access`, affectés à un rôle qui existe, absents du magasin local. */
++export function sujetsADemander(args: {
++  membres: readonly string[];
++  affectations: PermissionAssignment[];
++  roles: RoleDefinition[];
++  connus: readonly string[];
++}): string[] {
++  return [...new Set(args.membres)].filter(
++    (m) => !args.connus.includes(m) && resolvePermissionForSubject(args.roles, args.affectations, m) !== null,
++  );
++}
++
++/**
++ * Ce qu'il faut réémettre ou redéposer.
++ *
++ * Jamais pour un sujet retiré de `_access` ni pour un sujet sans affectation
++ * résolue : c'est ce qu'une révocation lui retire.
++ */
++export function planDeReemission(args: {
++  sujets: readonly SujetDeLien[];
++  membres: readonly string[];
++  affectations: PermissionAssignment[];
++  roles: RoleDefinition[];
++  connues: Readonly<Record<string, ReemissionConnue>>;
++  maintenantMs: number;
++}): DecisionDeReemission[] {
++  const maintenantSec = Math.floor(args.maintenantMs / 1000);
++  const out: DecisionDeReemission[] = [];
++  for (const sujet of args.sujets) {
++    if (!args.membres.includes(sujet.subUserId)) continue;
++    const resolu = resolvePermissionForSubject(args.roles, args.affectations, sujet.subUserId);
++    if (!resolu) continue;
++    const connue = args.connues[sujet.subUserId];
++    const exp = connue?.exp ?? sujet.exp;
++    const reemettre = exp === null || exp - maintenantSec < REEMETTRE_AVANT_SEC;
++    const redeposer = !!connue && args.maintenantMs - connue.deposeLe >= REDEPOSER_APRES_MS;
++    if (reemettre || redeposer) out.push({ sujet, peutEcrire: roleCanWrite(resolu.role), reemettre });
++  }
++  return out;
++}
+diff --git a/apps/mobile/store/useAccesRefuseStore.ts b/apps/mobile/store/useAccesRefuseStore.ts
+new file mode 100644
+index 0000000..10189f5
+--- /dev/null
++++ b/apps/mobile/store/useAccesRefuseStore.ts
+@@ -0,0 +1,25 @@
++import { create } from "zustand";
++
++import type { StatutDeRefus } from "@/lib/acces-refuse";
++
++/**
++ * L'espace dont le serveur a refusé la lecture à cet appareil. Non persisté :
++ * chaque hydratation le repose ou le lève. Distinct de `useSyncAccessStore`
++ * (écriture refusée, lecture possible).
++ */
++interface AccesRefuseState {
++  refus: { spaceId: string; statut: StatutDeRefus } | null;
++  signaler: (spaceId: string, statut: StatutDeRefus) => void;
++  /** Sans argument, lève tout refus ; sinon seulement celui de cet espace. */
++  lever: (spaceId?: string) => void;
++}
++
++export const useAccesRefuseStore = create<AccesRefuseState>((set) => ({
++  refus: null,
++  signaler: (spaceId, statut) =>
++    set((etat) =>
++      etat.refus?.spaceId === spaceId && etat.refus.statut === statut ? etat : { refus: { spaceId, statut } },
++    ),
++  lever: (spaceId) =>
++    set((etat) => (!etat.refus || (spaceId !== undefined && etat.refus.spaceId !== spaceId) ? etat : { refus: null })),
++}));
+diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
+index 8c90fdb..86969ce 100644
+--- a/apps/mobile/lib/invite-link.ts
++++ b/apps/mobile/lib/invite-link.ts
+@@ -32,6 +81,14 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
+   if (!cfg) throw new Error("INVITE_NO_SESSION");
+   const spaceId = await ensureSpaceProvisioned(cfg.session, entry);
+ 
++  // Le nouveau venu n'est ajouté qu'à l'époque COURANTE du keyring.
++  const rescellement = await rescellerEspace(cfg.session, spaceId);
++  if (rescellement.restant.length) {
++    throw new Error(
++      `Le contenu du mariage n'a pas pu être préparé pour un nouveau collaborateur (${rescellement.restant.join(", ")}). Réessayez.`,
++    );
++  }
++
+   // Record the assignment BEFORE snapshotting so it's part of the pushed content
+   // the member will hydrate. Keyed by the invite's ephemeral subject id (below).
+   const role = roleId ? usePermissionsStore.getState().roles.find((r) => r.id === roleId) : undefined;

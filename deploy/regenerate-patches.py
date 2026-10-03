@@ -543,6 +543,35 @@ GROUPES = collections.OrderedDict([
         "apps/mobile/lib/wedding-registry.ts",
         "apps/mobile/lib/wedding-registry.web.ts",
     ])),
+    # Liens de trois ans, adoption d'un nouveau lien par un appareil déjà membre,
+    # refus d'accès rendu visible, et réémission des accès par le propriétaire.
+    ("18-renouvellement-des-acces", (LOCAL, [
+        "apps/mobile/__tests__/acces-refuse.test.ts",
+        "apps/mobile/__tests__/invite-link-acces.test.ts",
+        "apps/mobile/__tests__/renouvellement-automatique.test.ts",
+        "apps/mobile/__tests__/renouvellement-des-acces.test.ts",
+        "apps/mobile/__tests__/renouvellement-par-lien.test.ts",
+        "apps/mobile/components/BandeauAccesRefuse.tsx",
+        "apps/mobile/components/invitation/AccesRenouvele.tsx",
+        "apps/mobile/lib/acces-refuse.ts",
+        "apps/mobile/lib/renouvellement-automatique.ts",
+        "apps/mobile/lib/renouvellement-des-acces.ts",
+        "apps/mobile/store/useAccesRefuseStore.ts",
+    ])),
+    # Le menu « ⋮ » sur le web (MenuView d'@expo/ui n'y ouvre rien) et la PWA.
+    ("19-menus-mobiles-et-pwa", (LOCAL, [
+        "apps/mobile/__tests__/installation-pwa.test.ts",
+        "apps/mobile/__tests__/menu-deroulant.test.ts",
+        "apps/mobile/__tests__/pwa-raccourcis.test.ts",
+        "apps/mobile/components/HomeBanner.tsx",
+        "apps/mobile/components/StackMenu.tsx",
+        "apps/mobile/components/StackMenu.web.tsx",
+        "apps/mobile/i18n/locales/en/dashboard.json",
+        "apps/mobile/i18n/locales/fr/dashboard.json",
+        "apps/mobile/lib/installation-pwa.ts",
+        "apps/mobile/lib/menu-deroulant.ts",
+        "apps/mobile/lib/usePwaInstall.ts",
+    ])),
 ])
 
 # Fichiers partagés, découpés par hunk : (marqueur dans le hunk, patch cible).
@@ -560,6 +589,7 @@ PARTAGES = {
         ("Depot", "12-acces-chiffre-et-invitations"),
         ("depot", "12-acces-chiffre-et-invitations"),
         ("roleNoAccessSummary", "12-acces-chiffre-et-invitations"),
+        ("plusDOptions", "19-menus-mobiles-et-pwa"),
     ],
     "apps/mobile/i18n/locales/en/settings.json": [
         ("singleWeddingInstance", "02-single-wedding"),
@@ -574,6 +604,7 @@ PARTAGES = {
         ("Depot", "12-acces-chiffre-et-invitations"),
         ("depot", "12-acces-chiffre-et-invitations"),
         ("roleNoAccessSummary", "12-acces-chiffre-et-invitations"),
+        ("plusDOptions", "19-menus-mobiles-et-pwa"),
     ],
     # ── `roles.tsx`, partagé entre 12 et 13 ────────────────────────────────
     #
@@ -630,6 +661,7 @@ PARTAGES = {
         # ce marqueur volerait le hunk d'imports (13) et celui de la fin (12),
         # qui portent aussi `planifierLeCoffre`.
         ("planifierLeCoffre();", "17-compte-et-connexion"),
+        ("rescellement.restant", "18-renouvellement-des-acces"),
     ],
     "apps/mobile/components/InviteQRSheet.tsx": [
         ("ouvertureDeLaFeuille", "13-regenerer-lien-collaborateur"),

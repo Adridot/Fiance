@@ -1586,10 +1586,10 @@ index 0000000..5c602b6
 +  );
 +}
 diff --git a/apps/mobile/app/(tabs)/guests/index.tsx b/apps/mobile/app/(tabs)/guests/index.tsx
-index 399900f..2180138 100644
+index 399900f..298126c 100644
 --- a/apps/mobile/app/(tabs)/guests/index.tsx
 +++ b/apps/mobile/app/(tabs)/guests/index.tsx
-@@ -1,40 +1,79 @@
+@@ -1,40 +1,81 @@
 -import React, { useState, useMemo, useCallback } from "react";
 +import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
  import { View, Text, ScrollView, Pressable } from "react-native-css/components";
@@ -1623,6 +1623,8 @@ index 399900f..2180138 100644
 +  rsvpStatusUpdate,
 +} from "@fiance/sdk";
  import { HomeBanner } from "@/components/HomeBanner";
++// MODIFICATION LOCALE — un accès refusé par le serveur n'est pas une liste vide.
++import { BandeauAccesRefuse } from "@/components/BandeauAccesRefuse";
 +import { Display } from "@/components/Display";
  import { theme as GP } from "@/lib/theme";
  import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
@@ -1685,7 +1687,7 @@ index 399900f..2180138 100644
    return (
      <View className="flex-1 bg-accent-paper">
        <GuestsView />
-@@ -42,62 +81,209 @@ export default function GuestsListScreen() {
+@@ -42,62 +83,209 @@ export default function GuestsListScreen() {
    );
  }
  
@@ -1942,7 +1944,7 @@ index 399900f..2180138 100644
    );
  }
  
-@@ -105,27 +291,43 @@ function GuestCard({ guest, invitationTypeLabel }: { guest: Guest; invitationTyp
+@@ -105,27 +293,43 @@ function GuestCard({ guest, invitationTypeLabel }: { guest: Guest; invitationTyp
  
  function GuestsView() {
    const { t } = useTranslation("guests");
@@ -1996,7 +1998,7 @@ index 399900f..2180138 100644
  
    // Map invitationType id → label for display
    const typeLabels = useMemo(() => {
-@@ -150,6 +352,19 @@ function GuestsView() {
+@@ -150,6 +354,19 @@ function GuestsView() {
  
    const duplicateCount = useMemo(() => countDuplicateGuests(guests), [guests]);
  
@@ -2016,7 +2018,7 @@ index 399900f..2180138 100644
    const filteredGuests = useMemo(() => {
      return guests
        .filter((g) => {
-@@ -161,12 +376,13 @@ function GuestsView() {
+@@ -161,12 +378,13 @@ function GuestsView() {
            return false;
          }
          if (typeFilter !== "ALL" && g.invitationType !== typeFilter) return false;
@@ -2033,7 +2035,7 @@ index 399900f..2180138 100644
            );
          }
          return true;
-@@ -176,7 +392,85 @@ function GuestsView() {
+@@ -176,7 +394,85 @@ function GuestsView() {
            `${b.lastName}${b.firstName}`
          )
        );
@@ -2120,7 +2122,7 @@ index 399900f..2180138 100644
  
    const groupedGuests = useMemo(() => {
      if (groups.length === 0) return null;
-@@ -190,9 +484,12 @@ function GuestsView() {
+@@ -190,9 +486,12 @@ function GuestsView() {
      return { ungrouped, byGroup };
    }, [filteredGuests, groups]);
  
@@ -2135,7 +2137,7 @@ index 399900f..2180138 100644
        const next = new Set(prev);
        if (next.has(groupId)) next.delete(groupId);
        else next.add(groupId);
-@@ -200,60 +497,420 @@ function GuestsView() {
+@@ -200,60 +499,420 @@ function GuestsView() {
      });
    }, []);
  
@@ -2586,7 +2588,7 @@ index 399900f..2180138 100644
    const rsvpTabs = [
      { key: "ALL", label: t("all"), count: counts.total },
      { key: "ACCEPTED", label: t("confirmed"), count: counts.accepted },
-@@ -272,10 +929,24 @@ function GuestsView() {
+@@ -272,10 +931,24 @@ function GuestsView() {
      return map;
    }, [guests]);
  
@@ -2611,7 +2613,7 @@ index 399900f..2180138 100644
    const listHeader = (
      <>
        {duplicateCount > 0 && (
-@@ -288,6 +959,16 @@ function GuestsView() {
+@@ -288,6 +961,16 @@ function GuestsView() {
            />
          </View>
        )}
@@ -2628,7 +2630,7 @@ index 399900f..2180138 100644
        <SearchBar
          value={search}
          onChangeText={setSearch}
-@@ -299,7 +980,7 @@ function GuestsView() {
+@@ -299,7 +982,7 @@ function GuestsView() {
        <ScrollView
          horizontal
          showsHorizontalScrollIndicator={false}
@@ -2637,7 +2639,7 @@ index 399900f..2180138 100644
          style={{ flexGrow: 0 }}
          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12, gap: 8, alignItems: "center" }}
        >
-@@ -350,11 +1031,77 @@ function GuestsView() {
+@@ -350,19 +1033,95 @@ function GuestsView() {
              </Pressable>
            );
          })}
@@ -2715,8 +2717,9 @@ index 399900f..2180138 100644
      </>
    );
  
-@@ -362,7 +1109,16 @@ function GuestsView() {
+   return (
      <View className="relative flex-1">
++      <BandeauAccesRefuse className="mx-4 mt-4" />
        {/* Guest list — big CTA only when there are truly no guests; a search/filter that
            matches none keeps the search bar + filters visible with an inline message. */}
 -      {guests.length === 0 ? (
@@ -2733,7 +2736,7 @@ index 399900f..2180138 100644
          <EmptyState
            icon={Users}
            title={t("noGuests")}
-@@ -374,10 +1130,15 @@ function GuestsView() {
+@@ -374,10 +1133,15 @@ function GuestsView() {
          />
        ) : (
          <LegendList
@@ -2750,7 +2753,7 @@ index 399900f..2180138 100644
            maintainVisibleContentPosition={false}
            style={{ flex: 1 }}
            showsVerticalScrollIndicator={false}
-@@ -388,13 +1149,123 @@ function GuestsView() {
+@@ -388,13 +1152,123 @@ function GuestsView() {
              </View>
            }
            ListFooterComponent={<View className="h-24" />}
@@ -7038,7 +7041,7 @@ index 46192ca..73c533a 100644
      expect(encrypted).not.toHaveProperty('userId');
    });
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..1a6bd26 100644
+index 0c9b4af..f094633 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
 @@ -31,6 +31,7 @@ import {
@@ -7050,10 +7053,10 @@ index 0c9b4af..1a6bd26 100644
    vendorFromDoc,
    quotePricingFromDoc,
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..1a6bd26 100644
+index 0c9b4af..f094633 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -266,7 +750,7 @@ function buildWeddingNode(
+@@ -266,7 +761,7 @@ function buildWeddingNode(
  /** The 28 collapsing admin collections (everything except the `wedding` singleton root and
   *  the guest-surface publicPage/rsvp invite nodes). `wedding` stays its own per-node doc. */
  function collectionSources(): { type: string; items: CollectionEntity[] }[] {
@@ -7063,10 +7066,10 @@ index 0c9b4af..1a6bd26 100644
    const { accommodations } = useAccommodationsStore.getState();
    const { categories, tasks, agendaEvents, dayOfItems } = usePlanningStore.getState();
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..1a6bd26 100644
+index 0c9b4af..f094633 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -290,6 +774,8 @@ function collectionSources(): { type: string; items: CollectionEntity[] }[] {
+@@ -290,6 +785,8 @@ function collectionSources(): { type: string; items: CollectionEntity[] }[] {
    return [
      { type: FIANCE_TYPES.guestGroup, items: as(groups) },
      { type: FIANCE_TYPES.guest, items: as(guests) },
@@ -7076,10 +7079,10 @@ index 0c9b4af..1a6bd26 100644
      { type: FIANCE_TYPES.vendor, items: as(vendors) },
      { type: FIANCE_TYPES.quotePricing, items: as(quotePricings) },
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..1a6bd26 100644
+index 0c9b4af..f094633 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -697,6 +1448,7 @@ export async function hydrateFromSpace(
+@@ -697,6 +1494,7 @@ export async function hydrateFromSpace(
        guestGroupDocs,
        guestDocs,
        tableDocs,
@@ -7088,10 +7091,10 @@ index 0c9b4af..1a6bd26 100644
        quotePricingDocs,
        vendorPaymentDocs,
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..1a6bd26 100644
+index 0c9b4af..f094633 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -729,6 +1481,7 @@ export async function hydrateFromSpace(
+@@ -729,6 +1527,7 @@ export async function hydrateFromSpace(
        pullCollection(FIANCE_TYPES.guestGroup),
        pullCollection(FIANCE_TYPES.guest),
        pullCollection(FIANCE_TYPES.table),
@@ -7100,10 +7103,10 @@ index 0c9b4af..1a6bd26 100644
        pullCollection(FIANCE_TYPES.quotePricing),
        pullCollection(FIANCE_TYPES.vendorPayment),
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..1a6bd26 100644
+index 0c9b4af..f094633 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -773,6 +1558,8 @@ export async function hydrateFromSpace(
+@@ -773,6 +1604,8 @@ export async function hydrateFromSpace(
      if (guestGroupDocs.length) useGuestsStore.getState().setGroups(guestGroupDocs.map(guestGroupFromDoc) as Parameters<ReturnType<typeof useGuestsStore.getState>['setGroups']>[0]);
      if (tableDocs.length) useGuestsStore.getState().setTables(tableDocs.map(tableFromDoc) as Parameters<ReturnType<typeof useGuestsStore.getState>['setTables']>[0]);
      if (guestDocs.length) useGuestsStore.getState().setGuests(guestDocs.map(guestFromDoc) as Parameters<ReturnType<typeof useGuestsStore.getState>['setGuests']>[0]);
@@ -7113,10 +7116,10 @@ index 0c9b4af..1a6bd26 100644
      if (quotePricingDocs.length) useVendorsStore.getState().setQuotePricings(quotePricingDocs.map(quotePricingFromDoc) as Parameters<ReturnType<typeof useVendorsStore.getState>['setQuotePricings']>[0]);
      if (vendorPaymentDocs.length) useVendorsStore.getState().setVendorPayments(vendorPaymentDocs.map(vendorPaymentFromDoc) as Parameters<ReturnType<typeof useVendorsStore.getState>['setVendorPayments']>[0]);
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..1a6bd26 100644
+index 0c9b4af..f094633 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -868,12 +1718,15 @@ async function pullRsvpNodeContent(
+@@ -868,12 +1764,15 @@ async function pullRsvpNodeContent(
    session: Session,
    spaceId: string,
    node: ObjectNode,
@@ -7136,10 +7139,10 @@ index 0c9b4af..1a6bd26 100644
    } catch {
      return null;
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..1a6bd26 100644
+index 0c9b4af..f094633 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -887,8 +1740,8 @@ async function pullAndApplyRsvpNodes(
+@@ -887,8 +1786,8 @@ async function pullAndApplyRsvpNodes(
  ): Promise<void> {
    if (!rsvpNodes.length) return;
    const results = await Promise.all(rsvpNodes.map((n) => pullRsvpNodeContent(session, spaceId, n)));
