@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { View, Text, ScrollView, TextInput, Pressable } from "react-native-css/components";
 import { Alert, Share, Platform } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+import { revenir } from "@/lib/revenir";
+import { repliDe } from "@/lib/repli-des-ecrans";
 import { useTranslation } from "react-i18next";
 import * as Crypto from "expo-crypto";
 import { useGuestsStore } from "@/store/useGuestsStore";
@@ -258,14 +260,14 @@ export default function GuestDetailScreen() {
       unlinkCompanion(guestId);
     }
 
-    router.back();
+    revenir(router, repliDe("guests", "[id]"));
   };
 
   const handleDelete = () => {
     removeGuest(id!);
     analytics.capture("guest_deleted");
     setShowDelete(false);
-    router.back();
+    revenir(router, repliDe("guests", "[id]"));
   };
 
   const guestRoles = isNew ? [] : weddingRoleAssignments.filter((a) => a.guestId === id);

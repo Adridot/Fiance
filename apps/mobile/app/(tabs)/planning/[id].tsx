@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { View, Text, ScrollView, TextInput, Pressable } from "react-native-css/components";
 import { Alert } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+import { revenir } from "@/lib/revenir";
+import { repliDe } from "@/lib/repli-des-ecrans";
 import { useTranslation } from "react-i18next";
 import * as Crypto from "expo-crypto";
 import { addMonths } from "date-fns";
@@ -125,14 +127,14 @@ export default function TaskDetailScreen() {
     } else {
       updateTask(id!, taskData);
     }
-    router.back();
+    revenir(router, repliDe("planning", "[id]"));
   };
 
   const handleDelete = () => {
     removeTask(id!);
     analytics.capture("task_deleted");
     setShowDelete(false);
-    router.back();
+    revenir(router, repliDe("planning", "[id]"));
   };
 
   return (

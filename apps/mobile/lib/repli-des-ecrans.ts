@@ -9,6 +9,7 @@ const PILES: Record<
     sansRetour: ["index", "seating"],
     parents: {
       "household/[id]": "/(tabs)/guests/households",
+      seating: "/(tabs)/guests/table-management",
       tables: "/(tabs)/guests/table-management",
       "communication/[id]": "/(tabs)/guests/communications",
       "communications/templates": "/(tabs)/guests/communications",

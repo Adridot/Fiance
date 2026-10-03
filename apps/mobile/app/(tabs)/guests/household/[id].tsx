@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from "react";
 import { View, Text, ScrollView, Pressable } from "react-native-css/components";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { revenir } from "@/lib/revenir";
+import { repliDe } from "@/lib/repli-des-ecrans";
 import { useTranslation } from "react-i18next";
 import { UserPlus, XCircle, ChevronRight, Scissors, Check } from "lucide-react-native";
 import {
@@ -175,7 +177,7 @@ export default function HouseholdScreen() {
         onConfirm={() => {
           setShowRemoveConfirm(false);
           removeHousehold(id!);
-          router.back();
+          revenir(router, repliDe("guests", "household/[id]"));
         }}
         onCancel={() => setShowRemoveConfirm(false)}
       />
