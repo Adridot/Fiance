@@ -126,7 +126,8 @@ export default function TableManagementScreen() {
           {tables.length > 0 && (
             <Pressable
               onPress={() => router.push("/(tabs)/guests/tables")}
-              className="flex-row items-center justify-center gap-2 mb-4 py-2.5 rounded-xl bg-primary-50 dark:bg-primary-950 border border-primary-100 dark:border-primary-900 active:opacity-70"
+              className="flex-row items-center justify-center gap-2 mb-4 rounded-xl bg-primary-50 dark:bg-primary-950 border border-primary-100 dark:border-primary-900 active:opacity-70"
+          style={{ minHeight: CIBLE_TACTILE }}
             >
               <MapIcon size={16} color={GP.clay} />
               <Text className="text-sm font-semibold text-primary-500">{t("openPlanView")}</Text>
@@ -160,13 +161,15 @@ export default function TableManagementScreen() {
               <View className="flex-row gap-2">
                 <Pressable
                   onPress={handleAdd}
-                  className="flex-1 bg-primary-500 py-2.5 rounded-xl items-center active:bg-primary-600"
+                  className="flex-1 bg-primary-500 rounded-xl items-center justify-center active:bg-primary-600"
+              style={{ minHeight: CIBLE_TACTILE }}
                 >
                   <Text className="text-white font-semibold text-sm">{t("createTable")}</Text>
                 </Pressable>
                 <Pressable
                   onPress={() => setShowAdd(false)}
-                  className="flex-1 bg-accent-paper py-2.5 rounded-xl items-center"
+                  className="flex-1 bg-accent-paper rounded-xl items-center justify-center"
+              style={{ minHeight: CIBLE_TACTILE }}
                 >
                   <Text className="text-mute text-sm">{t("common:cancel")}</Text>
                 </Pressable>

@@ -14,6 +14,7 @@ import { useIsPremium } from "@/lib/premium";
 import { usePermissions } from "@/lib/permissions/usePermissions";
 import { analytics } from "@/lib/analytics";
 import { theme as GP } from "@/lib/theme";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 
 type PurchaseState = "idle" | "loading" | "unlocking" | "success" | "error";
 
@@ -170,7 +171,8 @@ export default function PremiumScreen() {
               <Pressable
                 onPress={handleRestore}
                 disabled={state !== "idle"}
-                className="items-center py-2 active:opacity-60"
+                className="items-center active:opacity-60"
+                style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}
               >
                 <Text className="text-sm text-mute dark:text-mute">{t("premiumRestore")}</Text>
               </Pressable>
@@ -180,7 +182,8 @@ export default function PremiumScreen() {
               <Pressable
                 onPress={handleRedeemCode}
                 disabled={state !== "idle"}
-                className="items-center py-2 active:opacity-60"
+                className="items-center active:opacity-60"
+                style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}
               >
                 <Text className="text-sm text-mute dark:text-mute">{t("premiumRedeemCode")}</Text>
               </Pressable>

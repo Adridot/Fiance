@@ -142,7 +142,7 @@ export default function GroupsScreen() {
                     className="bg-accent-card rounded-2xl p-4 mb-2.5 border border-hair"
                   >
                     {/* Group header */}
-                    <View className="flex-row items-center justify-between">
+                    <View className="flex-row items-center justify-between mb-1.5">
                       <Pressable
                         onPress={
                           canEdit
@@ -205,7 +205,8 @@ export default function GroupsScreen() {
                         onPress={openable ? () => openQueue(group.id) : undefined}
                         disabled={!openable}
                         accessibilityRole={openable ? "button" : undefined}
-                        className={`mt-2 ${openable ? "active:opacity-60" : ""}`}
+                        className={openable ? "active:opacity-60" : ""}
+                        style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}
                       >
                         <Text
                           className={`text-xs ${
@@ -220,7 +221,8 @@ export default function GroupsScreen() {
                       <Pressable
                         onPress={() => openHouseholds(group.id)}
                         accessibilityRole="button"
-                        className="mt-2 active:opacity-60"
+                        className="active:opacity-60"
+                        style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}
                       >
                         <Text className="text-xs text-primary-500 font-medium">
                           {t("household.remaining", { count: householdsLeft })}

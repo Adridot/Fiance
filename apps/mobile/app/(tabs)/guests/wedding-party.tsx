@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { FAB } from "@/components/FAB";
 import { BoutonIcone } from "@/components/BoutonIcone";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { FormActions } from "@/components/FormSection";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
 import { analytics } from "@/lib/analytics";
@@ -139,7 +140,7 @@ export default function WeddingPartyScreen() {
           })}
 
           {missingDefaults.length > 0 && (
-            <Pressable onPress={seedDefaultRoles} className="mt-2 active:opacity-60">
+            <Pressable onPress={seedDefaultRoles} className="active:opacity-60" style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}>
               <Text className="text-xs text-primary-500 font-medium">{t("weddingParty.createDefaults")}</Text>
             </Pressable>
           )}

@@ -9,6 +9,7 @@ import { useGuestsStore } from "@/store/useGuestsStore";
 import { formatGuestName } from "@fiance/sdk";
 import { FAB } from "@/components/FAB";
 import { BoutonIcone } from "@/components/BoutonIcone";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { FormCard, DateRow, InputRow, FormActions } from "@/components/FormSection";
@@ -276,6 +277,7 @@ export default function AccommodationsScreen() {
                       return next;
                     })}
                     className="flex-row items-center justify-between mt-3 pt-2.5 border-t border-hair"
+                    style={{ minHeight: CIBLE_TACTILE }}
                   >
                     <Text className="text-xs font-medium text-mute">
                       {t("guestsWithType", { count: guestCount })}

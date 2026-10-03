@@ -16,6 +16,7 @@ import { useWeddingPartyStore } from "@/store/useWeddingPartyStore";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { FAB } from "@/components/FAB";
 import { BoutonIcone } from "@/components/BoutonIcone";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { ChipSelect, ToggleRow, FormActions } from "@/components/FormSection";
@@ -236,7 +237,11 @@ export default function SpeechesMusicScreen() {
       <Stack.Screen
         options={{
           headerRight: () => (
-            <Pressable onPress={handleExport} className="mr-2 px-3 py-1.5 rounded-lg active:opacity-60 flex-row items-center gap-1">
+            <Pressable
+              onPress={handleExport}
+              className="mr-2 px-3 rounded-lg active:opacity-60 flex-row items-center gap-1"
+              style={{ minHeight: CIBLE_TACTILE }}
+            >
               {!hasExports && <Lock size={12} color={GP.clay} />}
               <Text className="text-primary-500 text-sm font-semibold">{t("music.exportPack")}</Text>
             </Pressable>
