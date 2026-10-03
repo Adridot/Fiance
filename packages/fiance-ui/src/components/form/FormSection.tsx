@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Platform } from "react-native";
+import React, { useId, useState } from "react";
+import { Platform, StyleSheet } from "react-native";
 import { View, Text } from "react-native-css/components";
 import DateTimePicker from "@expo/ui/community/datetime-picker";
 import { Pressable } from "../../primitives/pressable";
@@ -13,6 +13,18 @@ import type { Locale } from "date-fns";
 import { DatePickerModal } from "../sheets/DatePickerModal";
 import { TimePickerModal } from "../sheets/TimePickerModal";
 import { CaseVisuelle, basculeWeb } from "../ui/BasculeVisuelle";
+import { DEPASSEMENT_PUCE, PuceWeb } from "../ui/PuceWeb";
+import { agrandir } from "../../utils/cible-tactile";
+
+const styles = StyleSheet.create({
+  traversable: { pointerEvents: "none" },
+});
+
+// InputRow sur le web : le champ s'étend sur toute la rangée, étiquette comprise
+// (`py-3` + ligne `text-xs` + `mb-1` au-dessus, `py-3` en dessous) ; son texte ne bouge pas.
+const champSurLaRangee = agrandir({ haut: 12 + 16 + 4, bas: 12 });
+
+const ciblePuce = agrandir({ haut: DEPASSEMENT_PUCE, bas: DEPASSEMENT_PUCE });
 
 /** Section heading for form screens */
 export function SectionTitle({ children }: { children: string }) {
@@ -53,9 +65,17 @@ export function InputRow({
   /** Set to false to render the field read-only (view-only collaborator). */
   editable?: boolean;
 }) {
+  const web = Platform.OS === "web";
+  const idEtiquette = useId();
   return (
     <View className={`border-b border-outline-50 py-3 ${editable ? "" : "opacity-60"}`}>
-      <Text className="text-xs text-typography-400 mb-1 font-medium">{label}</Text>
+      <Text
+        className="text-xs text-typography-400 mb-1 font-medium"
+        nativeID={web ? idEtiquette : undefined}
+        style={web ? styles.traversable : undefined}
+      >
+        {label}
+      </Text>
       <Input
         value={value}
         onChangeText={onChangeText}
@@ -65,6 +85,8 @@ export function InputRow({
         keyboardType={keyboardType}
         multiline={multiline}
         editable={editable}
+        aria-labelledby={web ? idEtiquette : undefined}
+        style={web ? champSurLaRangee : undefined}
       />
     </View>
   );
@@ -354,26 +376,38 @@ export function ChipSelect<T extends string>({
   /** Set to true to make the chips inert (view-only collaborator). */
   disabled?: boolean;
 }) {
+  const web = Platform.OS === "web";
   return (
-    <View className="flex-row flex-wrap gap-2">
+    <View className="flex-row flex-wrap gap-2" role={web ? "radiogroup" : undefined}>
       {options.map((opt) => {
         const isActive = opt === value;
-        return (
-          <Pressable
-            key={opt}
-            onPress={() => !disabled && onChange(opt)}
-            disabled={disabled}
-            className={`px-3.5 py-2 rounded-full border ${
-              isActive
-                ? "bg-primary-500 border-primary-500"
-                : "bg-background-0 border-outline-200"
-            }`}
+        const choisir = () => !disabled && onChange(opt);
+        const dessin = `px-3.5 py-2 rounded-full border ${
+          isActive
+            ? "bg-primary-500 border-primary-500"
+            : "bg-background-0 border-outline-200"
+        }`;
+        const libelle = (
+          <Text
+            className={`text-sm ${isActive ? "text-white font-medium" : "text-typography-500"}`}
           >
-            <Text
-              className={`text-sm ${isActive ? "text-white font-medium" : "text-typography-500"}`}
-            >
-              {labels[opt]}
-            </Text>
+            {labels[opt]}
+          </Text>
+        );
+        return web ? (
+          <PuceWeb
+            key={opt}
+            active={isActive}
+            onPress={choisir}
+            disabled={disabled}
+            className={dessin}
+            cible={ciblePuce}
+          >
+            {libelle}
+          </PuceWeb>
+        ) : (
+          <Pressable key={opt} onPress={choisir} disabled={disabled} className={dessin}>
+            {libelle}
           </Pressable>
         );
       })}
