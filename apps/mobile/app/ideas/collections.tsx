@@ -8,6 +8,7 @@ import { useIdeasStore } from "@/store/useIdeasStore";
 import { PageHeader } from "@/components/PageHeader";
 import { FAB } from "@/components/FAB";
 import { BoutonIcone } from "@/components/BoutonIcone";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { analytics } from "@/lib/analytics";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
@@ -78,13 +79,15 @@ export default function CollectionsScreen() {
             <View className="flex-row gap-2">
               <Pressable
                 onPress={handleAdd}
-                className="flex-1 bg-primary-500 py-2.5 rounded-lg items-center"
+                className="flex-1 bg-primary-500 rounded-lg items-center justify-center"
+                style={{ minHeight: CIBLE_TACTILE }}
               >
                 <Text className="text-white font-semibold">{t("common:create")}</Text>
               </Pressable>
               <Pressable
                 onPress={() => setShowAdd(false)}
-                className="flex-1 bg-accent-paper py-2.5 rounded-lg items-center"
+                className="flex-1 bg-accent-paper rounded-lg items-center justify-center"
+                style={{ minHeight: CIBLE_TACTILE }}
               >
                 <Text className="text-mute">{t("common:cancel")}</Text>
               </Pressable>

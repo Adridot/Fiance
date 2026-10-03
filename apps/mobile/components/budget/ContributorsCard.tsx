@@ -362,16 +362,18 @@ function ContributorSheet({
         <View className="flex-row gap-2 mt-4">
           <Pressable
             onPress={onDismiss}
-            className="flex-1 bg-accent-paper py-3 rounded-2xl items-center"
+            className="flex-1 bg-accent-paper rounded-2xl items-center justify-center"
+            style={{ minHeight: CIBLE_TACTILE }}
           >
             <Text className="text-mute font-medium">{t("common:cancel")}</Text>
           </Pressable>
           <Pressable
             onPress={handleSave}
             disabled={!canSave}
-            className={`flex-1 py-3 rounded-2xl items-center ${
+            className={`flex-1 rounded-2xl items-center justify-center ${
               canSave ? "bg-primary-500 active:opacity-80" : "bg-accent-paper opacity-50"
             }`}
+            style={{ minHeight: CIBLE_TACTILE }}
           >
             <Text className={`font-semibold ${canSave ? "text-white" : "text-mute"}`}>
               {t("common:save")}
