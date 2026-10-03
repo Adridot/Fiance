@@ -10,6 +10,8 @@ interface BoutonIconeProps {
   children: React.ReactNode;
   /** Hauteur occupée dans la mise en page ; la cible mesure toujours 44 × 44 et déborde du reste. */
   empreinte?: number;
+  /** Bouton à deux états (case, cœur…) : annoncé comme une case à cocher. */
+  coche?: boolean;
   disabled?: boolean;
   testID?: string;
   style?: StyleProp<ViewStyle>;
@@ -20,6 +22,7 @@ export function BoutonIcone({
   onPress,
   children,
   empreinte = 32,
+  coche,
   disabled,
   testID,
   style,
@@ -28,9 +31,9 @@ export function BoutonIcone({
     <Pressable
       onPress={onPress}
       disabled={disabled}
-      accessibilityRole="button"
+      accessibilityRole={coche === undefined ? "button" : "checkbox"}
       accessibilityLabel={libelle}
-      accessibilityState={{ disabled: !!disabled }}
+      accessibilityState={{ disabled: !!disabled, ...(coche === undefined ? {} : { checked: coche }) }}
       testID={testID}
       style={({ pressed }) => [
         {

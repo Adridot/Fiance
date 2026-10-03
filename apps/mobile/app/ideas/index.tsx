@@ -146,6 +146,7 @@ export default function IdeasScreen() {
         right={
           <BoutonIcone
             libelle={t("favoritesOnly")}
+            coche={showFavoritesOnly}
             onPress={() => setShowFavoritesOnly(!showFavoritesOnly)}
             style={{ marginLeft: 4 }}
           >
