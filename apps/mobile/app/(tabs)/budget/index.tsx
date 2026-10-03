@@ -28,6 +28,7 @@ import { PremiumGate } from "@/components/PremiumGate";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import { useHasFeature } from "@/lib/limits";
 import { theme as GP } from "@/lib/theme";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 
 export default function BudgetScreen() {
   const { t } = useTranslation("budget");
@@ -300,6 +301,7 @@ export default function BudgetScreen() {
                   key={key}
                   onPress={() => applyTemplate(key)}
                   className="flex-1 py-3 rounded-xl border border-hair items-center justify-center active:bg-primary-50 dark:active:bg-primary-900"
+                  style={{ minHeight: CIBLE_TACTILE }}
                 >
                   <Text className="text-xs font-medium text-mute dark:text-mute text-center">
                     {t(BUDGET_TEMPLATE_LABELS[key] || '')}
@@ -318,7 +320,7 @@ export default function BudgetScreen() {
             return (
               <View
                 key={cat}
-                className={`flex-row items-center py-2.5 ${idx < Object.keys(BUDGET_CATEGORIES).length - 1 ? "border-b border-hair" : ""}`}
+                className={`flex-row items-center py-1 ${idx < Object.keys(BUDGET_CATEGORIES).length - 1 ? "border-b border-hair" : ""}`}
               >
                 <Text className="flex-1 text-sm text-ink-soft">
                   {t(BUDGET_CATEGORY_LABELS[cat] || '')}
@@ -328,9 +330,10 @@ export default function BudgetScreen() {
                     {formatMoney(spent)}
                   </Text>
                 )}
-                <View className="w-24 bg-accent-paper rounded-lg px-2 py-1">
+                <View className="w-24 bg-accent-paper rounded-lg px-2 justify-center" style={{ height: CIBLE_TACTILE }}>
                   <TextInput
                     className="text-sm text-ink"
+                    style={{ height: CIBLE_TACTILE }}
                     textAlign="right"
                     value={target ? target.toString() : ""}
                     onChangeText={(v) => setCategoryTarget(cat, v)}

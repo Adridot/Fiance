@@ -19,6 +19,8 @@ import { DateRow } from "@/components/FormSection";
 import { Avatar } from "@/components/Avatar";
 import { SearchBar } from "@/components/SearchBar";
 import { theme as GP } from "@/lib/theme";
+import { ZoneTactile } from "@/components/ZoneTactile";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { Users } from "lucide-react-native";
 import type { Guest } from "@/db/schema";
 
@@ -186,17 +188,21 @@ export default function CommunicationRosterScreen() {
                 {statusTabs.map((tab) => {
                   const isActive = tab.key === statusFilter;
                   return (
-                    <Pressable
+                    <ZoneTactile
                       key={tab.key}
                       onPress={() => setStatusFilter(tab.key)}
-                      className={`px-4 py-2 rounded-full border ${
-                        isActive ? "bg-primary-500 border-primary-500" : "bg-accent-card border-hair"
-                      }`}
+                      accessibilityState={{ selected: isActive }}
                     >
-                      <Text className={`text-sm font-medium ${isActive ? "text-white" : "text-mute"}`}>
-                        {tab.label} ({tab.count})
-                      </Text>
-                    </Pressable>
+                      <View
+                        className={`px-4 py-2 rounded-full border ${
+                          isActive ? "bg-primary-500 border-primary-500" : "bg-accent-card border-hair"
+                        }`}
+                      >
+                        <Text className={`text-sm font-medium ${isActive ? "text-white" : "text-mute"}`}>
+                          {tab.label} ({tab.count})
+                        </Text>
+                      </View>
+                    </ZoneTactile>
                   );
                 })}
               </ScrollView>
@@ -205,13 +211,15 @@ export default function CommunicationRosterScreen() {
                 <View className="flex-row gap-2 px-4 mt-2">
                   <Pressable
                     onPress={() => bulkSetRecipients(comm.id, filteredRows.flatMap((r) => r.members.map((m) => m.id)), today)}
-                    className="flex-1 bg-accent-card py-2 rounded-xl items-center border border-hair active:opacity-70"
+                    className="flex-1 bg-accent-card rounded-xl items-center border border-hair active:opacity-70"
+                    style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}
                   >
                     <Text className="text-xs font-semibold text-ink-soft">{t("markAllSent")}</Text>
                   </Pressable>
                   <Pressable
                     onPress={() => bulkSetRecipients(comm.id, filteredRows.flatMap((r) => r.members.map((m) => m.id)), null)}
-                    className="flex-1 bg-accent-card py-2 rounded-xl items-center border border-hair active:opacity-70"
+                    className="flex-1 bg-accent-card rounded-xl items-center border border-hair active:opacity-70"
+                    style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}
                   >
                     <Text className="text-xs font-semibold text-ink-soft">{t("markAllNotSent")}</Text>
                   </Pressable>

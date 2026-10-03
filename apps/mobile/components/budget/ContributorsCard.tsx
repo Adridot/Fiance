@@ -11,7 +11,8 @@ import {
 } from "@fiance/sdk";
 import { InputRow, ChipSelect } from "@/components/FormSection";
 import { BoutonIcone } from "@/components/BoutonIcone";
-import { CIBLE_TACTILE } from "@/lib/cible-tactile";
+import { ZoneTactile } from "@/components/ZoneTactile";
+import { CIBLE_TACTILE, debordement } from "@/lib/cible-tactile";
 import { Avatar } from "@/components/Avatar";
 import { Chip } from "@/components/Chip";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
@@ -101,13 +102,12 @@ export function ContributorsCard({ target, totalEngaged, categories, categoryBud
                 </Text>
               </View>
             )}
-            <Pressable
-              onPress={openAdd}
-              className="flex-row items-center bg-primary-500 px-3 py-1.5 rounded-full active:opacity-80"
-            >
-              <Plus size={14} color="#fff" />
-              <Text className="text-white text-xs font-semibold ml-1">{t("common:add")}</Text>
-            </Pressable>
+            <ZoneTactile onPress={openAdd} style={{ marginVertical: debordement(28) }}>
+              <View className="flex-row items-center bg-primary-500 px-3 py-1.5 rounded-full">
+                <Plus size={14} color="#fff" />
+                <Text className="text-white text-xs font-semibold ml-1">{t("common:add")}</Text>
+              </View>
+            </ZoneTactile>
             {expanded ? (
               <ChevronUp size={18} color="#C0C0C8" />
             ) : (
