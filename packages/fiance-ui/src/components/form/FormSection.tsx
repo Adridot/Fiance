@@ -12,6 +12,7 @@ import { enUS, fr } from "date-fns/locale";
 import type { Locale } from "date-fns";
 import { DatePickerModal } from "../sheets/DatePickerModal";
 import { TimePickerModal } from "../sheets/TimePickerModal";
+import { CaseVisuelle, basculeWeb } from "../ui/BasculeVisuelle";
 
 /** Section heading for form screens */
 export function SectionTitle({ children }: { children: string }) {
@@ -320,14 +321,20 @@ export function ToggleRow({
   /** Set to true to make the toggle inert (view-only collaborator). */
   disabled?: boolean;
 }) {
+  const web = Platform.OS === "web";
   return (
     <Pressable
+      {...(web ? basculeWeb("checkbox", value, disabled ? undefined : onToggle) : {})}
       onPress={() => !disabled && onToggle()}
       disabled={disabled}
       className="flex-row items-center justify-between py-3 border-b border-outline-50"
     >
       <Text className="text-base text-typography-700">{label}</Text>
-      <Checkbox value={value} onValueChange={() => onToggle()} disabled={disabled} />
+      {web ? (
+        <CaseVisuelle coche={value} inactif={disabled} />
+      ) : (
+        <Checkbox value={value} onValueChange={() => onToggle()} disabled={disabled} />
+      )}
     </Pressable>
   );
 }
