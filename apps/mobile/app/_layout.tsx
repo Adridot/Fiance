@@ -75,6 +75,7 @@ import { useFeatureTrialsStore } from "@/store/useFeatureTrialsStore";
 import { ObserveRoot, useObserve } from "expo-observe";
 // MODIFICATION LOCALE — l'indicateur de chargement du prérendu.
 import { masquerIndicateurDeChargement } from "@/lib/indicateur-de-chargement";
+import { useSuiviDeNavigation } from "@/lib/use-suivi-de-navigation";
 
 // Configure octospaces-sdk at module load so deriveSession/buildSession are
 // available before any screen renders (home, settings, public-page all call
@@ -231,6 +232,7 @@ function AppContent() {
 
 function InnerApp() {
   useTelemetryScreenTracking(analytics);
+  useSuiviDeNavigation();
   // EAS Observe: signal Time to Interactive once the real app content renders.
   // InnerApp mounts only after fonts load + unlock, and every entry screen
   // (public page, onboarding, tabs) renders under it. markInteractive() is
