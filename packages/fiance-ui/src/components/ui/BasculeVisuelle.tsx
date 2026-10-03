@@ -76,7 +76,7 @@ const hote = { matchContents: true, style: { alignSelf: "center" } } as const;
 export function CaseVisuelle({ coche, inactif = false }: { coche: boolean; inactif?: boolean }) {
   return useHostWrap(
     <View style={[styles.case, transition, coche && styles.caseCochee, inactif && styles.inactif]}>
-      {coche && <Check size={13} color="#fff" strokeWidth={3} />}
+      {coche && <Check size={14} color="#fff" strokeWidth={2.75} />}
     </View>,
     hote,
   );

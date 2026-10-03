@@ -57,10 +57,17 @@ describe("cibleAgrandie", () => {
     expect(boite(38, cibleAgrandie(38))).toBe(44);
   });
 
-  it("en-tête de section repliable (16 px, marges de 12 et 8) : 44 px, même encombrement", () => {
+  it("reprend les marges de l'élément : 16 px entre des marges de 12 et 8 donnent 44 px, même encombrement", () => {
     const s = cibleAgrandie(16, { marges: { haut: 12, bas: 8 } });
     expect(boite(16, s)).toBe(44);
     expect(encombrement(16, s)).toBe(16 + 12 + 8);
+  });
+
+  it("l'agrandissement peut pencher d'un côté sans changer l'encombrement (en-tête repliable)", () => {
+    const s = agrandir({ haut: 20, bas: 8 }, { marges: { haut: 12, bas: 8 } });
+    expect(boite(16, s)).toBe(44);
+    expect(encombrement(16, s)).toBe(16 + 12 + 8);
+    expect(s.marginBottom).toBe(0);
   });
 });
 

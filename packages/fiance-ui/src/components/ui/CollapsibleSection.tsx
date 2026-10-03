@@ -3,10 +3,11 @@ import { Platform } from "react-native";
 import { View, Text } from "react-native-css/components";
 import { Pressable } from "../../primitives/pressable";
 import { ChevronDown, ChevronUp } from "lucide-react-native";
-import { cibleAgrandie } from "../../utils/cible-tactile";
+import { agrandir } from "../../utils/cible-tactile";
 
-// Web : l'en-tête (une ligne `text-xs` de 16 px, `mt-3 mb-2`) porté à 44 px de cible.
-const enTete = cibleAgrandie(16, { marges: { haut: 12, bas: 8 } });
+// Web : l'en-tête (une ligne `text-xs` de 16 px, `mt-3 mb-2`) porté à 44 px de cible,
+// surtout vers le haut : en dessous, la première ligne du contenu recouvrirait la cible.
+const enTete = agrandir({ haut: 20, bas: 8 }, { marges: { haut: 12, bas: 8 } });
 
 interface CollapsibleSectionProps {
   title: string;
