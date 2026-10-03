@@ -1,7 +1,10 @@
 import React from "react";
-import { Platform } from "react-native";
+import { Platform, type ViewStyle } from "react-native";
 import BottomSheetNative, { BottomSheetView } from "@expo/ui/community/bottom-sheet";
 import { useForgeTheme } from "../../theme/context";
+
+// Web : vaul fixe la feuille au bas de la fenêtre ; sans cela sa dernière ligne passe sous l'indicateur d'accueil.
+const zoneSureDuBas = { paddingBottom: "env(safe-area-inset-bottom, 0px)" } as unknown as ViewStyle;
 
 interface BottomSheetProps {
   visible: boolean;
@@ -32,7 +35,7 @@ export function BottomSheet({ visible, onDismiss, children, backgroundColor, sna
       index={visible ? 0 : -1}
       enablePanDownToClose
       onDismiss={onDismiss}
-      backgroundStyle={{ backgroundColor: bg }}
+      backgroundStyle={Platform.OS === "web" ? [{ backgroundColor: bg }, zoneSureDuBas] : { backgroundColor: bg }}
       snapPoints={snapPoints}
       // iOS: fitToContents re-measures + resizes the sheet after present, which
       // desyncs the RNHostView touch handler (rows show a press state but onPress
