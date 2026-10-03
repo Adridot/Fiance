@@ -27,6 +27,8 @@ import {
   rsvpStatusUpdate,
 } from "@fiance/sdk";
 import { HomeBanner } from "@/components/HomeBanner";
+// MODIFICATION LOCALE — un accès refusé par le serveur n'est pas une liste vide.
+import { BandeauAccesRefuse } from "@/components/BandeauAccesRefuse";
 import { Display } from "@/components/Display";
 import { theme as GP } from "@/lib/theme";
 import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
@@ -1107,6 +1109,7 @@ function GuestsView() {
 
   return (
     <View className="relative flex-1">
+      <BandeauAccesRefuse className="mx-4 mt-4" />
       {/* Guest list — big CTA only when there are truly no guests; a search/filter that
           matches none keeps the search bar + filters visible with an inline message. */}
       {guests.length === 0 && listeIllisible ? (

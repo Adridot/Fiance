@@ -140,6 +140,17 @@ export async function chiffrerLeJeton(
   };
 }
 
+/** Chiffre un clair sous une clé déjà connue (base64url, 32 octets). */
+export async function chiffrerSousLaCle(clair: string, cleBase64Url: string): Promise<DepotChiffre> {
+  const c = crypto();
+  const brute = decoderBase64Url(cleBase64Url);
+  if (brute.length !== OCTETS_DE_CLE) throw new Error("clé de longueur inattendue");
+  const iv = c.getRandomValues(new Uint8Array(OCTETS_D_IV));
+  const cle = await c.subtle.importKey("raw", brute, "AES-GCM", false, ["encrypt"]);
+  const chiffré = await c.subtle.encrypt({ name: "AES-GCM", iv }, cle, new TextEncoder().encode(clair));
+  return { iv: encoderBase64Url(iv), ct: encoderBase64Url(new Uint8Array(chiffré)) };
+}
+
 /**
  * Déchiffre un dépôt sous la clé du fragment.
  *
@@ -249,6 +260,11 @@ async function ecrireEnCAS(syncBase: string, code: string, data: unknown, action
     rép = await pousser(syncBase, code, data, conflit.currentHash);
   }
   if (!rép.ok) throw new InvitationCourteError("reseau", `${action} refusé — HTTP ${rép.status}`);
+}
+
+/** Dépose en remplaçant un dépôt déjà présent au même code, même expiré. */
+export async function deposerEnCAS(syncBase: string, code: string, depot: DepotChiffre): Promise<void> {
+  await ecrireEnCAS(syncBase, code, depot, "dépôt");
 }
 
 /** Retire un dépôt avant son terme. Un dépôt vidé se lit comme un dépôt absent. */

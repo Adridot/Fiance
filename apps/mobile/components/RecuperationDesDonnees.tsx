@@ -7,6 +7,8 @@ import { getActiveSession } from "@/lib/starfish";
 import { theme as GP } from "@/lib/theme";
 import { useCompteStore } from "@/store/useCompteStore";
 import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
+import { useAccesRefuseStore } from "@/store/useAccesRefuseStore";
+import { useParcoursDAccueilStore } from "@/store/useParcoursDAccueilStore";
 
 const DELAI_AVANT_ECHEC_MS = 20_000;
 
@@ -19,6 +21,15 @@ export function RecuperationDesDonnees() {
     return r?.weddings.find((w) => w.id === r.activeWeddingId)?.premiereHydratationAttendue === true;
   });
   const compte = useCompteStore((s) => s.compte);
+  // MODIFICATION LOCALE — un refus du serveur ne se résout pas en attendant : le voile
+  // cède au bandeau qui le dit. Une invitation présentée doit aussi rester lisible.
+  const refus = useAccesRefuseStore((s) => s.refus);
+  const espaceActif = useWeddingRegistryStore((s) => {
+    const r = s.registry;
+    return r?.weddings.find((w) => w.id === r.activeWeddingId)?.spaceId;
+  });
+  const refuse = !!refus && refus.spaceId === espaceActif;
+  const parcoursEnCours = useParcoursDAccueilStore((s) => s.enCours);
   const [tentative, setTentative] = useState(0);
   const [tropLong, setTropLong] = useState(false);
   const [enCours, setEnCours] = useState(false);
@@ -45,7 +56,7 @@ export function RecuperationDesDonnees() {
   // Rien n'est encore lu : il n'y a rien à perdre, on ne demande donc pas de confirmation.
   const deconnecter = useCallback(() => { void seDeconnecter({ forcer: true }); }, []);
 
-  if (!attendue) return null;
+  if (!attendue || refuse || parcoursEnCours) return null;
 
   const encre = sombre ? GP.inkDark : GP.ink;
   return (

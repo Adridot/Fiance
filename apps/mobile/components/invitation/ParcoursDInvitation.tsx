@@ -3,10 +3,12 @@ import { ActivityIndicator } from "react-native";
 import { View, Text, Pressable } from "react-native-css/components";
 import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { AlertCircle, ArrowLeft, Heart, PlusCircle } from "lucide-react-native";
+import { AlertCircle, ArrowLeft, Heart, KeyRound, PlusCircle, RefreshCw } from "lucide-react-native";
+import { getSpaceAccessEntry } from "@fiance/sdk";
 import { Seo } from "@/components/Seo";
 import { PageHeader } from "@/components/PageHeader";
 import { InvitationDejaAcceptee } from "@/components/InvitationDejaAcceptee";
+import { AccesRenouvele } from "@/components/invitation/AccesRenouvele";
 import { Bouton } from "@/components/compte/Bouton";
 import { CadreDEcran } from "@/components/compte/CadreDEcran";
 import { FormulaireDeConnexion } from "@/components/compte/FormulaireDeConnexion";
@@ -15,7 +17,7 @@ import { analytics } from "@/lib/analytics";
 import { baseDeSync } from "@/lib/base-de-sync";
 import { creerMonCompte, ouvrirUneSession } from "@/lib/compte-session";
 import { consommer as consommerLeDepot } from "@/lib/invitation-courte";
-import { joinWeddingByToken } from "@/lib/join-space";
+import { joinWeddingByToken, renouvelerLAccesParLien } from "@/lib/join-space";
 import { etapeDuParcours, sequenceDeCreationDeCompte, sequenceDeJonction } from "@/lib/parcours-d-invitation";
 import type { ResolutionDInvitation } from "@/lib/resolution-d-invitation";
 import { theme as GP } from "@/lib/theme";
@@ -46,8 +48,9 @@ export function ParcoursDInvitation({ resolution, onRetour }: Props) {
 
   const [etat, setEtat] = useState<Etat>({ type: "repos" });
   const [onglet, setOnglet] = useState<Onglet>("creer");
+  const [renouvele, setRenouvele] = useState(false);
   const [identifiant, setIdentifiant] = useState(nomDeLaPersonne ?? "");
-  const derniere = useRef<{ texte: string; tache: () => Promise<void> } | null>(null);
+  const derniere = useRef<{ texte: string; tache: () => Promise<void>; ensuite?: () => void } | null>(null);
 
   useEffect(() => {
     useParcoursDAccueilStore.getState().poser(true);
@@ -55,12 +58,17 @@ export function ParcoursDInvitation({ resolution, onRetour }: Props) {
   }, []);
 
   const lancer = useCallback(
-    async (texte: string, tache: () => Promise<void>) => {
-      derniere.current = { texte, tache };
+    async (texte: string, tache: () => Promise<void>, ensuite?: () => void) => {
+      derniere.current = { texte, tache, ensuite };
       setEtat({ type: "en-cours", texte });
       try {
         await tache();
-        router.replace("/home" as any);
+        if (ensuite) {
+          ensuite();
+          setEtat({ type: "repos" });
+        } else {
+          router.replace("/home" as any);
+        }
       } catch (err) {
         setEtat({ type: "erreur", message: err instanceof Error ? err.message : String(err) });
       }
@@ -74,6 +82,35 @@ export function ParcoursDInvitation({ resolution, onRetour }: Props) {
   const consommer = async () => {
     if (code) await consommerLeDepot(baseDeSync(), code);
   };
+
+  const etape = etapeDuParcours(registre, jeton.spaceId, {
+    capDuJeton: jeton.cap,
+    capEnregistre: getSpaceAccessEntry(jeton.spaceId)?.cap,
+  });
+
+  // Un lien neuf pour un mariage déjà là : l'ouvrir suffit. Une tentative
+  // automatique ; après un échec, l'écran propose de recommencer.
+  const [etapeInitiale] = useState(etape);
+  const [renouvellementManuel, setRenouvellementManuel] = useState(false);
+  const renouveler = () =>
+    void lancer(
+      t("join.renouvellementEnCours"),
+      async () => {
+        try {
+          await sequenceDeJonction({ joindre: () => renouvelerLAccesParLien(jeton), consommer });
+        } catch (err) {
+          setRenouvellementManuel(true);
+          throw err;
+        }
+      },
+      () => setRenouvele(true),
+    );
+  useEffect(() => {
+    if (etapeInitiale !== "renouveler") return;
+    const minuteur = setTimeout(renouveler, 0);
+    return () => clearTimeout(minuteur);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (etat.type !== "repos") {
     if (illisible) {
@@ -109,7 +146,9 @@ export function ParcoursDInvitation({ resolution, onRetour }: Props) {
             <View style={{ gap: 12 }}>
               <Bouton
                 libelle={t("join.reessayer")}
-                onPress={() => derniere.current && void lancer(derniere.current.texte, derniere.current.tache)}
+                onPress={() =>
+                  derniere.current && void lancer(derniere.current.texte, derniere.current.tache, derniere.current.ensuite)
+                }
               />
               <Bouton libelle={t("back")} variante="secondaire" onPress={() => setEtat({ type: "repos" })} />
             </View>
@@ -125,7 +164,54 @@ export function ParcoursDInvitation({ resolution, onRetour }: Props) {
     );
   }
 
-  const etape = etapeDuParcours(registre, jeton.spaceId);
+  if (renouvele) {
+    return <AccesRenouvele weddingName={nom} onContinuer={() => router.replace("/home" as any)} />;
+  }
+
+  if (etape === "renouveler" && etapeInitiale === "renouveler" && !renouvellementManuel) {
+    return (
+      <View className="flex-1 bg-accent-paper items-center justify-center px-6" testID="parcours-en-cours">
+        <ActivityIndicator size="large" color={GP.clay} />
+        <Text className="text-base text-mute mt-4 text-center">{t("join.renouvellementEnCours")}</Text>
+      </View>
+    );
+  }
+
+  if (etape === "renouveler") {
+    return (
+      <View className="flex-1 bg-accent-paper justify-center px-6" testID="renouvellement-d-acces">
+        <Seo title="Fiancé" description="" noindex />
+        <View style={{ width: "100%", maxWidth: 480, alignSelf: "center" }}>
+          <View className="items-center mb-10">
+            <View className="w-20 h-20 rounded-full bg-primary-50 dark:bg-primary-900 items-center justify-center mb-5">
+              <KeyRound size={36} color={GP.clay} />
+            </View>
+            <PageHeader
+              eyebrow={t("join.inviteEyebrow")}
+              title={t("join.renouvelerTitre")}
+              tagline={nom ? t("join.renouvelerDetail", { name: nom }) : t("join.renouvelerDetailSansNom")}
+              titleSize={26}
+              style={{ paddingHorizontal: 0, paddingTop: 0 }}
+            />
+          </View>
+          <View style={{ gap: 12 }}>
+            <Bouton
+              libelle={t("join.renouvelerBouton")}
+              icone={<RefreshCw size={20} color="#fff" />}
+              testID="bouton-renouveler-l-acces"
+              onPress={renouveler}
+            />
+            <Bouton
+              libelle={t("join.noGoBack")}
+              variante="secondaire"
+              icone={<ArrowLeft size={20} color={GP.clay} />}
+              onPress={onRetour}
+            />
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   if (etape === "deja-acceptee") {
     return (

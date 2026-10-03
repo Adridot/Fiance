@@ -1,6 +1,6 @@
 import * as Linking from "expo-linking";
 import * as Crypto from "expo-crypto";
-import { createSpaceInviteLink, getSyncNamespace, roleCanWrite, serializeSpaceInviteStore, isWithinFreeLimit } from "@fiance/sdk";
+import { createSpaceInviteLink, getSyncNamespace, hydrateSpaceInviteStore, roleCanWrite, serializeSpaceInviteStore, isWithinFreeLimit } from "@fiance/sdk";
 import { normalizeSyncBase, resolveServerUrl, resolveSessionConfig } from "@/lib/server";
 // MODIFICATION LOCALE — le lien passe de ~1342 à ~81 caractères : jeton chiffré
 // déposé derrière un code court, clé dans le fragment. Voir `invitation-courte.ts`.
@@ -21,10 +21,31 @@ import { isPremium } from "@/lib/premium";
 // MODIFICATION LOCALE — la limite porte sur les personnes, pas sur les liens.
 import { estUnCollaborateurConnu, nombreDeCollaborateursDistincts } from "@/lib/collaborateurs";
 import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
+// MODIFICATION LOCALE — liens longs, et contenu à l'époque courante avant d'inviter.
+import { DUREE_D_UN_ACCES_SEC } from "@/lib/renouvellement-des-acces";
+import { rescellerEspace } from "@/lib/rescellement";
 
 /** KV key holding the serialized space-invite store (edPub/kemPub/cap handles per invite),
  *  persisted so `revokeSpaceAccess` can look up the entry after an app restart. */
 export const SPACE_INVITE_STORE_KEY = "spaceInviteStore";
+
+/** Recharge le magasin persisté dans la mémoire (additif) : sans lui, une sérialisation perd les liens des sessions passées. */
+export function hydraterLeMagasinDInvitations(): void {
+  try {
+    const brut = readCollection<string>(SPACE_INVITE_STORE_KEY);
+    if (brut) hydrateSpaceInviteStore(brut);
+  } catch (err) {
+    console.warn("[invite] magasin d'invitations illisible", err);
+  }
+}
+
+/** Persiste le magasin d'invitations, entrées des sessions passées comprises. */
+export function persisterLeMagasinDInvitations(): void {
+  hydraterLeMagasinDInvitations();
+  try { writeCollection(SPACE_INVITE_STORE_KEY, serializeSpaceInviteStore()); } catch (err) {
+    console.warn("[invite] failed to persist space-invite store", err);
+  }
+}
 
 /**
  * Generate a space invite link for the given wedding entry, scoped to a role.
@@ -60,6 +81,14 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
   if (!cfg) throw new Error("INVITE_NO_SESSION");
   const spaceId = await ensureSpaceProvisioned(cfg.session, entry);
 
+  // Le nouveau venu n'est ajouté qu'à l'époque COURANTE du keyring.
+  const rescellement = await rescellerEspace(cfg.session, spaceId);
+  if (rescellement.restant.length) {
+    throw new Error(
+      `Le contenu du mariage n'a pas pu être préparé pour un nouveau collaborateur (${rescellement.restant.join(", ")}). Réessayez.`,
+    );
+  }
+
   // Record the assignment BEFORE snapshotting so it's part of the pushed content
   // the member will hydrate. Keyed by the invite's ephemeral subject id (below).
   const role = roleId ? usePermissionsStore.getState().roles.find((r) => r.id === roleId) : undefined;
@@ -73,7 +102,9 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
   // Name the invite after the collaborator when provided, so it's identifiable in the
   // invite store / roster; fall back to the wedding label.
   const collaboratorName = name?.trim() || undefined;
-  const { token, link, inviteUserId } = await createSpaceInviteLink(cfg.session, spaceId, collaboratorName ?? entry.label, canWrite, origin);
+  const { token, link, inviteUserId } = await createSpaceInviteLink(
+    cfg.session, spaceId, collaboratorName ?? entry.label, canWrite, origin, { ttlSec: DUREE_D_UN_ACCES_SEC },
+  );
 
   // Le dépôt AVANT l'affectation et la poussée : s'il échoue, aucune affectation
   // orpheline n'est laissée par la tentative.
@@ -96,9 +127,7 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
 
   // Persist the (in-memory) invite store so this link's revocation handle survives an app
   // restart — revokeSpaceAccess needs getSpaceInviteEntry(spaceId, inviteUserId) to resolve.
-  try { writeCollection(SPACE_INVITE_STORE_KEY, serializeSpaceInviteStore()); } catch (err) {
-    console.warn("[invite] failed to persist space-invite store", err);
-  }
+  persisterLeMagasinDInvitations();
 
   if (role) {
     const subjectUserId = inviteUserId ?? (token.cap as { subUserId?: string }).subUserId;

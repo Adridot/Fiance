@@ -73,11 +73,57 @@ async function lireEpoqueCourante(
   }
 }
 
+/** Écrire, vérifier, recommencer une fois : une écriture concurrente peut faire sauter la première. */
+const PASSES_D_ECRITURE = 2;
+
+interface Releve {
+  aJour: ObjectNode[];
+  enRetard: ObjectNode[];
+  /** Lecture en échec : rien n'est prouvé, donc rien n'est fait. */
+  enEchec: ObjectNode[];
+}
+
+/** L'époque de chaque document, lue sur le serveur. Un document absent n'a rien à resceller. */
+async function relever(
+  session: Session,
+  spaceId: string,
+  noeuds: ObjectNode[],
+  epoque: number,
+): Promise<Releve> {
+  const etats = await Promise.all(
+    noeuds.map(async (noeud) => {
+      try {
+        const handle = await getNodeAccess(spaceId, noeud.id, noeud, session, null);
+        const res = (await handle.client.pull(objDocPull(spaceId, noeud.id))) as
+          | { hash?: string; data?: Record<string, unknown> | null }
+          | null;
+        // Un document absent se lit `{hash:"",data:{}}`, jamais un 404.
+        const vide = !res?.hash || !res.data || Object.keys(res.data).length === 0;
+        if (vide) return "absent" as const;
+        return epoqueDeLEnveloppe(res.data) === epoque ? ("a-jour" as const) : ("en-retard" as const);
+      } catch {
+        return "en-echec" as const;
+      }
+    }),
+  );
+  const releve: Releve = { aJour: [], enRetard: [], enEchec: [] };
+  etats.forEach((etat, i) => {
+    if (etat === "a-jour") releve.aJour.push(noeuds[i]);
+    else if (etat === "en-retard") releve.enRetard.push(noeuds[i]);
+    else if (etat === "en-echec") releve.enEchec.push(noeuds[i]);
+  });
+  return releve;
+}
+
 /**
  * Rescelle tout le contenu chiffré de l'espace sous l'époque courante.
  *
  * Ce qui est déjà à l'époque courante est sauté sans aucune écriture :
  * l'opération est rejouable, et la relancer sur un espace à jour est sans effet.
+ *
+ * MODIFICATION LOCALE — le résultat dit ce que le SERVEUR détient, relu après
+ * écriture. Le chemin rapide de `handle.push` rend `cur = null` dès qu'un cache
+ * connaît le hash : rien n'était écrit, et c'était compté « déjà à jour ».
  */
 export async function rescellerEspace(
   session: Session,
@@ -99,53 +145,41 @@ export async function rescellerEspace(
 
   // Relevé d'abord, écritures ensuite : on ne pousse rien tant qu'on ne sait pas
   // ce qu'il y a à pousser, et l'avancement affiché porte sur un total connu.
-  const enRetard: ObjectNode[] = [];
-  for (const noeud of chiffres) {
-    try {
-      const handle = await getNodeAccess(spaceId, noeud.id, noeud, session, null);
-      const res = (await handle.client.pull(objDocPull(spaceId, noeud.id))) as
-        | { hash?: string; data?: Record<string, unknown> | null }
-        | null;
-      // Un document absent se lit `{hash:"",data:{}}`, jamais un 404.
-      const vide = !res?.hash || !res.data || Object.keys(res.data).length === 0;
-      if (vide) continue;
-      if (epoqueDeLEnveloppe(res.data) === epoque) { resultat.dejaAJour.push(noeud.type); continue; }
-      enRetard.push(noeud);
-    } catch {
-      resultat.restant.push(noeud.type);
-    }
-  }
+  const releve = await relever(session, spaceId, chiffres, epoque);
+  resultat.dejaAJour.push(...releve.aJour.map((n) => n.type));
+  resultat.restant.push(...releve.enEchec.map((n) => n.type));
 
-  if (!enRetard.length) return resultat;
-
-  // Sans ce vidage, `handle.push` prend son chemin cache-chaud, appelle le
-  // mutateur avec `cur = null`, qui rend `null` — et le rescellement devient un
-  // non-événement silencieux.
-  neutraliserCachesDePoussée(spaceId, enRetard.map((n) => n.id));
-
+  let aEcrire = releve.enRetard;
+  const total = aEcrire.length;
   let fait = 0;
-  for (const noeud of enRetard) {
-    options.onAvancement?.({ collection: noeud.type, fait, total: enRetard.length });
-    try {
-      const handle = await getNodeAccess(spaceId, noeud.id, noeud, session, null);
-      let ecrit = false;
-      await handle.push(
-        objDocPull(spaceId, noeud.id),
-        objDocPush(spaceId, noeud.id),
-        // Le contenu repart tel quel ; seule l'enveloppe change d'époque. En cas
-        // de conflit, `runCas` relit avant de rappeler ce mutateur — sans quoi
-        // on réémettrait une version périmée sous une époque neuve.
-        (cur) => { ecrit = cur !== null; return cur; },
-      );
-      if (ecrit) resultat.rescellees.push(noeud.type);
-      else resultat.dejaAJour.push(noeud.type);
-    } catch (err) {
-      console.warn(`[rescellement] ${noeud.type} :`, err instanceof Error ? err.message : String(err));
-      resultat.restant.push(noeud.type);
+  for (let passe = 0; passe < PASSES_D_ECRITURE && aEcrire.length; passe++) {
+    for (const noeud of aEcrire) {
+      if (passe === 0) options.onAvancement?.({ collection: noeud.type, fait, total });
+      // Juste avant CHAQUE écriture : sans ce vidage, le chemin rapide saute l'écriture.
+      neutraliserCachesDePoussée(spaceId, [noeud.id]);
+      try {
+        const handle = await getNodeAccess(spaceId, noeud.id, noeud, session, null);
+        await handle.push(
+          objDocPull(spaceId, noeud.id),
+          objDocPush(spaceId, noeud.id),
+          // Le contenu repart tel quel ; seule l'enveloppe change d'époque. En cas
+          // de conflit, `runCas` relit avant de rappeler ce mutateur — sans quoi
+          // on réémettrait une version périmée sous une époque neuve.
+          (cur) => cur,
+        );
+      } catch (err) {
+        console.warn(`[rescellement] ${noeud.type} :`, err instanceof Error ? err.message : String(err));
+      }
+      if (passe === 0) {
+        fait += 1;
+        options.onAvancement?.({ collection: noeud.type, fait, total });
+      }
     }
-    fait += 1;
-    options.onAvancement?.({ collection: noeud.type, fait, total: enRetard.length });
+    const verification = await relever(session, spaceId, aEcrire, epoque);
+    resultat.rescellees.push(...verification.aJour.map((n) => n.type));
+    aEcrire = [...verification.enRetard, ...verification.enEchec];
   }
+  resultat.restant.push(...aEcrire.map((n) => n.type));
 
   return resultat;
 }

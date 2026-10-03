@@ -68,6 +68,8 @@ import {
   getSpaceAccessEntry,
   getSpacesConfig,
   getSyncNamespace,
+  // MODIFICATION LOCALE — relire l'index pour distinguer un refus d'un espace vide.
+  getSpaceClient,
 } from '@fiance/sdk';
 import { StarfishHttpError } from '@drakkar.software/starfish-client';
 import { useWeddingStore } from '@/store/useWeddingStore';
@@ -138,8 +140,17 @@ import {
   persistPermissionAssignments,
 } from '@/lib/persistence';
 // MODIFICATION LOCALE — un échec de déchiffrement cesse d'être un console.warn.
-import { epoquesDetenuesDeLEspace, signalerLecture } from '@/lib/acces-chiffre';
+import {
+  collectionsEnRetardDEpoque,
+  epoqueDeLEnveloppe,
+  epoquesDetenuesDeLEspace,
+  lireLeKeyringDeLEspace,
+  signalerLecture,
+} from '@/lib/acces-chiffre';
 import { collectionIllisible } from '@/store/useAccesChiffreStore';
+// MODIFICATION LOCALE — un refus du serveur n'est pas un espace vide.
+import { refusASignaler } from '@/lib/acces-refuse';
+import { useAccesRefuseStore } from '@/store/useAccesRefuseStore';
 
 // ---------------------------------------------------------------------------
 // Debounced push scheduler
@@ -1105,6 +1116,14 @@ async function pullNodeContent(
   }
 }
 
+/** MODIFICATION LOCALE — collections lues sous une époque antérieure à la courante, à la dernière lecture. */
+let _collectionsSurUneÉpoqueAncienne: string[] = [];
+
+/** Les collections que la dernière hydratation a trouvées sur une époque ancienne du keyring. */
+export function collectionsSurUneÉpoqueAncienne(): string[] {
+  return _collectionsSurUneÉpoqueAncienne;
+}
+
 /** Batch-pull the per-collection docs (one /batch/pull over the sentinel ids) and decrypt each,
  *  keyed by entity type. All sentinels are access:'space', so the single batch fast-path applies. */
 async function pullCollectionDocs(
@@ -1113,6 +1132,7 @@ async function pullCollectionDocs(
   sentinels: ObjectNode[],
 ): Promise<Map<string, CollectionDoc>> {
   const out = new Map<string, CollectionDoc>();
+  _collectionsSurUneÉpoqueAncienne = [];
   if (!sentinels.length) return out;
   // MODIFICATION LOCALE — signaler est un commentaire sur la lecture, jamais
   // une condition de celle-ci : son échec ne doit pas remonter.
@@ -1134,11 +1154,13 @@ async function pullCollectionDocs(
     // 24 août 2026 : plus aucun `batch/pull`, et la liste des collaborateurs,
     // qui ne vit que dans les documents de collection, disparue de l'écran.
     let detenues: Set<number> | null = null;
+    let courante: number | null = null;
     try {
-      detenues = await epoquesDetenuesDeLEspace(session, spaceId, handle.client, getSpaceAccessEntry(spaceId));
+      ({ detenues, courante } = await lireLeKeyringDeLEspace(session, spaceId, handle.client, getSpaceAccessEntry(spaceId)));
     } catch (err) {
       console.warn('[space-sync] époques détenues illisibles — rien ne sera avéré :', err);
     }
+    const époquesLues: Record<string, number | null> = {};
     await Promise.all(entries.map(async (entry: { error?: unknown; data?: unknown; hash?: string }, i: number) => {
       const type = sentinels[i].type;
       if (entry.error || !entry.data) {
@@ -1147,6 +1169,7 @@ async function pullCollectionDocs(
         return;
       }
       const data = entry.data as Record<string, unknown>;
+      époquesLues[type] = epoqueDeLEnveloppe(data);
       try {
         const decrypted = handle.encryptor ? await handle.encryptor.decrypt(data) : data;
         out.set(type, asCollectionDoc(decrypted));
@@ -1156,6 +1179,7 @@ async function pullCollectionDocs(
         console.warn(`[space-sync] pullCollectionDocs ${type} illisible:`, err instanceof Error ? err.message : String(err));
       }
     }));
+    _collectionsSurUneÉpoqueAncienne = collectionsEnRetardDEpoque(époquesLues, courante);
   } catch (err) {
     // Un échec du lot entier ne prouve rien sur les clés : réseau, jamais avéré.
     for (const n of sentinels) classer(n.type, { erreur: err });
@@ -1275,6 +1299,18 @@ function persisterCollectionsRecouvertes(typesRecouverts: Set<string>, mariageAp
   }
 }
 
+/** Relit l'index : le refus du serveur (401/403) qui a vidé la lecture, ou `null`. Membres seulement. */
+async function refusDeLecture(session: Session, spaceId: string): Promise<401 | 403 | null> {
+  if (!isActiveDeviceMember()) return null;
+  const entrée = getSpaceAccessEntry(spaceId);
+  try {
+    await getSpaceClient(spaceId, session).pull(session.layout.objIndexPull(spaceId));
+    return null;
+  } catch (err) {
+    return refusASignaler(err, { membre: true, accesInchange: getSpaceAccessEntry(spaceId) === entrée });
+  }
+}
+
 /** Returns the number of nodes pulled from the server (0 = space was empty). */
 export async function hydrateFromSpace(
   session: Session,
@@ -1291,12 +1327,22 @@ export async function hydrateFromSpace(
   try {
     const nodes = await readObjectTree(session, spaceId);
     if (!nodes.length) {
+      // MODIFICATION LOCALE — `readObjectTree` avale ses erreurs : un 401 se lisait
+      // comme un espace vide, et levait la garde sans rien avoir lu.
+      const refus = await refusDeLecture(session, spaceId);
+      if (refus !== null) {
+        console.warn(`[space-sync] hydrateFromSpace: lecture de ${spaceId} refusée par le serveur (HTTP ${refus})`);
+        useAccesRefuseStore.getState().signaler(spaceId, refus);
+        return 0;
+      }
+      useAccesRefuseStore.getState().lever(spaceId);
       console.warn(
         `[space-sync] hydrateFromSpace: empty object index for ${spaceId} — owner published no content, or space-access credential unrestored`,
       );
       if (premièreHydratationAttendue()) await leverLaGardeDePremièreHydratation();
       return 0;
     }
+    useAccesRefuseStore.getState().lever(spaceId);
 
     // Sentinel (per-collection) nodes share a `type` with legacy per-entity nodes, so bucket
     // them out first — the legacy pull path must not treat a collection doc as a lone entity.
