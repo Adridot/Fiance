@@ -4,6 +4,7 @@ import { View } from "react-native-css/components";
 import { Input } from "../../primitives/input";
 import { Button } from "../../primitives/button";
 import { useForgeTheme } from "../../theme/context";
+import { nomSaisi } from "../../utils/nom-saisi";
 import { SheetScaffold } from "./SheetScaffold";
 
 interface RenameSheetProps {
@@ -34,9 +35,10 @@ export function RenameSheet({
     if (visible) setValue(initialValue);
   }, [visible, initialValue]);
 
+  const nom = nomSaisi(value);
   const handleConfirm = useCallback(() => {
-    if (value.trim()) onConfirm(value.trim());
-  }, [value, onConfirm]);
+    if (nom) onConfirm(nom);
+  }, [nom, onConfirm]);
 
   return (
     <SheetScaffold
@@ -51,8 +53,14 @@ export function RenameSheet({
             variant="text"
             label={saveLabel}
             onPress={handleConfirm}
+            disabled={!nom}
             labelColor={colors.onPrimary}
-            style={{ backgroundColor: colors.primary, paddingVertical: 14, borderRadius: 16 }}
+            style={{
+              backgroundColor: colors.primary,
+              paddingVertical: 14,
+              borderRadius: 16,
+              opacity: nom ? 1 : 0.4,
+            }}
           />
           <Button
             fill
