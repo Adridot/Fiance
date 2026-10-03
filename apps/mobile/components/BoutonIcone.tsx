@@ -39,7 +39,8 @@ export function BoutonIcone({
         {
           width: CIBLE_TACTILE,
           height: CIBLE_TACTILE,
-          marginVertical: debordement(empreinte),
+          marginTop: debordement(empreinte),
+          marginBottom: debordement(empreinte),
           alignItems: "center",
           justifyContent: "center",
           borderRadius: 12,
