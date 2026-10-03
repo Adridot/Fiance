@@ -8,6 +8,8 @@ import { useGuestsStore, computeCounts } from "@/store/useGuestsStore";
 import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
 import { ToggleRow } from "@/components/FormSection";
 import { BoutonIcone } from "@/components/BoutonIcone";
+import { ZoneTactile } from "@/components/ZoneTactile";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import type { QuotePricing } from "@/db/schema";
 import { formatMoney } from "@/components/MoneyDisplay";
 import { theme as GP } from "@/lib/theme";
@@ -177,21 +179,20 @@ export function GuestPricingSection({ vendorId }: { vendorId: string }) {
       {/* Type picker */}
       {remaining.length > 0 &&
         (showPicker ? (
-          <View className="flex-row flex-wrap gap-2 mt-3">
+          <View className="flex-row flex-wrap mt-3" style={{ columnGap: 8 }}>
             {remaining.map((it) => (
-              <Pressable
-                key={it.id}
-                onPress={() => addLine(it.id)}
-                className="px-3 py-2 bg-accent-paper border border-hair rounded-full active:opacity-80"
-              >
-                <Text className="text-sm text-ink">{it.label}</Text>
-              </Pressable>
+              <ZoneTactile key={it.id} onPress={() => addLine(it.id)}>
+                <View className="px-3 py-2 bg-accent-paper border border-hair rounded-full">
+                  <Text className="text-sm text-ink">{it.label}</Text>
+                </View>
+              </ZoneTactile>
             ))}
           </View>
         ) : (
           <Pressable
             onPress={() => setShowPicker(true)}
-            className="flex-row items-center justify-center gap-1.5 mt-3 py-2.5 rounded-xl border border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-950 active:opacity-80"
+            className="flex-row items-center justify-center gap-1.5 mt-3 rounded-xl border border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-950 active:opacity-80"
+            style={{ minHeight: CIBLE_TACTILE }}
           >
             <Plus size={15} color={GP.clay} />
             <Text className="text-sm font-semibold text-primary-500">{t("addPricingLine")}</Text>

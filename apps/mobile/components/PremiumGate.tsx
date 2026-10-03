@@ -3,6 +3,7 @@ import { View, Text, Pressable } from "react-native-css/components";
 import { useTranslation } from "react-i18next";
 import { Lock } from "lucide-react-native";
 import { PaywallSheet } from "@/components/PaywallSheet";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 
 interface PremiumGateProps {
   /** Render the blur-lock overlay instead of `children` when true. */
@@ -67,7 +68,8 @@ export function PremiumGate({ locked, title, message, onUnlock, children }: Prem
         ) : null}
         <Pressable
           onPress={() => (onUnlock ? onUnlock() : setShowPaywall(true))}
-          className="bg-primary-500 rounded-full px-4 py-2 active:opacity-80"
+          className="bg-primary-500 rounded-full px-4 active:opacity-80"
+          style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}
         >
           <Text className="text-white text-xs font-semibold">{t("premiumGateCta")}</Text>
         </Pressable>
