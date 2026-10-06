@@ -58,6 +58,22 @@ export function persisterLeMagasinDInvitations(): void {
  * Rend toujours le lien COURT : si le dépôt échoue, l'erreur remonte, sans repli
  * sur le format long (illisible une fois partagé, sans nom, non consommable).
  */
+/**
+ * Deux créations de lien concurrentes (« Réessayer » pendant qu'une tentative
+ * est encore en vol) ajoutent chacune un destinataire au keyring : la seconde
+ * reçoit un 409, que le SDK ne rejoue pas. On la relance, sur un keyring relu.
+ */
+export async function reprendreSurConflit<T>(tache: () => Promise<T>, essais = 3): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await tache();
+    } catch (err) {
+      const conflit = err instanceof Error && (err.name === "ConflictError" || err.message === "hash_mismatch");
+      if (!conflit || i >= essais) throw err;
+    }
+  }
+}
+
 export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: string, name?: string): Promise<string> {
   // Defensive backstop — the primary gate is the paywall prompt in settings/index.tsx's
   // handleInvite. Free tier allows 1 invited member (the partner); the 2nd+ requires premium.
@@ -102,8 +118,10 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
   // Name the invite after the collaborator when provided, so it's identifiable in the
   // invite store / roster; fall back to the wedding label.
   const collaboratorName = name?.trim() || undefined;
-  const { token, link, inviteUserId } = await createSpaceInviteLink(
-    cfg.session, spaceId, collaboratorName ?? entry.label, canWrite, origin, { ttlSec: DUREE_D_UN_ACCES_SEC },
+  const { token, link, inviteUserId } = await reprendreSurConflit(() =>
+    createSpaceInviteLink(
+      cfg.session, spaceId, collaboratorName ?? entry.label, canWrite, origin, { ttlSec: DUREE_D_UN_ACCES_SEC },
+    ),
   );
 
   // Le dépôt AVANT l'affectation et la poussée : s'il échoue, aucune affectation

@@ -92,3 +92,24 @@ describe("createInviteLink", () => {
     expect(mockHydraterMagasin).toHaveBeenCalledWith('{"sp-1:ancien":{"edPub":"e","kemPub":"k"}}');
   });
 });
+
+describe("reprendreSurConflit", () => {
+  const conflit = () => Object.assign(new Error("hash_mismatch"), { name: "ConflictError" });
+
+  it("relance une création qui a perdu la course au keyring", async () => {
+    const { reprendreSurConflit } = await import("@/lib/invite-link");
+    const tache = vi.fn().mockRejectedValueOnce(conflit()).mockResolvedValueOnce("lien");
+    await expect(reprendreSurConflit(tache)).resolves.toBe("lien");
+    expect(tache).toHaveBeenCalledTimes(2);
+  });
+
+  it("ne relance ni une autre erreur, ni au-delà du nombre d'essais", async () => {
+    const { reprendreSurConflit } = await import("@/lib/invite-link");
+    const autre = vi.fn().mockRejectedValue(new Error("HTTP 500"));
+    await expect(reprendreSurConflit(autre)).rejects.toThrow("HTTP 500");
+    expect(autre).toHaveBeenCalledTimes(1);
+    const toujours = vi.fn().mockRejectedValue(conflit());
+    await expect(reprendreSurConflit(toujours, 3)).rejects.toThrow("hash_mismatch");
+    expect(toujours).toHaveBeenCalledTimes(3);
+  });
+});
