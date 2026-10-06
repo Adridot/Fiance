@@ -1,8 +1,13 @@
 import React from "react";
+import { Platform } from "react-native";
 import { View, Text, Pressable } from "react-native-css/components";
 import type { LucideIcon } from "lucide-react-native";
 import { Button } from "../../primitives/button";
 import { useForgeTheme } from "../../theme/context";
+import { cibleAgrandie } from "../../utils/cible-tactile";
+
+// Web : le lien secondaire (une ligne `text-sm` de 20 px, `mt-4`) porté à 44 px de cible.
+const lienSecondaire = cibleAgrandie(20, { marges: { haut: 16 } });
 
 interface EmptyStateProps {
   icon: LucideIcon;
@@ -68,7 +73,11 @@ export function EmptyState({
         </View>
       )}
       {secondaryActionLabel && onSecondaryAction && (
-        <Pressable onPress={onSecondaryAction} className="mt-4 active:opacity-60">
+        <Pressable
+          onPress={onSecondaryAction}
+          className="mt-4 active:opacity-60"
+          style={Platform.OS === "web" ? lienSecondaire : undefined}
+        >
           <Text className="text-sm font-medium text-center" style={{ color: colors.primary }}>
             {secondaryActionLabel}
           </Text>

@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from "react";
 import { View, Text } from "react-native-css/components";
 import { Pressable } from "../../primitives/pressable";
-import { Modal } from "react-native";
+import { Modal, Platform } from "react-native";
 import { Lock, X } from "lucide-react-native";
 import { savePin, setLockEnabled } from "../../utils/app-lock";
 import { useForgeTheme } from "../../theme/context";
@@ -99,6 +99,8 @@ export function PinSetup({
         <Pressable
           onPress={handleCancel}
           className="absolute top-14 right-6 w-10 h-10 items-center justify-center"
+          // Web : 44 × 44 au lieu de 40, même centre (la boîte inclut son rembourrage).
+          style={Platform.OS === "web" ? { width: 44, height: 44, margin: -2 } : undefined}
         >
           <X size={24} className="text-typography-400" />
         </Pressable>
