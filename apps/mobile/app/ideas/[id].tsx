@@ -35,8 +35,10 @@ import { parseLinks, serializeLinks, isValidUrl } from "@/lib/links";
 import type { Idea } from "@/db/schema";
 import { PageHeader } from "@/components/PageHeader";
 import { Postit } from "@/components/Postit";
+import { BoutonIcone } from "@/components/BoutonIcone";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
 import { theme as GP } from "@/lib/theme";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 
 const CATEGORIES = Object.keys(IDEA_CATEGORY_LABELS) as IdeaCategory[];
 
@@ -147,14 +149,19 @@ export default function IdeaDetailScreen() {
         options={{
           title: title || "",
           headerRight: () => (
-            <View className="flex-row items-center gap-3 mr-2">
-              <Pressable onPress={() => setIsFavorite(!isFavorite)}>
+            <View className="flex-row items-center gap-0.5 mr-2">
+              <BoutonIcone
+                libelle={t("favorite")}
+                coche={isFavorite}
+                onPress={() => setIsFavorite(!isFavorite)}
+                empreinte={CIBLE_TACTILE}
+              >
                 <Heart
                   size={24}
                   color={isFavorite ? "#EF4444" : "#C0C0C8"}
                   fill={isFavorite ? "#EF4444" : "transparent"}
                 />
-              </Pressable>
+              </BoutonIcone>
               <SaveHeaderButton label={t("common:save")} enabled={true} onPress={handleSave} />
             </View>
           ),
