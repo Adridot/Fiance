@@ -272,8 +272,13 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
           },
           {
             spaces: [spaceId],
-            authHeaders: (method, pathAndQuery) =>
-              buildAuthHeaders(session.contentCap, session.keys.edPriv, method, pathAndQuery),
+            // Mêmes cap et clé que les lectures (resolveEntryClient) : seul le sujet inscrit dans `_access` est abonné.
+            authHeaders: (method, pathAndQuery) => {
+              const accès = getSpaceAccessEntry(spaceId);
+              if (accès?.kind === "link") return buildAuthHeaders(accès.cap, accès.key, method, pathAndQuery);
+              const cap = accès?.kind === "member" ? JSON.parse(accès.cap) : session.contentCap;
+              return buildAuthHeaders(cap, session.keys.edPriv, method, pathAndQuery);
+            },
           },
         );
       }
