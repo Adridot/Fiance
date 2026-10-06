@@ -8,6 +8,8 @@ import { useAccommodationsStore } from "@/store/useAccommodationsStore";
 import { useGuestsStore } from "@/store/useGuestsStore";
 import { formatGuestName } from "@fiance/sdk";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { FormCard, DateRow, InputRow, FormActions } from "@/components/FormSection";
@@ -245,14 +247,14 @@ export default function AccommodationsScreen() {
                       </Text>
                     </View>
                     {canEdit && (
-                      <Pressable onPress={() => handleEdit(acc)} className="w-8 h-8 items-center justify-center">
+                      <BoutonIcone libelle={`${t("common:edit")} ${acc.name}`} onPress={() => handleEdit(acc)}>
                         <Pencil size={15} color="#9CA3AF" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                     {canEdit && (
-                      <Pressable onPress={() => setDeleteId(acc.id)} className="w-8 h-8 items-center justify-center">
+                      <BoutonIcone libelle={`${t("common:delete")} ${acc.name}`} onPress={() => setDeleteId(acc.id)}>
                         <Trash2 size={15} color="#EF4444" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                   </View>
                 </View>
@@ -275,6 +277,7 @@ export default function AccommodationsScreen() {
                       return next;
                     })}
                     className="flex-row items-center justify-between mt-3 pt-2.5 border-t border-hair"
+                    style={{ minHeight: CIBLE_TACTILE }}
                   >
                     <Text className="text-xs font-medium text-mute">
                       {t("guestsWithType", { count: guestCount })}

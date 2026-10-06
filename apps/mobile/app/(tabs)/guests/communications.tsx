@@ -10,11 +10,13 @@ import { useCommunicationTemplatesStore } from "@/store/useCommunicationTemplate
 import { useGuestsStore } from "@/store/useGuestsStore";
 import { useWeddingStore } from "@/store/useWeddingStore";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { FormCard, DateRow, InputRow, ChipSelect, FormActions } from "@/components/FormSection";
 import { StackMenu } from "@/components/StackMenu";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { theme as GP } from "@/lib/theme";
 import { analytics } from "@/lib/analytics";
 import { renderTemplate, COMMUNICATION_CHANNEL_LABELS, type CommunicationChannel } from "@fiance/sdk";
@@ -145,7 +147,8 @@ export default function CommunicationsScreen() {
             <View className="bg-accent-card rounded-2xl p-4 mb-4 border border-primary-200 dark:border-primary-800">
               <Text className="text-base font-semibold text-ink mb-3">{t("newCommunication")}</Text>
               <TextInput
-                className="text-base text-ink border-b border-hair pb-2 mb-2"
+                className="text-base text-ink border-b border-hair mb-2"
+                style={{ minHeight: CIBLE_TACTILE }}
                 placeholder={t("communicationNamePlaceholder")}
                 placeholderTextColor="#D0D0D8"
                 value={newForm.label}
@@ -217,7 +220,8 @@ export default function CommunicationsScreen() {
                 <View key={comm.id} className="bg-accent-card rounded-2xl p-4 mb-2.5 border border-primary-200 dark:border-primary-800">
                   <Text className="text-sm text-mute mb-2">{comm.label}</Text>
                   <TextInput
-                    className="text-base text-ink border-b border-hair pb-2 mb-2"
+                    className="text-base text-ink border-b border-hair mb-2"
+                    style={{ minHeight: CIBLE_TACTILE }}
                     placeholder={t("communicationName")}
                     placeholderTextColor="#D0D0D8"
                     value={editForm.label}
@@ -317,14 +321,14 @@ export default function CommunicationsScreen() {
                       </View>
                     )}
                     {canEdit && (
-                      <Pressable onPress={() => handleEdit(comm)} className="w-8 h-8 items-center justify-center">
+                      <BoutonIcone libelle={`${t("common:edit")} ${comm.label}`} onPress={() => handleEdit(comm)}>
                         <Pencil size={15} color="#9CA3AF" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                     {canEdit && (
-                      <Pressable onPress={() => setDeleteId(comm.id)} className="w-8 h-8 items-center justify-center">
+                      <BoutonIcone libelle={`${t("common:delete")} ${comm.label}`} onPress={() => setDeleteId(comm.id)}>
                         <Trash2 size={15} color="#EF4444" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                     <ChevronRight size={15} color="#9CA3AF" />
                   </View>

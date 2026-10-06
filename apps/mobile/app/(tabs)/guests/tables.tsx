@@ -16,6 +16,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Script } from "@/components/Script";
 import { HeaderAddButton } from "@/components/HeaderAddButton";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { analytics } from "@/lib/analytics";
 import { theme as GP } from "@/lib/theme";
 
@@ -71,7 +72,8 @@ export default function TablesScreen() {
             {t("newTable")}
           </Text>
           <TextInput
-            className="text-base text-ink border-b border-hair pb-2 mb-3"
+            className="text-base text-ink border-b border-hair mb-3"
+            style={{ minHeight: CIBLE_TACTILE }}
             placeholder={t("tableName")}
             placeholderTextColor="#D0D0D8"
             value={newTableName}
@@ -80,7 +82,8 @@ export default function TablesScreen() {
             editable={canEdit}
           />
           <TextInput
-            className="text-base text-ink border-b border-hair pb-2 mb-3"
+            className="text-base text-ink border-b border-hair mb-3"
+            style={{ minHeight: CIBLE_TACTILE }}
             placeholder={t("capacity")}
             placeholderTextColor="#D0D0D8"
             value={newTableCapacity}

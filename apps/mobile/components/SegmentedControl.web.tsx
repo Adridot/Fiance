@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Pressable, Text } from "react-native-css/components";
+import { CIBLE_TACTILE, debordement } from "@/lib/cible-tactile";
 
 // Web fallback: @expo/ui's SegmentedControl (used on iOS/Android, see
 // SegmentedControl.tsx) doesn't render reliably on web, so this keeps the
@@ -27,17 +28,29 @@ export function SegmentedControl({ segments, activeKey, onSelect, compact = fals
           <Pressable
             key={seg.key}
             onPress={() => onSelect(seg.key)}
-            className={`flex-1 py-2 rounded-lg items-center ${
-              isActive ? "bg-accent-card shadow-soft-1" : ""
-            }`}
+            accessibilityRole="button"
+            accessibilityState={{ selected: isActive }}
+            className="flex-1"
+            style={{
+              height: CIBLE_TACTILE,
+              minWidth: CIBLE_TACTILE,
+              marginVertical: debordement(36),
+              justifyContent: "center",
+            }}
           >
-            <Text
-              className={`text-sm font-medium ${
-                isActive ? "text-primary-500" : "text-mute"
+            <View
+              className={`py-2 rounded-lg items-center ${compact ? "px-3" : ""} ${
+                isActive ? "bg-accent-card shadow-soft-1" : ""
               }`}
             >
-              {seg.label}
-            </Text>
+              <Text
+                className={`text-sm font-medium ${
+                  isActive ? "text-primary-500" : "text-mute"
+                }`}
+              >
+                {seg.label}
+              </Text>
+            </View>
           </Pressable>
         );
       })}

@@ -344,6 +344,7 @@
     "splitSelected_one": "Faire passer {{count}} membre dans un foyer à part",
     "splitSelected_other": "Faire passer {{count}} membres dans un foyer à part",
     "remove": "Supprimer ce foyer",
+    "detach": "Retirer du foyer",
     "removeExplain": "Ses membres restent dans la liste d'invités, sans foyer. L'adresse et l'intitulé du foyer disparaissent.",
     "gone": "Ce foyer n'existe plus."
   },

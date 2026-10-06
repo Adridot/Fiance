@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, ScrollView, Pressable, TextInput } from "react-native-css/components";
+import { View, Text, ScrollView, TextInput } from "react-native-css/components";
 import { Alert } from "react-native";
 import { useTranslation } from "react-i18next";
 import { UsersRound, Trash2, Pencil, AlertTriangle } from "lucide-react-native";
@@ -15,9 +15,11 @@ import { useGuestsStore } from "@/store/useGuestsStore";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
 import { ChipSelect, ToggleRow, FormActions } from "@/components/FormSection";
 import { GuestSelectList } from "@/components/GuestSelectList";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { analytics } from "@/lib/analytics";
 import type { SeatingConstraint } from "@/db/schema";
 import { theme as GP } from "@/lib/theme";
@@ -113,7 +115,8 @@ export default function SeatingConstraintsScreen() {
       <ChipSelect options={TYPES} value={form.type} onChange={(type) => setForm((f) => ({ ...f, type }))} labels={typeLabels} />
 
       <TextInput
-        className="text-base text-ink border-b border-hair pb-2 mt-4"
+        className="text-base text-ink border-b border-hair mt-4"
+        style={{ minHeight: CIBLE_TACTILE }}
         placeholder={t("seatingConstraints.labelPlaceholder")}
         placeholderTextColor="#D0D0D8"
         value={form.label}
@@ -175,14 +178,13 @@ export default function SeatingConstraintsScreen() {
             if (editingId === c.id) return <View key={c.id}>{renderForm()}</View>;
             const violations = getConstraintViolations(c, guests);
             const hasViolation = violations.length > 0;
+            const nom = c.label || t(SEATING_CONSTRAINT_TYPE_LABELS[c.type as SeatingConstraintType]);
             return (
               <View key={c.id} className="bg-accent-card rounded-2xl p-4 mb-2.5 border border-hair">
                 <View className="flex-row items-center justify-between">
                   <View className="flex-1">
                     <View className="flex-row items-center gap-1.5">
-                      <Text className="text-base font-semibold text-ink">
-                        {c.label || t(SEATING_CONSTRAINT_TYPE_LABELS[c.type as SeatingConstraintType])}
-                      </Text>
+                      <Text className="text-base font-semibold text-ink">{nom}</Text>
                       {hasViolation && <AlertTriangle size={14} color={c.isHard ? "#EF4444" : GP.mustard} />}
                     </View>
                     <Text className="text-xs text-mute mt-0.5">
@@ -191,14 +193,14 @@ export default function SeatingConstraintsScreen() {
                   </View>
                   <View className="flex-row items-center gap-1">
                     {canEdit && (
-                      <Pressable onPress={() => handleEdit(c)} className="w-8 h-8 items-center justify-center">
+                      <BoutonIcone libelle={`${t("common:edit")} ${nom}`} onPress={() => handleEdit(c)}>
                         <Pencil size={15} color="#9CA3AF" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                     {canEdit && (
-                      <Pressable onPress={() => setDeleteId(c.id)} className="w-8 h-8 items-center justify-center">
+                      <BoutonIcone libelle={`${t("common:delete")} ${nom}`} onPress={() => setDeleteId(c.id)}>
                         <Trash2 size={15} color="#EF4444" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                   </View>
                 </View>

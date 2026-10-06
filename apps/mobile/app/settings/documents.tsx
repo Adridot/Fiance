@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { View, Text, ScrollView, Pressable } from "react-native-css/components";
+import { View, Text, ScrollView } from "react-native-css/components";
 import { useTranslation } from "react-i18next";
 import { FileText, Trash2 } from "lucide-react-native";
 import { useDocumentsStore } from "@/store/useDocumentsStore";
@@ -7,6 +7,7 @@ import { useVendorsStore } from "@/store/useVendorsStore";
 import { useGuestsStore } from "@/store/useGuestsStore";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
+import { BoutonIcone } from "@/components/BoutonIcone";
 import { FilterTabs } from "@/components/FilterTabs";
 import { isDocumentAvailableOnDevice, deleteDocumentFile } from "@/lib/documents";
 import { DOCUMENT_OWNER_TYPE_LABELS, formatGuestName, type DocumentOwnerType } from "@fiance/sdk";
@@ -72,9 +73,9 @@ export default function DocumentsHubScreen() {
                     <Text className="text-xs text-red-500 mt-0.5">{t("documentUnavailable")}</Text>
                   )}
                 </View>
-                <Pressable onPress={() => setDeleteId(doc.id)} className="w-8 h-8 items-center justify-center">
+                <BoutonIcone libelle={`${t("common:delete")} ${doc.label}`} onPress={() => setDeleteId(doc.id)}>
                   <Trash2 size={16} color="#EF4444" />
-                </Pressable>
+                </BoutonIcone>
               </View>
             );
           })}

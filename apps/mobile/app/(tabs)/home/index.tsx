@@ -22,7 +22,7 @@ import { usePlanningStore } from "@/store/usePlanningStore";
 import { useBudgetSummary } from "@/store/useBudgetStore";
 import { useIdeasStore } from "@/store/useIdeasStore";
 import { formatMoney } from "@/components/MoneyDisplay";
-import { TimelineItem } from "@/components/TimelineItem";
+import { CIBLE_TACTILE, debordement } from "@/lib/cible-tactile";
 import { usePwaInstall } from "@/lib/usePwaInstall";
 import { useWidgetBanner } from "@/lib/useWidgetBanner";
 import { HomeBanner } from "@/components/HomeBanner";
@@ -224,6 +224,7 @@ function DashboardScreen() {
               <Pressable
                 onPress={() => router.push("/(tabs)/home/wedding-day")}
                 className="flex-row items-center mt-4 bg-white self-start pl-4 pr-3 py-2.5 rounded-full active:opacity-80"
+                style={{ minHeight: CIBLE_TACTILE }}
               >
                 <Clock size={16} color={GP.clay} />
                 <Text className="mx-2 font-semibold text-sm" style={{ color: GP.clay }}>
@@ -531,7 +532,8 @@ function DashboardScreen() {
         <View className="bg-accent-card rounded-2xl p-4 mb-3 border border-hair">
           <Pressable
             onPress={() => router.push("/(tabs)/planning/agenda")}
-            className="flex-row items-center justify-between mb-3 active:opacity-80"
+            className="flex-row items-center justify-between active:opacity-80"
+            style={{ minHeight: CIBLE_TACTILE, marginTop: debordement(16) }}
           >
             <Label>{t("upcoming")}</Label>
             <ChevronRight size={16} color={GP.mute} />
@@ -541,9 +543,9 @@ function DashboardScreen() {
           ) : (
             <>
               {next3Events.length > 0 && (
-                <View className="gap-3">
+                <View className="gap-1.5">
                   {next3Events.map((event) => (
-                    <TimelineItem
+                    <LigneAVenir
                       key={event.id}
                       onPress={() =>
                         router.push({
@@ -584,7 +586,7 @@ function DashboardScreen() {
                           </View>
                         )}
                       </View>
-                    </TimelineItem>
+                    </LigneAVenir>
                   ))}
                 </View>
               )}
@@ -592,7 +594,7 @@ function DashboardScreen() {
                 <View style={{ height: 1, backgroundColor: GP.hair, marginVertical: 12 }} />
               )}
               {next3Tasks.length > 0 && (
-                <View className="gap-2.5">
+                <View className="gap-1">
                   {next3Tasks.map((task) => (
                     <Pressable
                       key={task.id}
@@ -603,6 +605,7 @@ function DashboardScreen() {
                         })
                       }
                       className="flex-row items-center active:opacity-80"
+                      style={{ minHeight: CIBLE_TACTILE }}
                     >
                       <Circle size={14} color={GP.mute} />
                       <View className="flex-1 ml-3">
@@ -679,6 +682,28 @@ function DashboardScreen() {
 
       <View className="h-24" />
     </ScrollView>
+  );
+}
+
+/** Rangée de l'agenda : la mise en page de TimelineItem, avec une cible de 44 px. */
+function LigneAVenir({
+  left,
+  onPress,
+  children,
+}: {
+  left: React.ReactNode;
+  onPress: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      className="flex-row active:opacity-80"
+      style={{ minHeight: CIBLE_TACTILE, paddingVertical: 3 }}
+    >
+      <View className="w-14 items-center mr-3">{left}</View>
+      <View className="flex-1">{children}</View>
+    </Pressable>
   );
 }
 

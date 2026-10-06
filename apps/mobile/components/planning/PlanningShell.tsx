@@ -1,5 +1,7 @@
 import React from "react";
-import { View, Pressable } from "react-native-css/components";
+import { View } from "react-native-css/components";
+import { BoutonIcone } from "@/components/BoutonIcone";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { Stack, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { CalendarRange, Palmtree, Church, Mic2, Play } from "lucide-react-native";
@@ -44,15 +46,14 @@ export function PlanningShell({ aspect, onAdd, onAddLocked = false, children }: 
           headerRight: () => (
             <View className="flex-row items-center">
               {aspect === "day-of" && (
-                <Pressable
+                <BoutonIcone
+                  libelle={t("live.title")}
                   onPress={() => router.push("/(tabs)/planning/live")}
-                  accessibilityRole="button"
-                  accessibilityLabel={t("live.title")}
-                  className="w-9 h-9 items-center justify-center rounded-lg active:opacity-60 mr-1"
-                  hitSlop={8}
+                  empreinte={CIBLE_TACTILE}
+                  style={{ marginRight: 4 }}
                 >
                   <Play size={20} color={GP.clay} />
-                </Pressable>
+                </BoutonIcone>
               )}
               {onAdd && (
                 <HeaderAddButton accessibilityLabel={t("common:add")} onPress={onAdd} locked={onAddLocked} />

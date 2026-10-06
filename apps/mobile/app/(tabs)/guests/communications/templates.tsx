@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, ScrollView, Pressable, TextInput } from "react-native-css/components";
+import { View, Text, ScrollView, TextInput } from "react-native-css/components";
 import { Alert } from "react-native";
 import { useTranslation } from "react-i18next";
 import { FileText, Trash2, Pencil } from "lucide-react-native";
@@ -8,8 +8,10 @@ import { useCommunicationTemplatesStore } from "@/store/useCommunicationTemplate
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
 import { ChipSelect, FormActions } from "@/components/FormSection";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { COMMUNICATION_CHANNEL_LABELS, type CommunicationChannel } from "@fiance/sdk";
 import type { CommunicationTemplate } from "@/db/schema";
 
@@ -92,7 +94,8 @@ export default function CommunicationTemplatesScreen() {
         {editingId ? t("communications.templates.editTemplate") : t("communications.templates.newTemplate")}
       </Text>
       <TextInput
-        className="text-base text-ink border-b border-hair pb-2 mb-3"
+        className="text-base text-ink border-b border-hair mb-3"
+        style={{ minHeight: CIBLE_TACTILE }}
         placeholder={t("communications.templates.namePlaceholder")}
         placeholderTextColor="#D0D0D8"
         value={form.name}
@@ -101,7 +104,8 @@ export default function CommunicationTemplatesScreen() {
       />
       <ChipSelect options={CHANNELS} value={form.channel} onChange={(channel) => setForm((f) => ({ ...f, channel }))} labels={channelLabels} />
       <TextInput
-        className="text-base text-ink border-b border-hair pb-2 mt-3"
+        className="text-base text-ink border-b border-hair mt-3"
+        style={{ minHeight: CIBLE_TACTILE }}
         placeholder={t("communications.subject")}
         placeholderTextColor="#D0D0D8"
         value={form.subject}
@@ -156,14 +160,14 @@ export default function CommunicationTemplatesScreen() {
                   </View>
                   <View className="flex-row items-center gap-1">
                     {canEdit && (
-                      <Pressable onPress={() => handleEdit(tpl)} className="w-8 h-8 items-center justify-center">
+                      <BoutonIcone libelle={`${t("common:edit")} ${tpl.name}`} onPress={() => handleEdit(tpl)}>
                         <Pencil size={15} color="#9CA3AF" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                     {!tpl.isSystem && canEdit && (
-                      <Pressable onPress={() => setDeleteId(tpl.id)} className="w-8 h-8 items-center justify-center">
+                      <BoutonIcone libelle={`${t("common:delete")} ${tpl.name}`} onPress={() => setDeleteId(tpl.id)}>
                         <Trash2 size={15} color="#EF4444" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                   </View>
                 </View>

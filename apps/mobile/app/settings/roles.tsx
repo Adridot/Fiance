@@ -20,6 +20,7 @@ import { Chip } from "@/components/Chip";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { RenameSheet } from "@/components/RenameSheet";
 import { theme } from "@/lib/theme";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 // MODIFICATION LOCALE — réémettre un lien depuis la fiche d'un collaborateur.
 import { FicheCollaborateur } from "@/components/FicheCollaborateur";
 import { InviteQRSheet } from "@/components/InviteQRSheet";
@@ -165,8 +166,7 @@ export default function RolesScreen() {
       >
         <Pressable
           onPress={() => setEditingId(null)}
-          hitSlop={8}
-          style={{ flexDirection: "row", alignItems: "center", gap: 2, marginBottom: 16 }}
+          style={{ flexDirection: "row", alignItems: "center", gap: 2, marginBottom: 8, minHeight: CIBLE_TACTILE }}
         >
           <ChevronLeft size={18} color={theme.mute} />
           <Label color={theme.mute}>{t("rolesSectionTitle")}</Label>
@@ -227,9 +227,10 @@ export default function RolesScreen() {
                       onPress={() => setSurfaceLevel(editingRole, surface, lvl)}
                       style={{
                         flex: 1,
-                        paddingVertical: 9,
+                        minHeight: CIBLE_TACTILE,
                         borderRadius: 10,
                         alignItems: "center",
+                        justifyContent: "center",
                         backgroundColor: active ? tone : "transparent",
                         opacity: readOnly && !active ? 0.35 : 1,
                       }}

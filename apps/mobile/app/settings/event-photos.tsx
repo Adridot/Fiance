@@ -7,6 +7,7 @@ import * as Crypto from "expo-crypto";
 import { Camera, Plus, Trash2 } from "lucide-react-native";
 import { useWeddingStore } from "@/store/useWeddingStore";
 import { PageHeader } from "@/components/PageHeader";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 
 export interface EventPhoto {
   id: string;
@@ -115,9 +116,14 @@ export default function EventPhotosScreen() {
                   />
                   <Pressable
                     onPress={() => handleDelete(photo.id)}
-                    className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/50 items-center justify-center active:opacity-70"
+                    accessibilityRole="button"
+                    accessibilityLabel={t("common:delete")}
+                    className="absolute top-0 right-0 items-center justify-center active:opacity-70"
+                    style={{ width: CIBLE_TACTILE, height: CIBLE_TACTILE }}
                   >
-                    <Trash2 size={13} color="#fff" />
+                    <View className="w-7 h-7 rounded-full bg-black/50 items-center justify-center">
+                      <Trash2 size={13} color="#fff" />
+                    </View>
                   </Pressable>
                 </View>
               ))}

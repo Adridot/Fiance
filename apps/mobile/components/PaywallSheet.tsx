@@ -7,6 +7,7 @@ import { Sparkles, Infinity as InfinityIcon, UserPlus, Globe, Wallet, BadgeCheck
 import { purchasePremium, restorePremium, getPremiumPrice } from "@/lib/revenuecat";
 import { usePermissions } from "@/lib/permissions/usePermissions";
 import { theme as GP } from "@/lib/theme";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 
 interface PaywallSheetProps {
   visible: boolean;
@@ -141,7 +142,8 @@ export function PaywallSheet({ visible, onClose, context }: PaywallSheetProps) {
               <Pressable
                 onPress={handleRestore}
                 disabled={state !== "idle"}
-                className="items-center mt-3 py-2 active:opacity-60"
+                className="items-center mt-3 active:opacity-60"
+                style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}
               >
                 <Text className="text-sm text-mute dark:text-mute">{t("premiumRestore")}</Text>
               </Pressable>

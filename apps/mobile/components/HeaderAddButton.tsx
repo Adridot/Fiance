@@ -1,5 +1,7 @@
 import React from "react";
-import { View, Pressable } from "react-native-css/components";
+import { View } from "react-native-css/components";
+import { BoutonIcone } from "@/components/BoutonIcone";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { Plus, Lock } from "lucide-react-native";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
 import { theme as GP } from "@/lib/theme";
@@ -16,23 +18,16 @@ export function HeaderAddButton({ onPress, accessibilityLabel, locked = false }:
   const canEdit = useCanEditHere();
   if (!canEdit) return null;
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      className="w-9 h-9 items-center justify-center rounded-lg active:opacity-60 mr-1"
-      hitSlop={8}
-      style={{ position: "relative" }}
-    >
+    <BoutonIcone libelle={accessibilityLabel} onPress={onPress} empreinte={CIBLE_TACTILE} style={{ marginRight: 4 }}>
       <Plus size={24} color={GP.clay} />
       {locked && (
         <View
           className="w-3.5 h-3.5 rounded-full bg-primary-500 items-center justify-center"
-          style={{ position: "absolute", bottom: 2, right: 0 }}
+          style={{ position: "absolute", bottom: 6, right: 4 }}
         >
           <Lock size={8} color="#fff" />
         </View>
       )}
-    </Pressable>
+    </BoutonIcone>
   );
 }

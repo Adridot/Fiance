@@ -5,6 +5,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { useTranslation } from "react-i18next";
 import { X } from "lucide-react-native";
 import { theme as GP } from "@/lib/theme";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 
 interface QRScannerScreenProps {
   onScanned: (url: string) => void;
@@ -32,7 +33,11 @@ export function QRScannerScreen({ onScanned, onClose }: QRScannerScreenProps) {
   if (!permission.granted) {
     return (
       <View style={StyleSheet.absoluteFill} className="bg-ink items-center justify-center px-8">
-        <Pressable onPress={onClose} className="absolute top-14 left-5 p-2">
+        <Pressable
+          onPress={onClose}
+          className="absolute top-14 left-5 items-center justify-center"
+          style={{ width: CIBLE_TACTILE, height: CIBLE_TACTILE }}
+        >
           <X size={24} color="#fff" />
         </Pressable>
         <Text className="text-white text-xl font-bold text-center mb-3">
@@ -64,7 +69,8 @@ export function QRScannerScreen({ onScanned, onClose }: QRScannerScreenProps) {
       {/* Close button */}
       <Pressable
         onPress={onClose}
-        className="absolute top-14 left-5 p-2 bg-black/40 rounded-full"
+        className="absolute top-14 left-5 items-center justify-center bg-black/40 rounded-full"
+        style={{ width: CIBLE_TACTILE, height: CIBLE_TACTILE }}
       >
         <X size={24} color="#fff" />
       </Pressable>

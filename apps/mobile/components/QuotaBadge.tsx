@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, Pressable } from "react-native-css/components";
+import { View, Text } from "react-native-css/components";
 import { useTranslation } from "react-i18next";
 import { Lock, Sparkles } from "lucide-react-native";
 import {
@@ -11,6 +11,8 @@ import {
 import { useIsPremium } from "@/lib/premium";
 import { useShowPaywall } from "@/components/PaywallProvider";
 import { theme as GP } from "@/lib/theme";
+import { ZoneTactile } from "@/components/ZoneTactile";
+import { debordement } from "@/lib/cible-tactile";
 
 interface QuotaBadgeProps {
   entityKey: FreeLimitKey;
@@ -37,18 +39,21 @@ export function QuotaBadge({ entityKey, count }: QuotaBadgeProps) {
   const Icon = atCap ? Lock : Sparkles;
 
   return (
-    <Pressable
+    <ZoneTactile
       onPress={() => openPaywall(t(`premiumLimits.${PREMIUM_LIMIT_MESSAGE_KEY[entityKey]}`, { limit }))}
-      accessibilityRole="button"
       accessibilityLabel={t("quota.badgeLabel", { count, limit })}
-      className={`flex-row items-center gap-1.5 self-start px-3 py-1.5 rounded-full border active:opacity-70 ${
-        atCap ? "bg-primary-50 dark:bg-primary-900/30 border-primary-200 dark:border-primary-800" : "bg-accent-card border-hair"
-      }`}
+      style={{ alignSelf: "flex-start", marginVertical: debordement(30) }}
     >
-      <Icon size={12} color={atCap ? GP.clay : "#9CA3AF"} />
-      <Text className={`text-xs font-medium ${atCap ? "text-primary-600 dark:text-primary-300" : "text-mute"}`}>
-        {t("quota.badge", { count, limit })}
-      </Text>
-    </Pressable>
+      <View
+        className={`flex-row items-center gap-1.5 px-3 py-1.5 rounded-full border ${
+          atCap ? "bg-primary-50 dark:bg-primary-900/30 border-primary-200 dark:border-primary-800" : "bg-accent-card border-hair"
+        }`}
+      >
+        <Icon size={12} color={atCap ? GP.clay : "#9CA3AF"} />
+        <Text className={`text-xs font-medium ${atCap ? "text-primary-600 dark:text-primary-300" : "text-mute"}`}>
+          {t("quota.badge", { count, limit })}
+        </Text>
+      </View>
+    </ZoneTactile>
   );
 }

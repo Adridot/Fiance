@@ -175,7 +175,8 @@ const styles = StyleSheet.create({
     backgroundColor: GP.clay,
     borderRadius: 12,
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    minHeight: 44,
+    justifyContent: "center",
   },
   addBtnText: {
     color: GP.card,
@@ -186,9 +187,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 14,
     borderRadius: 10,
-    marginBottom: 4,
   },
   itemActive: {
     backgroundColor: GP.clay,

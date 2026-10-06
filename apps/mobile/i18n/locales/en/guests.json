@@ -344,6 +344,7 @@
     "splitSelected_one": "Move {{count}} member into a separate household",
     "splitSelected_other": "Move {{count}} members into a separate household",
     "remove": "Delete this household",
+    "detach": "Remove from household",
     "removeExplain": "Its members stay in the guest list, without a household. The household's address and label are removed.",
     "gone": "This household no longer exists."
   },
