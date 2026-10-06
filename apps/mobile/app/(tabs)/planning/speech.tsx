@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { View, Text, ScrollView, TextInput } from "react-native-css/components";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+import { revenir } from "@/lib/revenir";
+import { repliDe } from "@/lib/repli-des-ecrans";
 import { useTranslation } from "react-i18next";
 import * as Crypto from "expo-crypto";
 import { useSpeechesMusicStore } from "@/store/useSpeechesMusicStore";
@@ -70,14 +72,14 @@ export default function SpeechScreen() {
     } else {
       updateSpeech(id!, data);
     }
-    router.back();
+    revenir(router, repliDe("planning", "speech"));
   };
 
   const handleDelete = () => {
     removeSpeech(id!);
     analytics.capture("speech_deleted");
     setShowDelete(false);
-    router.back();
+    revenir(router, repliDe("planning", "speech"));
   };
 
   return (

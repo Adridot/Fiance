@@ -3,6 +3,7 @@ import { View, ScrollView, Pressable, StyleSheet, useColorScheme } from "react-n
 import { Text } from "react-native-css/components";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect, useNavigation } from "expo-router";
+import { revenir } from "@/lib/revenir";
 import { useTranslation } from "react-i18next";
 import { format } from "date-fns";
 import { getDateLocale } from "@/i18n/dateFnsLocale";
@@ -38,10 +39,7 @@ export default function WeddingDayScreen() {
     ? { bg: GP.paperDark, mute: GP.muteDark, accent: GP.mustardSoft, title: GP.inkDark }
     : { bg: GP.paper, mute: GP.mute, accent: GP.mustard, title: GP.ink };
 
-  const handleBack = useCallback(() => {
-    if (router.canGoBack()) router.back();
-    else router.replace("/(tabs)/home");
-  }, [router]);
+  const handleBack = useCallback(() => revenir(router, "/(tabs)/home"), [router]);
 
   useFocusEffect(useCallback(() => {
     const parent = navigation.getParent();
@@ -87,7 +85,10 @@ export default function WeddingDayScreen() {
     <View style={[styles.root, { backgroundColor: c.bg, paddingTop: insets.top + 16 }]}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={handleBack} hitSlop={8} style={{ padding: 4, marginLeft: -4 }}>
+        <Pressable
+          onPress={handleBack}
+          style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center", marginLeft: -9, marginVertical: -6 }}
+        >
           <ChevronLeft size={26} color={c.mute} />
         </Pressable>
         <Script size={18} color={c.accent}>{timeStr}</Script>

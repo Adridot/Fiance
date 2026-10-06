@@ -2,6 +2,8 @@ import React from "react";
 import { View, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { revenir } from "@/lib/revenir";
+import { repliDe } from "@/lib/repli-des-ecrans";
 import { useTranslation } from "react-i18next";
 import { Pressable } from "react-native-css/components";
 import { useGuestsStore } from "@/store/useGuestsStore";
@@ -22,7 +24,7 @@ export default function SeatingScreen() {
     <View style={[styles.root, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable onPress={() => revenir(router, repliDe("guests", "seating"))} style={styles.backBtn}>
           <Script size={17} color={GP.clay}>← {t("common:back")}</Script>
         </Pressable>
         <Display size={20} italic>{t("seatingPlan")}</Display>
@@ -66,5 +68,8 @@ const styles = StyleSheet.create({
   },
   backBtn: {
     width: 60,
+    height: 44,
+    marginVertical: -5,
+    justifyContent: "center",
   },
 });

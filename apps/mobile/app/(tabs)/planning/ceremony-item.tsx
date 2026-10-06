@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { View, Text, ScrollView, TextInput } from "react-native-css/components";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+import { revenir } from "@/lib/revenir";
+import { repliDe } from "@/lib/repli-des-ecrans";
 import { useTranslation } from "react-i18next";
 import * as Crypto from "expo-crypto";
 import { CEREMONY_ITEM_KIND_LABELS, formatGuestName } from "@fiance/sdk";
@@ -80,14 +82,14 @@ export default function CeremonyItemScreen() {
     } else {
       updateCeremonyItem(id!, data);
     }
-    router.back();
+    revenir(router, repliDe("planning", "ceremony-item"));
   };
 
   const handleDelete = () => {
     removeCeremonyItem(id!);
     analytics.capture("ceremony_item_deleted");
     setShowDelete(false);
-    router.back();
+    revenir(router, repliDe("planning", "ceremony-item"));
   };
 
   return (

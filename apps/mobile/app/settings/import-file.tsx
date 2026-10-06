@@ -2,6 +2,7 @@ import React, { useCallback, useState } from "react";
 import { View, Text, ScrollView, Pressable } from "react-native-css/components";
 import { Platform } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
+import { revenir } from "@/lib/revenir";
 import { useTranslation } from "react-i18next";
 import * as Crypto from "expo-crypto";
 import { FileSpreadsheet, Users, Lock } from "lucide-react-native";
@@ -93,7 +94,7 @@ export default function ImportFileScreen() {
       count: preview.guests.length,
     });
     toast.success(t("importGuestsSuccess", { count: preview.guests.length }));
-    router.back();
+    revenir(router, "/settings");
   }, [preview, importGuestData, addInvitationType, isMariagesNet, t, router, wouldExceedLimit, limitMessage, openPaywall]);
 
   return (

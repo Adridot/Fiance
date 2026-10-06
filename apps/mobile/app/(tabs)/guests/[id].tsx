@@ -1,7 +1,9 @@
 import React, { useState } from "react";
 import { View, Text, ScrollView, TextInput, Pressable } from "react-native-css/components";
-import { Alert, Share, Platform } from "react-native";
+import { ActivityIndicator, Alert, Share, Platform } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+import { revenir } from "@/lib/revenir";
+import { repliDe } from "@/lib/repli-des-ecrans";
 import { useTranslation } from "react-i18next";
 import * as Crypto from "expo-crypto";
 import { useGuestsStore } from "@/store/useGuestsStore";
@@ -29,7 +31,7 @@ import {
   type SeatingConstraintType,
   type CommunicationChannel,
 } from "@fiance/sdk";
-import { useGuestRsvpUrl } from "@/lib/rsvp-sync";
+import { useGuestRsvpLink } from "@/lib/rsvp-sync";
 import {
   RSVP_STATUS_LABELS,
   RSVP_STATUS_COLORS,
@@ -184,7 +186,52 @@ export default function GuestDetailScreen() {
   const [showMemberPicker, setShowMemberPicker] = useState(false);
   const [pendingCompanionId, setPendingCompanionId] = useState("");
   const [activeSheet, setActiveSheet] = useState<SheetKey | null>(null);
-  const rsvpUrl = useGuestRsvpUrl(isNew ? undefined : id, activeEntry);
+  const rsvp = useGuestRsvpLink(isNew ? undefined : id, activeEntry);
+  const rsvpDisabled = rsvp.etat === "preparation" || rsvp.etat === "indisponible";
+  const rsvpLabel =
+    rsvp.etat === "preparation" ? t("rsvpLinkPreparing") : rsvp.etat === "echec" ? t("rsvpLinkRetry") : t("rsvpLink");
+
+  const handleRsvpLink = async () => {
+    if (rsvp.etat === "echec") {
+      toast.error(t("rsvpLinkError"));
+      rsvp.reessayer();
+      return;
+    }
+    if (rsvp.etat === "sync-desactivee") {
+      toast.error(t("rsvpLinkNeedsSync"));
+      return;
+    }
+    const url = rsvp.url;
+    if (!url) {
+      toast.error(t("rsvpLinkPreparing"));
+      return;
+    }
+    analytics.capture("guest_rsvp_shared");
+    if (Platform.OS === "web") {
+      try {
+        if (navigator.share) {
+          await navigator.share({ url });
+        } else {
+          await navigator.clipboard.writeText(url);
+          toast.success(t("linkCopied"));
+        }
+      } catch (err) {
+        if ((err as Error)?.name === "AbortError") return;
+        try {
+          await navigator.clipboard.writeText(url);
+          toast.success(t("linkCopied"));
+        } catch {
+          toast.error(t("rsvpLinkShareError"));
+        }
+      }
+    } else {
+      try {
+        await Share.share({ message: url, url });
+      } catch {
+        toast.error(t("rsvpLinkShareError"));
+      }
+    }
+  };
 
   const canSave = lastName.trim().length > 0;
 
@@ -258,14 +305,14 @@ export default function GuestDetailScreen() {
       unlinkCompanion(guestId);
     }
 
-    router.back();
+    revenir(router, repliDe("guests", "[id]"));
   };
 
   const handleDelete = () => {
     removeGuest(id!);
     analytics.capture("guest_deleted");
     setShowDelete(false);
-    router.back();
+    revenir(router, repliDe("guests", "[id]"));
   };
 
   const guestRoles = isNew ? [] : weddingRoleAssignments.filter((a) => a.guestId === id);
@@ -454,33 +501,19 @@ export default function GuestDetailScreen() {
           <View className="flex-row gap-3 mb-3 mt-1">
             {activeEntry?.seedPhrase && (
               <Pressable
-                onPress={async () => {
-                  const url = rsvpUrl;
-                  if (!url) return;
-                  analytics.capture("guest_rsvp_shared");
-                  if (Platform.OS === "web") {
-                    try {
-                      if (navigator.share) {
-                        await navigator.share({ url });
-                      } else {
-                        await navigator.clipboard.writeText(url);
-                        toast.success(t("linkCopied"));
-                      }
-                    } catch {
-                      // share dismissed or clipboard blocked — silently ignore
-                    }
-                  } else {
-                    try {
-                      await Share.share({ message: url, url });
-                    } catch {
-                      // share dismissed
-                    }
-                  }
-                }}
-                className="flex-1 flex-row items-center justify-center gap-2 py-3.5 rounded-2xl border border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-950 active:opacity-70"
+                onPress={handleRsvpLink}
+                disabled={rsvpDisabled}
+                accessibilityState={{ disabled: rsvpDisabled, busy: rsvp.etat === "preparation" }}
+                className={`flex-1 flex-row items-center justify-center gap-2 py-3.5 rounded-2xl border border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-950 ${
+                  rsvpDisabled ? "opacity-60" : "active:opacity-70"
+                }`}
               >
-                <Share2 size={16} color={GP.clay} />
-                <Text className="text-sm font-semibold text-primary-500">{t("rsvpLink")}</Text>
+                {rsvp.etat === "preparation" ? (
+                  <ActivityIndicator size="small" color={GP.clay} />
+                ) : (
+                  <Share2 size={16} color={GP.clay} />
+                )}
+                <Text className="text-sm font-semibold text-primary-500">{rsvpLabel}</Text>
               </Pressable>
             )}
             <View className="flex-1">

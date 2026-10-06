@@ -2,6 +2,7 @@ import React, { useState, useRef } from "react";
 import { View, Text, ScrollView, TextInput, Pressable } from "react-native-css/components";
 import { Linking } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+import { revenir } from "@/lib/revenir";
 import { useTranslation } from "react-i18next";
 import {
   Heart,
@@ -130,14 +131,14 @@ export default function IdeaDetailScreen() {
     } else {
       updateIdea(id!, ideaData);
     }
-    router.back();
+    revenir(router, "/ideas");
   };
 
   const handleDelete = () => {
     removeIdea(id!);
     analytics.capture("idea_deleted");
     setShowDelete(false);
-    router.back();
+    revenir(router, "/ideas");
   };
 
   return (

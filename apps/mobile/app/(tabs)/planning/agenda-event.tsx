@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { View, Text, ScrollView, TextInput } from "react-native-css/components";
 import { Alert } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+import { revenir } from "@/lib/revenir";
+import { repliDe } from "@/lib/repli-des-ecrans";
 import { useTranslation } from "react-i18next";
 import * as Crypto from "expo-crypto";
 import { usePlanningStore } from "@/store/usePlanningStore";
@@ -69,13 +71,13 @@ export default function AgendaEventScreen() {
     } else {
       updateEvent(id!, data);
     }
-    router.back();
+    revenir(router, repliDe("planning", "agenda-event"));
   };
 
   const handleDelete = () => {
     removeEvent(id!);
     setShowDelete(false);
-    router.back();
+    revenir(router, repliDe("planning", "agenda-event"));
   };
 
   return (

@@ -1,6 +1,8 @@
 import React, { useMemo, useRef, useState } from "react";
 import { View, Text, ScrollView, Pressable } from "react-native-css/components";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { revenir } from "@/lib/revenir";
+import { repliDe } from "@/lib/repli-des-ecrans";
 import { useTranslation } from "react-i18next";
 import { Check, CheckCircle2, Home } from "lucide-react-native";
 import {
@@ -191,7 +193,7 @@ export default function HouseholdsScreen() {
           icon={CheckCircle2}
           title={t("household.empty")}
           actionLabel={t("backToGuests")}
-          onAction={() => router.back()}
+          onAction={() => revenir(router, repliDe("guests", "households"))}
         />
       </View>
     );

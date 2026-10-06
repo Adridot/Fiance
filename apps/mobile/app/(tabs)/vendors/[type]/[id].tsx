@@ -2,6 +2,8 @@ import React, { useState, useMemo } from "react";
 import { View, Text, ScrollView, TextInput, Pressable } from "react-native-css/components";
 import { Alert } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+import { revenir } from "@/lib/revenir";
+import { repliDe } from "@/lib/repli-des-ecrans";
 import { ChevronUp, ChevronDown, CheckSquare, Square, Trash2, FileText, Upload } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import * as Crypto from "expo-crypto";
@@ -167,14 +169,14 @@ export default function VendorDetailScreen() {
     } else {
       updateVendor(id!, vendorData);
     }
-    router.back();
+    revenir(router, repliDe("vendors", "[type]/[id]"));
   };
 
   const handleDelete = () => {
     removeVendor(id!);
     analytics.capture("vendor_deleted", { category: type });
     setShowDelete(false);
-    router.back();
+    revenir(router, repliDe("vendors", "[type]/[id]"));
   };
 
   return (
@@ -426,7 +428,10 @@ function PaymentsTab({ vendorId }: { vendorId: string }) {
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const handleAdd = () => {
-    if (!amount.trim()) return;
+    if (!amount.trim() || Number.isNaN(parseFloat(amount))) {
+      toast.error(t("paymentAmountRequired"));
+      return;
+    }
     const now = new Date().toISOString();
     addPayment({
       id: Crypto.randomUUID(),

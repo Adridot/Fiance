@@ -9,6 +9,7 @@ import { useShowPaywall } from "@/components/PaywallProvider";
 import { toast } from "@/lib/toast/sonner";
 import { useIsWideScreen } from "@/lib/useIsWideScreen";
 import { HeaderAddButton } from "@/components/HeaderAddButton";
+import { optionsDeRetour } from "@/components/BoutonRetour";
 import { theme as GP } from "@/lib/theme";
 
 export default function VendorsLayout() {
@@ -23,11 +24,12 @@ export default function VendorsLayout() {
   const { openPaywall } = useShowPaywall();
   return (
     <Stack
-      screenOptions={{
+      screenOptions={({ route }) => ({
         headerStyle: { backgroundColor: isDark ? "#111827" : "#FFFFFF" },
         headerTintColor: isDark ? "#FFFFFF" : "#111827",
         headerTitleStyle: { fontWeight: "600" },
-      }}
+        ...optionsDeRetour("vendors", route.name),
+      })}
     >
       <Stack.Screen
         name="index"
