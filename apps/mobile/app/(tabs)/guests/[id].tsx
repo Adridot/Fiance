@@ -87,6 +87,9 @@ import { HorizontalChipSelect } from "@/components/HorizontalChipSelect";
 import { StatusSelector } from "@/components/StatusSelector";
 import { PageHeader } from "@/components/PageHeader";
 import { Seal } from "@/components/Seal";
+import { BoutonIcone } from "@/components/BoutonIcone";
+import { ZoneTactile } from "@/components/ZoneTactile";
+import { CIBLE_TACTILE, agrandir } from "@/lib/cible-tactile";
 import type { Guest } from "@/db/schema";
 
 const RSVP_STATUSES: RsvpStatus[] = ["PENDING", "ACCEPTED", "DECLINED", "MAYBE"];
@@ -98,6 +101,8 @@ const DIETS: Diet[] = [
   "KOSHER",
   "ALLERGY",
 ];
+
+const bandeauDesRoles = agrandir({ haut: 10, bas: 10 }, { marges: { bas: 16 } });
 
 type SheetKey = "role" | "contact" | "household" | "rsvp" | "placement" | "meal" | "transport" | "postWedding" | "notes";
 
@@ -412,7 +417,8 @@ export default function GuestDetailScreen() {
         {guestRoles.length > 0 && (
           <Pressable
             onPress={() => setActiveSheet("role")}
-            className="flex-row flex-wrap gap-1.5 mb-4"
+            className="flex-row flex-wrap gap-1.5"
+            style={bandeauDesRoles}
           >
             {guestRoles.map((r) => (
               <View key={r.id} className="px-2.5 py-1 rounded-full bg-accent-clay-soft dark:bg-primary-900">
@@ -608,12 +614,20 @@ export default function GuestDetailScreen() {
             {householdName(resolved?.household ?? null, members)}
           </Text>
           {members.map((m) => (
-            <View key={m.id} className="flex-row items-center justify-between py-2 border-b border-hair">
+            <View
+              key={m.id}
+              className="flex-row items-center justify-between border-b border-hair"
+              style={{ minHeight: CIBLE_TACTILE }}
+            >
               <Text className="text-sm text-ink">{formatGuestName(m)}</Text>
               {m.id !== id && canEdit && (
-                <Pressable onPress={() => detachFromHousehold([m.id])}>
+                <BoutonIcone
+                  libelle={`${t("household.detach")} ${formatGuestName(m)}`}
+                  onPress={() => detachFromHousehold([m.id])}
+                  empreinte={CIBLE_TACTILE}
+                >
                   <XCircle size={16} color="#9CA3AF" />
-                </Pressable>
+                </BoutonIcone>
               )}
             </View>
           ))}
@@ -679,26 +693,33 @@ export default function GuestDetailScreen() {
           {guestRoles.length > 0 && (
             <View className="mb-3">
               {guestRoles.map((r) => (
-                <View key={r.id} className="flex-row items-center justify-between py-2 border-b border-hair">
+                <View
+                  key={r.id}
+                  className="flex-row items-center justify-between border-b border-hair"
+                  style={{ minHeight: CIBLE_TACTILE }}
+                >
                   <Text className="text-sm text-ink">{roleName(r)}</Text>
-                  <Pressable onPress={() => removeRoleAssignment(r.id)}>
+                  <BoutonIcone
+                    libelle={`${t("weddingParty.unassignRole")} ${roleName(r)}`}
+                    onPress={() => removeRoleAssignment(r.id)}
+                    empreinte={CIBLE_TACTILE}
+                  >
                     <XCircle size={16} color="#9CA3AF" />
-                  </Pressable>
+                  </BoutonIcone>
                 </View>
               ))}
             </View>
           )}
           {weddingRoles.length === 0 ? (
-            <Pressable
+            <ZoneTactile
               onPress={() => {
                 setActiveSheet(null);
                 router.push("/(tabs)/guests/wedding-party");
               }}
-              className="active:opacity-60"
             >
               <Text className="text-xs text-mute mb-1">{t("weddingParty.noRolesYet")}</Text>
               <Text className="text-xs text-primary-500 font-medium">{t("weddingParty.manageRoles")}</Text>
-            </Pressable>
+            </ZoneTactile>
           ) : (
             <>
               <Text className="text-xs text-mute mb-2 font-medium">{t("weddingParty.addRole")}</Text>
@@ -721,15 +742,14 @@ export default function GuestDetailScreen() {
                   analytics.capture("wedding_role_assigned");
                 }}
               />
-              <Pressable
+              <ZoneTactile
                 onPress={() => {
                   setActiveSheet(null);
                   router.push("/(tabs)/guests/wedding-party");
                 }}
-                className="mt-3 active:opacity-60"
               >
                 <Text className="text-xs text-primary-500 font-medium">{t("weddingParty.manageRoles")}</Text>
-              </Pressable>
+              </ZoneTactile>
             </>
           )}
         </GuestSheet>
@@ -758,6 +778,7 @@ export default function GuestDetailScreen() {
           <Pressable
             onPress={() => { setActiveSheet(null); router.push("/(tabs)/guests/invitation-types"); }}
             className="flex-row items-center gap-1.5 active:opacity-60"
+            style={{ minHeight: CIBLE_TACTILE }}
           >
             <Tag size={14} color="#9CA3AF" />
             <Text className="text-xs text-mute dark:text-mute">
@@ -777,6 +798,7 @@ export default function GuestDetailScreen() {
               ? "bg-primary-50 dark:bg-primary-950 border-primary-200 dark:border-primary-800"
               : "bg-accent-card border-hair"
           }`}
+          style={{ minHeight: CIBLE_TACTILE }}
         >
           {companionId ? (
             <>
@@ -787,14 +809,14 @@ export default function GuestDetailScreen() {
                   return c ? formatGuestName(c) : "";
                 })()}
               </Text>
-              <Pressable
-                onPress={(e) => {
-                  e.stopPropagation();
-                  setCompanionId("");
-                }}
+              <BoutonIcone
+                libelle={t("removeCompanion")}
+                onPress={() => setCompanionId("")}
+                empreinte={20}
+                style={{ marginRight: -14 }}
               >
                 <XCircle size={16} color="#9CA3AF" />
-              </Pressable>
+              </BoutonIcone>
             </>
           ) : (
             <>
@@ -818,6 +840,7 @@ export default function GuestDetailScreen() {
                     key={comm.id}
                     onPress={() => toggleRecipient(comm.id, id!, new Date().toISOString())}
                     className="flex-row items-center py-2 border-b border-hair"
+                    style={{ minHeight: CIBLE_TACTILE }}
                   >
                     {sent ? <CheckCircle2 size={16} color={GP.olive} /> : <Circle size={16} color="#C0C0C8" />}
                     <View className="flex-1 ml-2.5">
@@ -834,12 +857,9 @@ export default function GuestDetailScreen() {
             ) : (
               <Text className="text-xs text-mute mb-2">{t("sections.communicationsEmpty")}</Text>
             )}
-            <Pressable
-              onPress={() => { setActiveSheet(null); router.push("/(tabs)/guests/communications"); }}
-              className="mt-2 active:opacity-60"
-            >
+            <ZoneTactile onPress={() => { setActiveSheet(null); router.push("/(tabs)/guests/communications"); }}>
               <Text className="text-xs text-primary-500 font-medium">{t("sections.viewAllCommunications")}</Text>
-            </Pressable>
+            </ZoneTactile>
           </>
         )}
       </GuestSheet>
@@ -902,15 +922,14 @@ export default function GuestDetailScreen() {
             ) : (
               <Text className="text-xs text-mute mb-2">{t("sections.constraintsEmpty")}</Text>
             )}
-            <Pressable
+            <ZoneTactile
               onPress={() => {
                 setActiveSheet(null);
                 router.push("/(tabs)/guests/seating-constraints");
               }}
-              className="mt-2 active:opacity-60"
             >
               <Text className="text-xs text-primary-500 font-medium">{t("sections.manageConstraints")}</Text>
-            </Pressable>
+            </ZoneTactile>
           </>
         )}
       </GuestSheet>
@@ -986,6 +1005,7 @@ export default function GuestDetailScreen() {
           <Pressable
             onPress={() => { setActiveSheet(null); router.push("/(tabs)/guests/accommodations"); }}
             className="flex-row items-center gap-1.5 active:opacity-60"
+            style={{ minHeight: CIBLE_TACTILE }}
           >
             <BedDouble size={14} color="#9CA3AF" />
             <Text className="text-xs text-mute dark:text-mute">

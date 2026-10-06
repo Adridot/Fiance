@@ -20,6 +20,7 @@ export default defineConfig({
       "@fiance/ui/utils/kv-storage": path.resolve(__dirname, "../../packages/fiance-ui/src/utils/kv-storage.ts"),
       "@fiance/ui/utils/links": path.resolve(__dirname, "../../packages/fiance-ui/src/utils/links.ts"),
       "@fiance/ui/utils/pwa-install": path.resolve(__dirname, "../../packages/fiance-ui/src/utils/pwa-install.ts"),
+      "@fiance/ui/utils/cible-tactile": path.resolve(__dirname, "../../packages/fiance-ui/src/utils/cible-tactile.ts"),
       "@fiance/ui/utils/toast": path.resolve(__dirname, "../../packages/fiance-ui/src/utils/toast/sonner.ts"),
       "@fiance/ui": path.resolve(__dirname, "../../packages/fiance-ui/src/index.ts"),
       "expo-crypto": path.resolve(__dirname, "__tests__/mocks/expo-crypto.ts"),

@@ -7,6 +7,7 @@ import { useGuestsStore } from "@/store/useGuestsStore";
 import { Sheet } from "@fiance/ui/components";
 import { formatGuestName, guestNameMatches } from "@fiance/sdk";
 import { theme as GP } from "@/lib/theme";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 
 interface CompanionPickerModalProps {
   visible: boolean;
@@ -70,10 +71,11 @@ export function CompanionPickerModal({
         </Text>
 
         {/* Search */}
-        <View className="flex-row items-center bg-accent-paper rounded-xl px-3 py-2 mb-3">
+        <View className="flex-row items-center bg-accent-paper rounded-xl px-3 mb-3">
           <Search size={16} color="#9CA3AF" />
           <TextInput
             className="flex-1 ml-2 text-base text-ink"
+            style={{ minHeight: CIBLE_TACTILE }}
             placeholder={t("searchCompanion")}
             placeholderTextColor="#9CA3AF"
             value={search}
