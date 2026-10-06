@@ -43,6 +43,8 @@ import { ScriptButton } from "@/components/ScriptButton";
 import { Seo } from "@/components/Seo";
 import { BASE_URL } from "@/lib/seo-urls";
 import { theme as GP } from "@/lib/theme";
+import { ZoneTactile } from "@/components/ZoneTactile";
+import { CIBLE_TACTILE, debordement } from "@/lib/cible-tactile";
 import { useApresHydratation } from "@/lib/useApresHydratation";
 
 function weddingSeoTitle(page: PublicWeddingPage, t: (key: string, opts?: Record<string, string>) => string): string {
@@ -59,15 +61,22 @@ function LangSwitch() {
   const toggle = () => i18n.changeLanguage(currentLang === "fr" ? "en" : "fr");
 
   return (
-    <Pressable
+    <ZoneTactile
       onPress={toggle}
-      className="flex-row items-center gap-1.5 self-end px-3 py-1.5 rounded-full bg-white/60 mr-4 mt-3"
+      style={{
+        alignSelf: "flex-end",
+        marginRight: 16,
+        marginTop: 12 + debordement(28),
+        marginBottom: debordement(28),
+      }}
     >
-      <Globe size={13} color="#9CA3AF" />
-      <Text className="text-xs font-medium text-mute uppercase tracking-wide">
-        {currentLang === "fr" ? "EN" : "FR"}
-      </Text>
-    </Pressable>
+      <View className="flex-row items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/60">
+        <Globe size={13} color="#9CA3AF" />
+        <Text className="text-xs font-medium text-mute uppercase tracking-wide">
+          {currentLang === "fr" ? "EN" : "FR"}
+        </Text>
+      </View>
+    </ZoneTactile>
   );
 }
 
@@ -342,15 +351,14 @@ export default function WeddingPublicPage() {
               <Display size={20} italic style={{ flex: 1 }}>
                 {t("timeline")}
               </Display>
-              <Pressable
-                onPress={handlePrintSchedule}
-                className="flex-row items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/60 active:opacity-70"
-              >
-                <Download size={13} color={GP.clay} />
-                <Text className="text-xs font-medium text-accent-gold">
-                  {t("printSchedule")}
-                </Text>
-              </Pressable>
+              <ZoneTactile onPress={handlePrintSchedule} style={{ marginVertical: debordement(28) }}>
+                <View className="flex-row items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/60">
+                  <Download size={13} color={GP.clay} />
+                  <Text className="text-xs font-medium text-accent-gold">
+                    {t("printSchedule")}
+                  </Text>
+                </View>
+              </ZoneTactile>
             </View>
             <View className="px-4">
               {Object.entries(groupedTimeline).map(([dateLabel, dateItems]) => (
@@ -555,8 +563,8 @@ export default function WeddingPublicPage() {
                                   },
                                 }))
                               }
-                              className={`flex-1 py-2.5 rounded-xl items-center border ${actif ? "border-transparent" : "border-hair"}`}
-                              style={actif ? { backgroundColor: colors[s] } : undefined}
+                              className={`flex-1 rounded-xl items-center justify-center border ${actif ? "border-transparent" : "border-hair"}`}
+                              style={{ minHeight: CIBLE_TACTILE, ...(actif ? { backgroundColor: colors[s] } : {}) }}
                             >
                               <Text className={`text-sm font-semibold ${actif ? "text-white" : "text-mute"}`}>
                                 {labels[s]}
@@ -569,11 +577,11 @@ export default function WeddingPublicPage() {
                       {(choix?.rsvpStatus ?? membre.rsvpStatus) === "ACCEPTED" && (
                         <>
                           <Text className="text-sm text-mute mb-2">{t("rsvpDiet")}</Text>
-                          <View className="flex-row flex-wrap gap-2">
+                          <View className="flex-row flex-wrap" style={{ columnGap: 8 }}>
                             {Object.entries((t("rsvpDiets", { returnObjects: true }) as Record<string, string>)).map(([key, label]) => {
                               const actif = (choix?.diet ?? membre.diet ?? "STANDARD") === key;
                               return (
-                                <Pressable
+                                <ZoneTactile
                                   key={key}
                                   onPress={() =>
                                     setRéponses((r) => ({
@@ -587,12 +595,16 @@ export default function WeddingPublicPage() {
                                       },
                                     }))
                                   }
-                                  className={`px-3 py-1.5 rounded-full border ${actif ? "bg-primary-500 border-primary-500" : "border-hair bg-white"}`}
+                                  accessibilityState={{ selected: actif }}
                                 >
-                                  <Text className={`text-sm ${actif ? "text-white font-medium" : "text-mute"}`}>
-                                    {label}
-                                  </Text>
-                                </Pressable>
+                                  <View
+                                    className={`px-3 py-1.5 rounded-full border ${actif ? "bg-primary-500 border-primary-500" : "border-hair bg-white"}`}
+                                  >
+                                    <Text className={`text-sm ${actif ? "text-white font-medium" : "text-mute"}`}>
+                                      {label}
+                                    </Text>
+                                  </View>
+                                </ZoneTactile>
                               );
                             })}
                           </View>
