@@ -15,6 +15,7 @@
       "@fiance/ui/utils/kv-storage": ["../../packages/fiance-ui/src/utils/kv-storage.ts"],
       "@fiance/ui/utils/links": ["../../packages/fiance-ui/src/utils/links.ts"],
       "@fiance/ui/utils/pwa-install": ["../../packages/fiance-ui/src/utils/pwa-install.ts"],
+      "@fiance/ui/utils/cible-tactile": ["../../packages/fiance-ui/src/utils/cible-tactile.ts"],
       "@fiance/ui/utils/toast": ["../../packages/fiance-ui/src/utils/toast/sonner.ts"]
     },
     "jsx": "react-jsx",
