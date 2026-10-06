@@ -143,6 +143,7 @@
   "thankYouPending": "Thank-you pending",
   "companionLabel": "Companion / +1",
   "selectCompanion": "Select a companion...",
+  "removeCompanion": "Remove companion",
   "searchCompanion": "Search a guest...",
   "withCompanion": "with {{name}}",
   "duplicateWarningTitle": "Possible duplicates",

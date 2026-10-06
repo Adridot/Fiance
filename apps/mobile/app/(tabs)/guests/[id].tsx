@@ -776,6 +776,7 @@ export default function GuestDetailScreen() {
           <Pressable
             onPress={() => { setActiveSheet(null); router.push("/(tabs)/guests/invitation-types"); }}
             className="flex-row items-center gap-1.5 active:opacity-60"
+            style={{ minHeight: CIBLE_TACTILE }}
           >
             <Tag size={14} color="#9CA3AF" />
             <Text className="text-xs text-mute dark:text-mute">
@@ -795,6 +796,7 @@ export default function GuestDetailScreen() {
               ? "bg-primary-50 dark:bg-primary-950 border-primary-200 dark:border-primary-800"
               : "bg-accent-card border-hair"
           }`}
+          style={{ minHeight: CIBLE_TACTILE }}
         >
           {companionId ? (
             <>
@@ -805,14 +807,14 @@ export default function GuestDetailScreen() {
                   return c ? formatGuestName(c) : "";
                 })()}
               </Text>
-              <Pressable
-                onPress={(e) => {
-                  e.stopPropagation();
-                  setCompanionId("");
-                }}
+              <BoutonIcone
+                libelle={t("removeCompanion")}
+                onPress={() => setCompanionId("")}
+                empreinte={20}
+                style={{ marginRight: -14 }}
               >
                 <XCircle size={16} color="#9CA3AF" />
-              </Pressable>
+              </BoutonIcone>
             </>
           ) : (
             <>
@@ -852,12 +854,9 @@ export default function GuestDetailScreen() {
             ) : (
               <Text className="text-xs text-mute mb-2">{t("sections.communicationsEmpty")}</Text>
             )}
-            <Pressable
-              onPress={() => { setActiveSheet(null); router.push("/(tabs)/guests/communications"); }}
-              className="mt-2 active:opacity-60"
-            >
+            <ZoneTactile onPress={() => { setActiveSheet(null); router.push("/(tabs)/guests/communications"); }}>
               <Text className="text-xs text-primary-500 font-medium">{t("sections.viewAllCommunications")}</Text>
-            </Pressable>
+            </ZoneTactile>
           </>
         )}
       </GuestSheet>

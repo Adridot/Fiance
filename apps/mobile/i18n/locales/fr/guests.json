@@ -143,6 +143,7 @@
   "thankYouPending": "Merci à envoyer",
   "companionLabel": "Accompagnant / +1",
   "selectCompanion": "Choisir un accompagnant...",
+  "removeCompanion": "Retirer l'accompagnant",
   "searchCompanion": "Rechercher un invité...",
   "withCompanion": "avec {{name}}",
   "duplicateWarningTitle": "Doublons possibles",
