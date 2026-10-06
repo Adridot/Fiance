@@ -13,7 +13,6 @@ import { theme as GP } from "@/lib/theme";
 import { Display } from "@/components/Display";
 import { Script } from "@/components/Script";
 import { PageHeader } from "@/components/PageHeader";
-import { BoutonIcone } from "@/components/BoutonIcone";
 import { ChevronLeft } from "lucide-react-native";
 
 function useClock() {
@@ -88,9 +87,9 @@ export default function WeddingDayScreen() {
     <View style={[styles.root, { backgroundColor: c.bg, paddingTop: insets.top + 16 }]}>
       {/* Header */}
       <View style={styles.header}>
-        <BoutonIcone libelle={t("common:back")} onPress={handleBack} empreinte={34} style={{ marginLeft: -9 }}>
+        <Pressable onPress={handleBack} hitSlop={8} style={{ padding: 4, marginLeft: -4 }}>
           <ChevronLeft size={26} color={c.mute} />
-        </BoutonIcone>
+        </Pressable>
         <Script size={18} color={c.accent}>{timeStr}</Script>
       </View>
 
