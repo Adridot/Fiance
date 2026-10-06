@@ -20,18 +20,31 @@ function blobKeyFor(id: string): string {
   return `document-blob-${id}`;
 }
 
+function readBlobAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 function readAssetAsDataUrl(uri: string): Promise<string> {
   return fetch(uri)
     .then((res) => res.blob())
-    .then(
-      (blob) =>
-        new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        }),
-    );
+    .then(readBlobAsDataUrl);
+}
+
+/** Web : stocke un fichier choisi par un vrai `<input type="file">` (voir `components/ChoixDeDocument.web.tsx`). */
+export async function stockerUnFichierWeb(id: string, fichier: File): Promise<PickedDocumentFile> {
+  const blobKey = blobKeyFor(id);
+  writeCollection(blobKey, await readBlobAsDataUrl(fichier));
+  return {
+    fileName: fichier.name,
+    mimeType: fichier.type || null,
+    fileSize: fichier.size,
+    localUri: blobKey,
+  };
 }
 
 /** Opens the file picker and stores the picked file. Returns null if the user cancels. */

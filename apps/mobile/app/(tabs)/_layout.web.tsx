@@ -31,6 +31,18 @@ export default function TabLayout() {
 
   const tabs = (
     <Tabs
+      // `firstRoute` raccourcit l'historique des onglets vers l'Accueil : useLinking y répond par history.go(-1),
+      // qui sort du document après un retour navigateur. `fullHistory` empile ; l'Accueil reste au fond pour router.back().
+      backBehavior="fullHistory"
+      UNSTABLE_router={(original) => ({
+        getRehydratedState(partialState, options) {
+          const state = original.getRehydratedState(partialState, options);
+          const accueil = state.routes[0].key;
+          return state.history.some((h) => h.key === accueil)
+            ? state
+            : { ...state, history: [{ type: "route" as const, key: accueil }, ...state.history] };
+        },
+      })}
       screenOptions={{
         tabBarActiveTintColor: GP.clay,
         tabBarInactiveTintColor: isDark ? GP.muteDark : GP.mute,
