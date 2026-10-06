@@ -203,6 +203,7 @@ export default function IdeaDetailScreen() {
         <FormCard>
           <TextInput
             className="text-base text-ink"
+            style={{ minHeight: CIBLE_TACTILE }}
             value={tagsInput}
             onChangeText={setTagsInput}
             placeholder={t("tagsPlaceholder")}
@@ -298,7 +299,7 @@ export default function IdeaDetailScreen() {
                     ? "border-primary-300 dark:border-primary-700"
                     : "border-hair bg-accent-card"
                 }`}
-                style={isActive ? { backgroundColor: color + "15" } : {}}
+                style={{ minHeight: CIBLE_TACTILE, ...(isActive ? { backgroundColor: color + "15" } : {}) }}
               >
                 <Icon size={14} color={isActive ? color : "#9CA3AF"} />
                 <Text
