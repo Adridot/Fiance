@@ -34,6 +34,7 @@ import { StatusSelector } from "@/components/StatusSelector";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { PageHeader } from "@/components/PageHeader";
 import { Seal } from "@/components/Seal";
+import { BoutonIcone } from "@/components/BoutonIcone";
 import { PremiumGate } from "@/components/PremiumGate";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import { useHasFeature, useCanAddMore, FREE_LIMITS } from "@/lib/limits";
@@ -480,12 +481,9 @@ function PaymentsTab({ vendorId }: { vendorId: string }) {
             )}
           </View>
           {canEdit && (
-            <Pressable
-              onPress={() => setDeleteId(p.id)}
-              className="w-8 h-8 items-center justify-center"
-            >
+            <BoutonIcone libelle={`${t("common:delete")} ${p.amount.toFixed(2)} €`} onPress={() => setDeleteId(p.id)}>
               <Trash2 size={16} color="#EF4444" />
-            </Pressable>
+            </BoutonIcone>
           )}
         </View>
       ))}
@@ -607,12 +605,9 @@ function DocumentsTab({ vendorId }: { vendorId: string }) {
               )}
             </View>
             {canEdit && (
-              <Pressable
-                onPress={() => setDeleteId(doc.id)}
-                className="w-8 h-8 items-center justify-center"
-              >
+              <BoutonIcone libelle={`${t("common:delete")} ${doc.label}`} onPress={() => setDeleteId(doc.id)}>
                 <Trash2 size={16} color="#EF4444" />
-              </Pressable>
+              </BoutonIcone>
             )}
           </View>
         );
