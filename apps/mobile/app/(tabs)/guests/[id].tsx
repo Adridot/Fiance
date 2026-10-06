@@ -838,6 +838,7 @@ export default function GuestDetailScreen() {
                     key={comm.id}
                     onPress={() => toggleRecipient(comm.id, id!, new Date().toISOString())}
                     className="flex-row items-center py-2 border-b border-hair"
+                    style={{ minHeight: CIBLE_TACTILE }}
                   >
                     {sent ? <CheckCircle2 size={16} color={GP.olive} /> : <Circle size={16} color="#C0C0C8" />}
                     <View className="flex-1 ml-2.5">
