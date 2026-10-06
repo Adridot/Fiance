@@ -24,6 +24,8 @@
   "sourceUrl": "Source URL",
   "links": "Links",
   "addLink": "Add a link",
+  "openLink": "Open link",
+  "removeLink": "Remove link",
   "linkPlaceholder": "https://...",
   "linkCount_one": "{{count}} link",
   "linkCount_other": "{{count}} links",

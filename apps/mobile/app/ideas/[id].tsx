@@ -219,6 +219,7 @@ export default function IdeaDetailScreen() {
               <LinkIcon size={14} color={GP.clay} className="mr-2" />
               <TextInput
                 className="flex-1 text-base text-ink mx-2"
+                style={{ minHeight: CIBLE_TACTILE }}
                 value={link.value}
                 onChangeText={(text) => {
                   setLinks((prev) =>
@@ -233,42 +234,46 @@ export default function IdeaDetailScreen() {
                 editable={canEdit}
               />
               {link.value.trim() ? (
-                <View className="flex-row items-center gap-2">
+                <View className="flex-row items-center">
                   {isValidUrl(link.value) && (
-                    <Pressable
+                    <BoutonIcone
+                      libelle={t("openLink")}
                       onPress={() => Linking.openURL(link.value.trim())}
-                      hitSlop={8}
+                      empreinte={CIBLE_TACTILE}
                     >
                       <ExternalLink size={18} color={GP.clay} />
-                    </Pressable>
+                    </BoutonIcone>
                   )}
-                  <Pressable
+                  <BoutonIcone
+                    libelle={t("removeLink")}
                     onPress={() => {
                       setLinks((prev) => {
                         const updated = prev.filter((l) => l.id !== link.id);
                         return updated.length > 0 ? updated : [{ id: nextLinkId(), value: "" }];
                       });
                     }}
-                    hitSlop={8}
+                    empreinte={CIBLE_TACTILE}
                   >
                     <X size={18} color="#9CA3AF" />
-                  </Pressable>
+                  </BoutonIcone>
                 </View>
               ) : links.length > 1 ? (
-                <Pressable
+                <BoutonIcone
+                  libelle={t("removeLink")}
                   onPress={() => {
                     setLinks((prev) => prev.filter((l) => l.id !== link.id));
                   }}
-                  hitSlop={8}
+                  empreinte={CIBLE_TACTILE}
                 >
                   <X size={18} color="#9CA3AF" />
-                </Pressable>
+                </BoutonIcone>
               ) : null}
             </View>
           ))}
           <Pressable
             onPress={() => setLinks((prev) => [...prev, { id: nextLinkId(), value: "" }])}
-            className="flex-row items-center mt-1"
+            className="flex-row items-center"
+            style={{ paddingVertical: 12, marginTop: -8, marginBottom: -12 }}
           >
             <Plus size={16} color={GP.clay} />
             <Text className="text-primary-500 text-sm font-medium ml-1">
