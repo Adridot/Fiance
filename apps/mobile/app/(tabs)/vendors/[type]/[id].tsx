@@ -13,7 +13,8 @@ import { useDocumentsStore } from "@/store/useDocumentsStore";
 import { calculateVendorTotal, isVendorDynamicPricing } from "@/lib/budget";
 import { formatMoney } from "@/components/MoneyDisplay";
 import { GuestPricingSection } from "@/components/vendors/GuestPricingSection";
-import { pickAndStoreDocument, isDocumentAvailableOnDevice, deleteDocumentFile } from "@/lib/documents";
+import { isDocumentAvailableOnDevice, deleteDocumentFile, type PickedDocumentFile } from "@/lib/documents";
+import { ChoixDeDocument } from "@/components/ChoixDeDocument";
 import { selectVendorInGroup } from "@/lib/vendor-comparison";
 import {
   VENDOR_TYPE_LABELS,
@@ -568,30 +569,23 @@ function DocumentsTab({ vendorId }: { vendorId: string }) {
   );
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const handlePick = async () => {
-    const docId = Crypto.randomUUID();
-    try {
-      const picked = await pickAndStoreDocument(docId);
-      if (!picked) return;
-      const now = new Date().toISOString();
-      addDocument({
-        id: docId,
-        ownerType: "VENDOR",
-        ownerId: vendorId,
-        label: picked.fileName,
-        fileName: picked.fileName,
-        mimeType: picked.mimeType,
-        localUri: picked.localUri,
-        fileSize: picked.fileSize,
-        uploadedAt: now,
-        notes: null,
-        createdAt: now,
-        updatedAt: now,
-      });
-      analytics.capture("document_attached");
-    } catch {
-      Alert.alert(t("common:error"), t("documentPickError"));
-    }
+  const handlePicked = (picked: PickedDocumentFile & { id: string }) => {
+    const now = new Date().toISOString();
+    addDocument({
+      id: picked.id,
+      ownerType: "VENDOR",
+      ownerId: vendorId,
+      label: picked.fileName,
+      fileName: picked.fileName,
+      mimeType: picked.mimeType,
+      localUri: picked.localUri,
+      fileSize: picked.fileSize,
+      uploadedAt: now,
+      notes: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    analytics.capture("document_attached");
   };
 
   return (
@@ -622,13 +616,12 @@ function DocumentsTab({ vendorId }: { vendorId: string }) {
       )}
 
       {canEdit && (
-        <Pressable
-          onPress={handlePick}
-          className="bg-primary-50 dark:bg-primary-950 rounded-xl py-3 flex-row items-center justify-center gap-2 border border-primary-200 dark:border-primary-800 active:opacity-80 mt-1"
-        >
-          <Upload size={15} color={GP.clay} />
-          <Text className="text-sm font-semibold text-primary-500">{t("addDocument")}</Text>
-        </Pressable>
+        <ChoixDeDocument onChoisi={handlePicked} onErreur={() => Alert.alert(t("common:error"), t("documentPickError"))}>
+          <View className="bg-primary-50 dark:bg-primary-950 rounded-xl py-3 flex-row items-center justify-center gap-2 border border-primary-200 dark:border-primary-800 mt-1">
+            <Upload size={15} color={GP.clay} />
+            <Text className="text-sm font-semibold text-primary-500">{t("addDocument")}</Text>
+          </View>
+        </ChoixDeDocument>
       )}
 
       <ConfirmSheet
