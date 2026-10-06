@@ -42,7 +42,9 @@ import { useHasFeature, useCanAddMore, FREE_LIMITS } from "@/lib/limits";
 import { toast } from "@/lib/toast/sonner";
 import type { Vendor, VendorPayment } from "@/db/schema";
 import { theme as GP } from "@/lib/theme";
-import { CIBLE_TACTILE } from "@/lib/cible-tactile";
+import { CIBLE_TACTILE, agrandir } from "@/lib/cible-tactile";
+
+const enTeteDesDates = agrandir({ haut: 12, bas: 8 }, { marges: { haut: 4, bas: 8 } });
 
 const STATUS_OPTIONS: VendorStatus[] = [
   "PROSPECT",
@@ -357,7 +359,7 @@ export default function VendorDetailScreen() {
             <Pressable
               onPress={() => setShowDates(!showDates)}
               className="flex-row items-center justify-between"
-              style={{ paddingTop: 12, paddingBottom: 8, marginTop: -8 }}
+              style={enTeteDesDates}
             >
               <SectionTitle>{t("dates")}</SectionTitle>
               {showDates ? (

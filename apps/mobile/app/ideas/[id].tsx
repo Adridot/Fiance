@@ -38,7 +38,9 @@ import { Postit } from "@/components/Postit";
 import { BoutonIcone } from "@/components/BoutonIcone";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
 import { theme as GP } from "@/lib/theme";
-import { CIBLE_TACTILE } from "@/lib/cible-tactile";
+import { CIBLE_TACTILE, agrandir } from "@/lib/cible-tactile";
+
+const ajouterUnLien = agrandir({ haut: 12, bas: 12 }, { marges: { haut: 4 } });
 
 const CATEGORIES = Object.keys(IDEA_CATEGORY_LABELS) as IdeaCategory[];
 
@@ -274,7 +276,7 @@ export default function IdeaDetailScreen() {
           <Pressable
             onPress={() => setLinks((prev) => [...prev, { id: nextLinkId(), value: "" }])}
             className="flex-row items-center"
-            style={{ paddingVertical: 12, marginTop: -8, marginBottom: -12 }}
+            style={ajouterUnLien}
           >
             <Plus size={16} color={GP.clay} />
             <Text className="text-primary-500 text-sm font-medium ml-1">

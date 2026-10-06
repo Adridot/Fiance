@@ -89,7 +89,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Seal } from "@/components/Seal";
 import { BoutonIcone } from "@/components/BoutonIcone";
 import { ZoneTactile } from "@/components/ZoneTactile";
-import { CIBLE_TACTILE } from "@/lib/cible-tactile";
+import { CIBLE_TACTILE, agrandir } from "@/lib/cible-tactile";
 import type { Guest } from "@/db/schema";
 
 const RSVP_STATUSES: RsvpStatus[] = ["PENDING", "ACCEPTED", "DECLINED", "MAYBE"];
@@ -101,6 +101,8 @@ const DIETS: Diet[] = [
   "KOSHER",
   "ALLERGY",
 ];
+
+const bandeauDesRoles = agrandir({ haut: 10, bas: 10 }, { marges: { bas: 16 } });
 
 type SheetKey = "role" | "contact" | "household" | "rsvp" | "placement" | "meal" | "transport" | "postWedding" | "notes";
 
@@ -416,7 +418,7 @@ export default function GuestDetailScreen() {
           <Pressable
             onPress={() => setActiveSheet("role")}
             className="flex-row flex-wrap gap-1.5"
-            style={{ paddingVertical: 10, marginTop: -10, marginBottom: 6 }}
+            style={bandeauDesRoles}
           >
             {guestRoles.map((r) => (
               <View key={r.id} className="px-2.5 py-1 rounded-full bg-accent-clay-soft dark:bg-primary-900">
