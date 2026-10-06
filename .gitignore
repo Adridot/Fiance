@@ -43,3 +43,5 @@ apps/mobile/dist.old/
 apps/mobile/dist.new/
 apps/mobile/dist.e2e/
 .smoke.mjs
+# Added by code-review-graph
+.code-review-graph/

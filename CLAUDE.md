@@ -307,3 +307,14 @@ séquence sur l'amont doit reproduire l'arbre de `didot/master`.
 ## App Store & Play Store SEO (ASO)
 
 Store-listing optimization for the **Apple App Store** and **Google Play** — indexing rules, the optimized FR/EN app names, subtitles, keyword fields and descriptions, cross-localization stacking, and the growth/creative/discovery levers (screenshots, ratings, seasonality, In-App Events, Custom Store Listings, featuring, web→app) — lives in a dedicated document: **[`STORE_SEO.md`](./STORE_SEO.md)**. Update it whenever a feature is added/renamed or store copy changes.
+
+## Outils d'économie de tokens et de test
+
+- **Ponytail** (plugin, mode `full`) : minimum utile, réutiliser l'existant, aucune abstraction spéculative.
+- **review-changes** (Code Review Graph) pour relire un changement et ses impacts ; `debug-issue`, `explore-codebase`, `refactor-safely` au besoin.
+- **Code Review Graph** (MCP `code-review-graph-user`, CLI `code-review-graph`) : contexte minimal, requêtes ciblées, résultats bornés. L'index est par worktree (`code-review-graph build`) et ne couvre pas les sources gelées ni les relations dynamiques.
+- **RTK** : à préfixer explicitement (`rtk git diff`, `rtk pnpm test`…), aucun hook. Logs complets dans un fichier, résumé court dans la réponse.
+- **playwright-cli** : navigation ciblée et réparation des scénarios ; le banc `~/fiance-e2e` reste prioritaire avant tout déploiement.
+- **Context7** : pour une question documentaire précise sur une bibliothèque (Expo, React Native, Vitest…).
+- **OpenSpec** : uniquement pour le workflow OpenSpec demandé.
+- Lire un skill au moment de l'utiliser, pas tous au démarrage. Réutiliser les checkpoints et résultats acquis. Un seul agent sauf délégation demandée.
