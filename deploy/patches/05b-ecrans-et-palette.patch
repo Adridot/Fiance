@@ -437,7 +437,7 @@ index b688a0f..63169dc 100644
            <PlanView
              tables={tables}
 diff --git a/apps/mobile/app/(tabs)/home/index.tsx b/apps/mobile/app/(tabs)/home/index.tsx
-index 73aab69..5c22974 100644
+index 73aab69..7b4dbda 100644
 --- a/apps/mobile/app/(tabs)/home/index.tsx
 +++ b/apps/mobile/app/(tabs)/home/index.tsx
 @@ -2,16 +2,19 @@ import React, { useCallback, useEffect } from "react";
@@ -461,7 +461,16 @@ index 73aab69..5c22974 100644
  import { useWeddingEventsStore } from "@/store/useWeddingEventsStore";
  import { useVendorsStore } from "@/store/useVendorsStore";
  import { useGuestsStore, computeCounts } from "@/store/useGuestsStore";
-@@ -34,6 +37,9 @@ import { PageHeader } from "@/components/PageHeader";
+@@ -23,6 +26,8 @@ import { TimelineItem } from "@/components/TimelineItem";
+ import { usePwaInstall } from "@/lib/usePwaInstall";
+ import { useWidgetBanner } from "@/lib/useWidgetBanner";
+ import { HomeBanner } from "@/components/HomeBanner";
++// MODIFICATION LOCALE — un accès refusé par le serveur se dit.
++import { BandeauAccesRefuse } from "@/components/BandeauAccesRefuse";
+ import { TipsBanner } from "@/components/TipsBanner";
+ import { analytics } from "@/lib/analytics";
+ import { theme as GP } from "@/lib/theme";
+@@ -34,6 +39,9 @@ import { PageHeader } from "@/components/PageHeader";
  import { useIsWideScreen } from "@/lib/useIsWideScreen";
  import { getPrimaryEvent } from "@fiance/sdk";
  
@@ -471,7 +480,7 @@ index 73aab69..5c22974 100644
  export default function HomeScreen() {
    return <DashboardScreen />;
  }
-@@ -48,10 +54,21 @@ function DashboardScreen() {
+@@ -48,10 +56,21 @@ function DashboardScreen() {
    const registry = useWeddingRegistryStore((s) => s.registry);
    const activeEntry = registry?.weddings.find((w) => w.id === registry.activeWeddingId);
    const showResyncBanner = needsNamespaceResync(activeEntry);
@@ -493,7 +502,15 @@ index 73aab69..5c22974 100644
    const weddingEvents = useWeddingEventsStore((s) => s.weddingEvents);
    const primaryEvent = React.useMemo(() => getPrimaryEvent(weddingEvents), [weddingEvents]);
    const vendors = useVendorsStore((s) => s.vendors);
-@@ -297,6 +314,43 @@ function DashboardScreen() {
+@@ -244,6 +263,7 @@ function DashboardScreen() {
+ 
+       {/* ── Content — overlaps hero by 20px ── */}
+       <View className="px-4 -mt-5">
++        <BandeauAccesRefuse className="mb-3" />
+         {/* Urgent actions */}
+         {hasUrgent && (
+           <View
+@@ -297,6 +317,43 @@ function DashboardScreen() {
            />
          )}
  
@@ -537,7 +554,7 @@ index 73aab69..5c22974 100644
          {/* PWA install banner — Chromium browsers */}
          {canInstall && (
            <HomeBanner
-@@ -331,8 +385,8 @@ function DashboardScreen() {
+@@ -331,8 +388,8 @@ function DashboardScreen() {
          {/* Sync-namespace resync banner — space provisioned under a retired namespace */}
          {showResyncBanner && (
            <HomeBanner
@@ -1066,7 +1083,7 @@ index fdb8ec2..db97506 100644
                      <Text
                        className="text-sm font-medium text-ink text-center"
 diff --git a/apps/mobile/app/+html.tsx b/apps/mobile/app/+html.tsx
-index 06cc889..61091e5 100644
+index 06cc889..62e637c 100644
 --- a/apps/mobile/app/+html.tsx
 +++ b/apps/mobile/app/+html.tsx
 @@ -12,12 +12,27 @@ export default function Root({ children }: PropsWithChildren) {
@@ -1091,14 +1108,23 @@ index 06cc889..61091e5 100644
          <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
          <meta
            name="viewport"
-           content="width=device-width, initial-scale=1, shrink-to-fit=no"
+-          content="width=device-width, initial-scale=1, shrink-to-fit=no"
++          content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"
          />
 -        <meta name="theme-color" content="#b96a4a" />
 +        <meta name="theme-color" content="#00916e" />
  
          {/* Invariant meta — per-page title/description/robots set by <Seo> */}
          <meta name="keywords" content={seo.keywords} />
-@@ -117,10 +132,65 @@ export default function Root({ children }: PropsWithChildren) {
+@@ -44,6 +59,7 @@ export default function Root({ children }: PropsWithChildren) {
+         <meta name="application-name" content="Fiancé" />
+         <meta name="apple-mobile-web-app-title" content="Fiancé" />
+         <meta name="mobile-web-app-capable" content="yes" />
++        <meta name="apple-mobile-web-app-capable" content="yes" />
+         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+ 
+         {/* JSON-LD Structured Data — global @graph (SoftwareApplication + WebSite + Organization) */}
+@@ -117,10 +133,80 @@ export default function Root({ children }: PropsWithChildren) {
          <link rel="manifest" href="/manifest.json" />
          <link rel="icon" href="/assets/favicon.png" />
          <link rel="apple-touch-icon" href="/assets/icon.png" />
@@ -1149,6 +1175,21 @@ index 06cc889..61091e5 100644
 +@keyframes chargement-tourne{to{transform:rotate(360deg)}}
 +@media (prefers-color-scheme:dark){#chargement{background:#0d1714;color:#eaf5f0}}
 +@media (prefers-reduced-motion:reduce){#chargement .anneau{animation:chargement-apparait .25s ease-out .35s forwards}}
++`,
++          }}
++        />
++        {/*
++          MODIFICATION LOCALE — `viewport-fit=cover` étend la page sous l'encoche et
++          l'indicateur d'accueil. Les en-têtes et la barre d'onglets lisent les marges
++          de SafeAreaProvider (env()) ; ici les marges latérales du paysage, et un
++          bandeau sous la barre d'état de l'app installée : `black-translucent` y écrit
++          en blanc, illisible sur les en-têtes clairs.
++        */}
++        <style
++          dangerouslySetInnerHTML={{
++            __html: `
++#root{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
++@media (display-mode:standalone){html:not(.dark) body::before{content:"";position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top);background:#00916e;z-index:2147483000;pointer-events:none}}
 +`,
 +          }}
 +        />
@@ -3445,7 +3486,7 @@ index 7843b4d..a00e821 100644
        g.shuttleVendorId ? (vendorMap.get(g.shuttleVendorId) ?? "") : "",
        g.shuttlePickupLocation ?? "",
 diff --git a/apps/mobile/public/manifest.json b/apps/mobile/public/manifest.json
-index 9b2b74e..99cb0c6 100644
+index 9b2b74e..5d08510 100644
 --- a/apps/mobile/public/manifest.json
 +++ b/apps/mobile/public/manifest.json
 @@ -7,8 +7,8 @@
@@ -3459,6 +3500,31 @@ index 9b2b74e..99cb0c6 100644
    "lang": "fr",
    "dir": "ltr",
    "categories": ["lifestyle", "productivity", "utilities"],
+@@ -42,21 +42,21 @@
+     {
+       "name": "Budget",
+       "short_name": "Budget",
+-      "url": "/(tabs)/budget",
++      "url": "/budget",
+       "description": "Gérer le budget du mariage",
+       "icons": [{ "src": "/favicon.png", "sizes": "48x48" }]
+     },
+     {
+       "name": "Invités",
+       "short_name": "Invités",
+-      "url": "/(tabs)/guests",
++      "url": "/guests",
+       "description": "Gérer la liste des invités",
+       "icons": [{ "src": "/favicon.png", "sizes": "48x48" }]
+     },
+     {
+       "name": "Planning",
+       "short_name": "Planning",
+-      "url": "/(tabs)/planning",
++      "url": "/planning",
+       "description": "Voir le planning du mariage",
+       "icons": [{ "src": "/favicon.png", "sizes": "48x48" }]
+     }
 diff --git a/apps/mobile/samples/big.json b/apps/mobile/samples/big.json
 index 867423f..60c36dd 100644
 --- a/apps/mobile/samples/big.json
@@ -3825,7 +3891,7 @@ index 7531382..0b3504f 100644
        "updatedAt": "2026-07-01T10:00:00.000Z"
      }
 diff --git a/apps/mobile/scripts/inject-pwa.js b/apps/mobile/scripts/inject-pwa.js
-index 8c6c2a3..c8d1bf6 100644
+index 8c6c2a3..ae44f3b 100644
 --- a/apps/mobile/scripts/inject-pwa.js
 +++ b/apps/mobile/scripts/inject-pwa.js
 @@ -16,8 +16,8 @@ const manifest = {
@@ -3839,6 +3905,31 @@ index 8c6c2a3..c8d1bf6 100644
    lang: "fr",
    dir: "ltr",
    categories: ["lifestyle", "productivity", "utilities"],
+@@ -33,21 +33,21 @@ const manifest = {
+     {
+       name: "Budget",
+       short_name: "Budget",
+-      url: "/(tabs)/budget",
++      url: "/budget",
+       description: seo.shortcuts.budget,
+       icons: [{ src: "/favicon.png", sizes: "48x48" }],
+     },
+     {
+       name: "Invités",
+       short_name: "Invités",
+-      url: "/(tabs)/guests",
++      url: "/guests",
+       description: seo.shortcuts.guests,
+       icons: [{ src: "/favicon.png", sizes: "48x48" }],
+     },
+     {
+       name: "Planning",
+       short_name: "Planning",
+-      url: "/(tabs)/planning",
++      url: "/planning",
+       description: seo.shortcuts.planning,
+       icons: [{ src: "/favicon.png", sizes: "48x48" }],
+     },
 diff --git a/apps/mobile/tailwind.config.js b/apps/mobile/tailwind.config.js
 index 9199079..cd72da8 100644
 --- a/apps/mobile/tailwind.config.js

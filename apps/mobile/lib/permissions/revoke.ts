@@ -1,19 +1,11 @@
 /**
  * Révocation d'un collaborateur (côté propriétaire).
  *
- * MODIFICATION LOCALE — l'en-tête d'amont affirmait que le retrait du registre
- * coupe l'accès serveur, « every object collection requires the roster
- * `space:member` role ». C'est FAUX sur ce déploiement : `spaceDoc` de
- * `fiance-sync/src/collections.mjs` déclare
- * `readRoles: ["space:member", "cap:read:objdoc"]`, donc un porteur de cap lit
- * sans figurer dans `_access` — c'est exactement ainsi que le robot `fiance-db`
- * travaille. Et `createInMemoryRevocationStore` perd sa liste à chaque
- * redémarrage du conteneur, tandis que `submitRevocation` n'écrit que dans le
- * registre local.
- *
- * La rotation du keyring est donc le SEUL levier réel — et une rotation qui ne
- * rescelle rien ne révoque rien : le lien évincé continue d'ouvrir tout le
- * contenu déjà écrit. D'où l'ordre ci-dessous, dont l'étape 4 est nouvelle :
+ * MODIFICATION LOCALE — un cap de lien ne porte que `collections: ["content"]`, jamais `cap:read:objdoc` :
+ * sa lecture passe par `space:member`, donc le retrait de `_access` coupe bien l'accès serveur.
+ * La `RevocationList`, elle, n'atteint pas le serveur (`submitRevocation` n'écrit que dans le registre
+ * local). Rotation et rescellement sont la défense en profondeur : ce qui serait lu hors de `_access`
+ * ne s'ouvre plus avec les clés du lien évincé. D'où l'ordre ci-dessous :
  *
  *   1. retirer l'assignation + pousser  ← le révoqué, encore dans l'époque
  *                                         courante, déchiffre son propre retrait
@@ -130,8 +122,8 @@ async function revoquer(
     });
   } catch (err) {
     // Aucune entrée d'invitation en magasin (lien minté sur un autre appareil).
-    // Le retrait du registre est alors tout ce qui reste — et il ne coupe PAS
-    // l'accès serveur ici (voir l'en-tête). L'éviction n'est donc pas accomplie.
+    // Le retrait du registre coupe l'accès serveur, mais sans rotation ni
+    // rescellement l'éviction n'est pas accomplie (voir l'en-tête).
     console.warn("[revoke] revokeSpaceAccess failed; falling back to removeSpaceMember", err);
     try {
       await removeSpaceMember(session.accountClient, spaceId, subjectUserId, session);

@@ -4,6 +4,7 @@ vi.mock("@fiance/sdk", () => ({ getSyncNamespace: () => "dk" }));
 
 import { CompteError } from "@/lib/compte";
 import {
+  accesARenouveler,
   etapeDuParcours,
   sequenceDeCreationDeCompte,
   sequenceDeJonction,
@@ -31,6 +32,59 @@ describe("étape du parcours", () => {
   it("après une connexion, le registre rempli oriente vers l'une des deux premières branches", () => {
     expect(etapeDuParcours({ weddings: [entree("sp-b")] }, "sp-b")).toBe("deja-acceptee");
     expect(etapeDuParcours({ weddings: [entree("sp-a")] }, "sp-b")).toBe("confirmer");
+  });
+});
+
+describe("un lien neuf pour un mariage déjà présent", () => {
+  const membre = (inviteSubjectId?: string) => ({ ...entree("sp-b"), role: "member" as const, inviteSubjectId });
+  const cap = (nonce: string, subUserId = "sujet-1") => ({ kind: "member", nonce, subUserId, exp: 1 });
+
+  it("cap au nonce différent de l'accès enregistré : renouveler", () => {
+    expect(
+      etapeDuParcours({ weddings: [membre("sujet-1")] }, "sp-b", { capDuJeton: cap("N2", "sujet-2"), capEnregistre: cap("N1") }),
+    ).toBe("renouveler");
+  });
+
+  it("même cap : déjà membre, rien ne change", () => {
+    expect(
+      etapeDuParcours({ weddings: [membre("sujet-1")] }, "sp-b", { capDuJeton: cap("N1"), capEnregistre: cap("N1") }),
+    ).toBe("deja-acceptee");
+  });
+
+  it("le nonce départage même quand le sujet coïncide", () => {
+    expect(accesARenouveler(membre("sujet-1"), { capDuJeton: cap("N2"), capEnregistre: cap("N1") })).toBe(true);
+  });
+
+  it("une entrée d'accès `member` stocke son cap en JSON : il se lit aussi", () => {
+    const enregistre = JSON.stringify(cap("N1"));
+    expect(accesARenouveler(membre(), { capDuJeton: cap("N1"), capEnregistre: enregistre })).toBe(false);
+    expect(accesARenouveler(membre(), { capDuJeton: cap("N2"), capEnregistre: enregistre })).toBe(true);
+  });
+
+  it("accès non chargé : le sujet du dernier lien adopté départage", () => {
+    expect(accesARenouveler(membre("sujet-1"), { capDuJeton: cap("N2", "sujet-2") })).toBe(true);
+    expect(accesARenouveler(membre("sujet-1"), { capDuJeton: cap("N1", "sujet-1") })).toBe(false);
+  });
+
+  it("rien de connu sur l'accès de l'appareil : on adopte le lien", () => {
+    expect(accesARenouveler(membre(), { capDuJeton: cap("N2") })).toBe(true);
+  });
+
+  it("le propriétaire n'échange jamais son accès contre un lien", () => {
+    const proprietaire = { ...entree("sp-b"), role: "owner" as const };
+    expect(etapeDuParcours({ weddings: [proprietaire] }, "sp-b", { capDuJeton: cap("N2"), capEnregistre: cap("N1") })).toBe(
+      "deja-acceptee",
+    );
+    expect(accesARenouveler({ role: undefined }, { capDuJeton: cap("N2") })).toBe(false);
+  });
+
+  it("un jeton sans nonce ne remplace rien", () => {
+    expect(accesARenouveler(membre("sujet-1"), { capDuJeton: { kind: "member" }, capEnregistre: cap("N1") })).toBe(false);
+  });
+
+  it("les autres branches ne bougent pas", () => {
+    expect(etapeDuParcours({ weddings: [membre()] }, "sp-z", { capDuJeton: cap("N2") })).toBe("confirmer");
+    expect(etapeDuParcours({ weddings: [] }, "sp-z", { capDuJeton: cap("N2") })).toBe("creer-un-compte");
   });
 });
 

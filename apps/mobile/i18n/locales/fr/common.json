@@ -133,7 +133,21 @@
     "boutonRejoindre": "Rejoindre le mariage",
     "creationEnCours": "Création de votre compte…",
     "jonctionEnCours": "Ouverture du mariage…",
-    "reessayer": "Réessayer"
+    "reessayer": "Réessayer",
+    "renouvelerTitre": "Renouveler votre accès",
+    "renouvelerDetail": "Cet appareil a déjà « {{name}} ». Ce lien remplace son ancien accès ; vos données ne changent pas.",
+    "renouvelerDetailSansNom": "Cet appareil a déjà ce mariage. Ce lien remplace son ancien accès ; vos données ne changent pas.",
+    "renouvelerBouton": "Renouveler mon accès",
+    "renouvellementEnCours": "Renouvellement de l'accès…",
+    "accesRenouvele": "Accès renouvelé",
+    "accesRenouveleDetail": "« {{name}} » est de nouveau accessible sur cet appareil.",
+    "accesRenouveleDetailSansNom": "Le mariage est de nouveau accessible sur cet appareil."
+  },
+  "accesRefuse": {
+    "titre": "Votre accès à ce mariage a expiré.",
+    "detail": "Il sera renouvelé automatiquement dès que les mariés ouvriront l'application ; vous pouvez aussi leur demander un nouveau lien.",
+    "titreInvalide": "Votre accès à ce mariage n'est plus valide.",
+    "detailInvalide": "Demandez aux mariés de vous renvoyer un lien d'invitation, puis ouvrez-le sur cet appareil."
   },
   "homeEyebrow": "Mariage",
   "homeTagline": "jours",

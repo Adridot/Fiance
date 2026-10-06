@@ -25,7 +25,9 @@ verifier_serie() {
   local index; index=$(mktemp -t fiance-patch-index.XXXXXX)
   local rc=0
   trap 'rm -f "$index"' RETURN
-  GIT_INDEX_FILE="$index" git read-tree HEAD
+  # La série est dérivée de `upstream/master..didot/master` : on la rejoue sur sa
+  # base, pas sur HEAD, qui la contient déjà depuis qu'elle vit dans l'histoire.
+  GIT_INDEX_FILE="$index" git read-tree "${PATCH_BASE:-upstream/master}"
   for patch in "${PATCHES[@]}"; do
     if ! GIT_INDEX_FILE="$index" git apply --cached "$patch" 2>/dev/null; then
       echo "  la série casse à $(basename "$patch") — il ne s'applique pas sur l'amont + les précédents" >&2

@@ -45,7 +45,12 @@ export function HomeBanner({
         {description ? <Text className="text-xs text-mute mt-0.5">{description}</Text> : null}
       </View>
       {onDismiss ? (
-        <Pressable onPress={onDismiss} className="p-1">
+        <Pressable
+          onPress={onDismiss}
+          testID="home-banner-fermer"
+          className="items-center justify-center"
+          style={{ width: 44, height: 44, margin: -9 }}
+        >
           <X size={18} color={GP.mute} />
         </Pressable>
       ) : showChevron ? (

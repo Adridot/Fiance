@@ -1,0 +1,534 @@
+diff --git a/apps/mobile/__tests__/installation-pwa.test.ts b/apps/mobile/__tests__/installation-pwa.test.ts
+new file mode 100644
+index 0000000..928b738
+--- /dev/null
++++ b/apps/mobile/__tests__/installation-pwa.test.ts
+@@ -0,0 +1,34 @@
++import { describe, expect, it } from "vitest";
++import { peutProposerLInstallation, sousReserveDeCompte } from "@/lib/installation-pwa";
++
++describe("quand proposer d'installer l'application", () => {
++  it("jamais avant que le compte existe", () => {
++    expect(peutProposerLInstallation(true, false)).toBe(false);
++  });
++
++  it("pas tant que le compte n'est pas lu : on ne l'affiche pas pour le retirer ensuite", () => {
++    expect(peutProposerLInstallation(false, false)).toBe(false);
++    expect(peutProposerLInstallation(false, true)).toBe(false);
++  });
++
++  it("dès que le compte est chargé et présent", () => {
++    expect(peutProposerLInstallation(true, true)).toBe(true);
++  });
++});
++
++describe("le bandeau d'installation sous réserve de compte", () => {
++  const installation = { canInstall: true, isIosSafari: true, install: () => {}, dismissIosBanner: () => {} };
++
++  it("laisse tout passer quand l'installation est permise", () => {
++    expect(sousReserveDeCompte(installation, true)).toBe(installation);
++  });
++
++  it("éteint les deux bandeaux, Chromium et iOS, sans toucher au reste", () => {
++    const sous = sousReserveDeCompte(installation, false);
++    expect(sous.canInstall).toBe(false);
++    expect(sous.isIosSafari).toBe(false);
++    expect(sous.install).toBe(installation.install);
++    expect(sous.dismissIosBanner).toBe(installation.dismissIosBanner);
++    expect(installation.canInstall).toBe(true);
++  });
++});
+diff --git a/apps/mobile/__tests__/menu-deroulant.test.ts b/apps/mobile/__tests__/menu-deroulant.test.ts
+new file mode 100644
+index 0000000..288b511
+--- /dev/null
++++ b/apps/mobile/__tests__/menu-deroulant.test.ts
+@@ -0,0 +1,56 @@
++import { describe, expect, it } from "vitest";
++import { indexApresTouche, placerLeMenu } from "@/lib/menu-deroulant";
++
++const TELEPHONE = { largeur: 390, hauteur: 844 };
++
++describe("placement du menu sous son déclencheur", () => {
++  it("s'ouvre sous le déclencheur, bord droit aligné", () => {
++    const p = placerLeMenu({ right: 374, bottom: 100 }, TELEPHONE);
++    expect(p.top).toBe(104);
++    expect(p.right).toBe(16);
++  });
++
++  it("ne déborde jamais de la fenêtre sur le côté", () => {
++    expect(placerLeMenu({ right: 390, bottom: 100 }, TELEPHONE).right).toBe(8);
++    expect(placerLeMenu({ right: 400, bottom: 100 }, TELEPHONE).right).toBe(8);
++  });
++
++  it("défile au lieu de sortir par le bas", () => {
++    expect(placerLeMenu({ right: 374, bottom: 100 }, TELEPHONE).maxHeight).toBe(844 - 104 - 8);
++    expect(placerLeMenu({ right: 374, bottom: 60 }, { largeur: 667, hauteur: 375 }).maxHeight).toBe(375 - 64 - 8);
++  });
++
++  it("ne déborde jamais de la fenêtre à gauche", () => {
++    expect(placerLeMenu({ right: 374, bottom: 100 }, TELEPHONE).maxWidth).toBe(390 - 16 - 8);
++    expect(placerLeMenu({ right: 390, bottom: 100 }, TELEPHONE).maxWidth).toBe(390 - 8 - 8);
++  });
++
++  it("une hauteur disponible négative devient nulle", () => {
++    expect(placerLeMenu({ right: 100, bottom: 900 }, TELEPHONE).maxHeight).toBe(0);
++  });
++});
++
++describe("navigation au clavier dans le menu", () => {
++  it("flèche bas : premier item sans focus, puis suivant, puis retour au début", () => {
++    expect(indexApresTouche("ArrowDown", -1, 4)).toBe(0);
++    expect(indexApresTouche("ArrowDown", 1, 4)).toBe(2);
++    expect(indexApresTouche("ArrowDown", 3, 4)).toBe(0);
++  });
++
++  it("flèche haut : dernier item sans focus ou au premier, sinon précédent", () => {
++    expect(indexApresTouche("ArrowUp", -1, 4)).toBe(3);
++    expect(indexApresTouche("ArrowUp", 0, 4)).toBe(3);
++    expect(indexApresTouche("ArrowUp", 2, 4)).toBe(1);
++  });
++
++  it("Début et Fin", () => {
++    expect(indexApresTouche("Home", 2, 4)).toBe(0);
++    expect(indexApresTouche("End", 0, 4)).toBe(3);
++  });
++
++  it("toute autre touche, ou un menu vide : rien", () => {
++    expect(indexApresTouche("a", 1, 4)).toBeNull();
++    expect(indexApresTouche("Enter", 1, 4)).toBeNull();
++    expect(indexApresTouche("ArrowDown", -1, 0)).toBeNull();
++  });
++});
+diff --git a/apps/mobile/__tests__/pwa-raccourcis.test.ts b/apps/mobile/__tests__/pwa-raccourcis.test.ts
+new file mode 100644
+index 0000000..a579e91
+--- /dev/null
++++ b/apps/mobile/__tests__/pwa-raccourcis.test.ts
+@@ -0,0 +1,34 @@
++import { existsSync, readFileSync } from "node:fs";
++import { join } from "node:path";
++import { describe, expect, it } from "vitest";
++
++const MOBILE = join(__dirname, "..");
++
++const dansLeScript = [...readFileSync(join(MOBILE, "scripts", "inject-pwa.js"), "utf8").matchAll(/\burl:\s*"([^"]+)"/g)].map((m) => m[1]);
++const dansLeManifeste: string[] = JSON.parse(readFileSync(join(MOBILE, "public", "manifest.json"), "utf8")).shortcuts.map(
++  (s: { url: string }) => s.url,
++);
++
++/** Un groupe de routes `(tabs)` n'apparaît pas dans l'URL : la route est celle de son dossier. */
++function routeExiste(url: string): boolean {
++  return [join("app", "(tabs)", url, "index.tsx"), join("app", url, "index.tsx"), join("app", `${url}.tsx`)].some((f) =>
++    existsSync(join(MOBILE, f)),
++  );
++}
++
++describe.each([
++  ["scripts/inject-pwa.js", dansLeScript],
++  ["public/manifest.json", dansLeManifeste],
++])("raccourcis du manifeste (%s)", (_, urls) => {
++  it("déclare les trois raccourcis", () => {
++    expect(urls).toEqual(["/budget", "/guests", "/planning"]);
++  });
++
++  it("aucune URL ne porte de groupe de routes", () => {
++    expect(urls.filter((u) => /[()]/.test(u))).toEqual([]);
++  });
++
++  it("chaque URL mène à un écran qui existe", () => {
++    expect(urls.filter((u) => !routeExiste(u))).toEqual([]);
++  });
++});
+diff --git a/apps/mobile/components/HomeBanner.tsx b/apps/mobile/components/HomeBanner.tsx
+index c9ebba0..a751da4 100644
+--- a/apps/mobile/components/HomeBanner.tsx
++++ b/apps/mobile/components/HomeBanner.tsx
+@@ -45,7 +45,12 @@ export function HomeBanner({
+         {description ? <Text className="text-xs text-mute mt-0.5">{description}</Text> : null}
+       </View>
+       {onDismiss ? (
+-        <Pressable onPress={onDismiss} className="p-1">
++        <Pressable
++          onPress={onDismiss}
++          testID="home-banner-fermer"
++          className="items-center justify-center"
++          style={{ width: 44, height: 44, margin: -9 }}
++        >
+           <X size={18} color={GP.mute} />
+         </Pressable>
+       ) : showChevron ? (
+diff --git a/apps/mobile/components/StackMenu.tsx b/apps/mobile/components/StackMenu.tsx
+index 1a26234..514d378 100644
+--- a/apps/mobile/components/StackMenu.tsx
++++ b/apps/mobile/components/StackMenu.tsx
+@@ -10,7 +10,7 @@ export interface StackMenuItem {
+   onPress: () => void;
+ }
+ 
+-interface StackMenuProps {
++export interface StackMenuProps {
+   items: StackMenuItem[];
+ }
+ 
+@@ -20,6 +20,7 @@ interface StackMenuProps {
+ // SF Symbol name on iOS, and mapping lucide icons to the right symbol names
+ // without visual verification risks shipping wrong icons; text-only native
+ // items already resolve the "not native" complaint.
++// Web : StackMenu.web.tsx — MenuView n'y ouvre rien.
+ export function StackMenu({ items }: StackMenuProps) {
+   return (
+     <MenuView
+diff --git a/apps/mobile/components/StackMenu.web.tsx b/apps/mobile/components/StackMenu.web.tsx
+new file mode 100644
+index 0000000..36919c4
+--- /dev/null
++++ b/apps/mobile/components/StackMenu.web.tsx
+@@ -0,0 +1,216 @@
++import React, { useCallback, useEffect, useRef, useState } from "react";
++import { Pressable, useColorScheme, type View } from "react-native";
++// @ts-ignore — react-dom n'a pas de types ici
++import { createPortal } from "react-dom";
++import { EllipsisVertical } from "lucide-react-native";
++import { useTranslation } from "react-i18next";
++import { useSettingsStore } from "@/store/useSettingsStore";
++import { indexApresTouche, placerLeMenu, type PlacementDuMenu } from "@/lib/menu-deroulant";
++import { theme as GP } from "@/lib/theme";
++import type { StackMenuItem, StackMenuProps } from "./StackMenu";
++
++export type { StackMenuItem, StackMenuProps };
++
++const HAUTEUR_ITEM = 48;
++const Z_FOND = 2147483001;
++
++function focusVisible(el: HTMLElement | null): boolean {
++  try {
++    return !!el?.matches(":focus-visible");
++  } catch {
++    return false;
++  }
++}
++
++// Le keyup d'Échap qui suit ne doit pas fermer une Modal parente.
++function avalerLeKeyupDEchap() {
++  const avaler = (e: KeyboardEvent) => {
++    if (e.key !== "Escape") return;
++    e.stopImmediatePropagation();
++    document.removeEventListener("keyup", avaler, true);
++  };
++  document.addEventListener("keyup", avaler, true);
++  setTimeout(() => document.removeEventListener("keyup", avaler, true), 1000);
++}
++
++// MenuView d'@expo/ui n'ouvre rien sur le web. Couche portée par `document.body` : pas
++// de `Modal` RN, dont le keyup d'Échap fermerait aussi une Modal parente.
++export function StackMenu({ items }: StackMenuProps) {
++  const { t } = useTranslation("settings");
++  const appColorScheme = useSettingsStore((s) => s.colorScheme);
++  const systemScheme = useColorScheme();
++  const isDark = appColorScheme === "dark" || (appColorScheme === "system" && systemScheme === "dark");
++  const [placement, setPlacement] = useState<PlacementDuMenu | null>(null);
++  const [actif, setActif] = useState<number | null>(null);
++  const declencheur = useRef<View>(null);
++  const panneau = useRef<HTMLDivElement>(null);
++  const ouvert = placement !== null;
++
++  const fermer = useCallback((rendreLeFocus = true) => {
++    setPlacement(null);
++    setActif(null);
++    if (rendreLeFocus) (declencheur.current as unknown as HTMLElement | null)?.focus();
++  }, []);
++
++  const basculer = () => {
++    if (ouvert) return fermer();
++    const el = declencheur.current as unknown as HTMLElement | null;
++    if (!el || items.length === 0) return;
++    setPlacement(
++      placerLeMenu(el.getBoundingClientRect(), { largeur: window.innerWidth, hauteur: window.innerHeight }),
++    );
++  };
++
++  const choisir = (item: StackMenuItem) => {
++    fermer(false);
++    item.onPress();
++  };
++
++  useEffect(() => {
++    if (!ouvert) return;
++    const entrees = () => Array.from(panneau.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
++    if (focusVisible(declencheur.current as unknown as HTMLElement | null)) entrees()[0]?.focus();
++
++    const surTouche = (e: KeyboardEvent) => {
++      if (e.key === "Escape") {
++        e.preventDefault();
++        e.stopPropagation();
++        avalerLeKeyupDEchap();
++        fermer();
++        return;
++      }
++      if (e.key === "Tab") {
++        e.preventDefault();
++        fermer();
++        return;
++      }
++      const liste = entrees();
++      const suivant = indexApresTouche(e.key, liste.indexOf(document.activeElement as HTMLElement), liste.length);
++      if (suivant === null) return;
++      e.preventDefault();
++      liste[suivant].focus();
++    };
++    const sansFocus = () => fermer(false);
++    document.addEventListener("keydown", surTouche, true);
++    window.addEventListener("resize", sansFocus);
++    window.addEventListener("popstate", sansFocus);
++    return () => {
++      document.removeEventListener("keydown", surTouche, true);
++      window.removeEventListener("resize", sansFocus);
++      window.removeEventListener("popstate", sansFocus);
++    };
++  }, [ouvert, fermer]);
++
++  const libelle = t("plusDOptions");
++  const surbrillance = isDark ? "rgba(0,145,110,0.22)" : GP.claySoft;
++
++  return (
++    <>
++      <Pressable
++        ref={declencheur}
++        onPress={basculer}
++        testID="stack-menu-bouton"
++        accessibilityRole="button"
++        accessibilityLabel={libelle}
++        aria-expanded={ouvert}
++        {...{ "aria-haspopup": "menu" }}
++        style={({ pressed }) => ({
++          width: 44,
++          height: 44,
++          marginRight: 4,
++          alignItems: "center",
++          justifyContent: "center",
++          borderRadius: 10,
++          opacity: pressed ? 0.6 : 1,
++          backgroundColor: ouvert ? surbrillance : "transparent",
++        })}
++      >
++        <EllipsisVertical size={20} color={isDark ? GP.muteDark : GP.mute} />
++      </Pressable>
++      {placement &&
++        createPortal(
++          <>
++            <div
++              data-testid="stack-menu-fond"
++              aria-hidden="true"
++              onClick={() => fermer()}
++              style={{ position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: Z_FOND, cursor: "pointer", touchAction: "none" }}
++            />
++            <div
++              ref={panneau}
++              role="menu"
++              aria-label={libelle}
++              data-testid="stack-menu"
++              style={{
++                position: "fixed",
++                top: placement.top,
++                right: placement.right,
++                zIndex: Z_FOND + 1,
++                boxSizing: "border-box",
++                minWidth: Math.min(220, placement.maxWidth),
++                maxWidth: placement.maxWidth,
++                maxHeight: placement.maxHeight,
++                overflowY: "auto",
++                overscrollBehavior: "contain",
++                padding: 6,
++                background: isDark ? GP.cardDark : GP.card,
++                border: `1px solid ${isDark ? GP.hairStrong : GP.hair}`,
++                borderRadius: 14,
++                boxShadow: "0 12px 32px rgba(17,36,31,0.22)",
++              }}
++            >
++              {items.map((item, index) => {
++                const Icone = item.icon;
++                return (
++                  <button
++                    key={index}
++                    type="button"
++                    role="menuitem"
++                    data-testid={`stack-menu-item-${index}`}
++                    onClick={() => choisir(item)}
++                    onPointerEnter={() => setActif(index)}
++                    onPointerLeave={() => setActif(null)}
++                    onFocus={(e) => setActif(focusVisible(e.currentTarget) ? index : null)}
++                    onBlur={() => setActif(null)}
++                    style={{
++                      display: "flex",
++                      alignItems: "center",
++                      gap: 12,
++                      width: "100%",
++                      minHeight: HAUTEUR_ITEM,
++                      margin: 0,
++                      padding: "0 14px",
++                      border: 0,
++                      appearance: "none",
++                      borderRadius: 10,
++                      background: actif === index ? surbrillance : "transparent",
++                      color: isDark ? GP.inkDark : GP.ink,
++                      fontFamily: "Inter_500Medium, Inter, -apple-system, system-ui, sans-serif",
++                      fontSize: 16,
++                      textAlign: "left",
++                      cursor: "pointer",
++                      outline: "none",
++                      touchAction: "manipulation",
++                      userSelect: "none",
++                      WebkitUserSelect: "none",
++                      WebkitTapHighlightColor: "transparent",
++                    }}
++                  >
++                    {Icone ? (
++                      <span style={{ display: "flex", flex: "none", width: 20, height: 20 }}>
++                        <Icone size={20} color={GP.clay} />
++                      </span>
++                    ) : null}
++                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
++                      {item.label}
++                    </span>
++                  </button>
++                );
++              })}
++            </div>
++          </>,
++          document.body,
++        )}
++    </>
++  );
++}
+diff --git a/apps/mobile/i18n/locales/en/dashboard.json b/apps/mobile/i18n/locales/en/dashboard.json
+index 6170d25..e5d920a 100644
+--- a/apps/mobile/i18n/locales/en/dashboard.json
++++ b/apps/mobile/i18n/locales/en/dashboard.json
+@@ -34,7 +34,7 @@
+   "noUpcomingTask": "No tasks to do",
+   "installApp": "Install the app",
+   "installAppDesc": "Access Fiancé from your home screen",
+-  "installIosSteps": "Tap the Share button then \"Add to Home Screen\"",
++  "installIosSteps": "Tap the Share button then \"Add to Home Screen\". Once installed, sign in with your username and password.",
+   "resyncBannerTitle": "Online backup interrupted",
+   "resyncBannerDesc": "Reconnect this wedding in Settings to keep backing up",
+   "progress": "Progress",
+diff --git a/apps/mobile/i18n/locales/fr/dashboard.json b/apps/mobile/i18n/locales/fr/dashboard.json
+index 2573af5..4979499 100644
+--- a/apps/mobile/i18n/locales/fr/dashboard.json
++++ b/apps/mobile/i18n/locales/fr/dashboard.json
+@@ -34,7 +34,7 @@
+   "noUpcomingTask": "Aucune tâche à faire",
+   "installApp": "Installer l'application",
+   "installAppDesc": "Accédez à Fiancé depuis votre écran d'accueil",
+-  "installIosSteps": "Appuyez sur le bouton Partager puis « Sur l'écran d'accueil »",
++  "installIosSteps": "Appuyez sur le bouton Partager puis « Sur l'écran d'accueil ». Une fois installée, connectez-vous avec votre identifiant et votre mot de passe.",
+   "resyncBannerTitle": "Sauvegarde en ligne interrompue",
+   "resyncBannerDesc": "Reconnectez ce mariage dans Réglages pour continuer à sauvegarder",
+   "progress": "Progression",
+diff --git a/apps/mobile/lib/installation-pwa.ts b/apps/mobile/lib/installation-pwa.ts
+new file mode 100644
+index 0000000..1cc8f5e
+--- /dev/null
++++ b/apps/mobile/lib/installation-pwa.ts
+@@ -0,0 +1,12 @@
++/** Sur iOS l'app installée repart d'un stockage vierge : sans compte, la personne y perdrait son accès. */
++export function peutProposerLInstallation(compteCharge: boolean, aUnCompte: boolean): boolean {
++  return compteCharge && aUnCompte;
++}
++
++/** Le bandeau d'installation se tait tant que l'installation n'est pas permise. */
++export function sousReserveDeCompte<T extends { canInstall: boolean; isIosSafari: boolean }>(
++  installation: T,
++  permise: boolean,
++): T {
++  return permise ? installation : { ...installation, canInstall: false, isIosSafari: false };
++}
+diff --git a/apps/mobile/lib/menu-deroulant.ts b/apps/mobile/lib/menu-deroulant.ts
+new file mode 100644
+index 0000000..a6ba877
+--- /dev/null
++++ b/apps/mobile/lib/menu-deroulant.ts
+@@ -0,0 +1,41 @@
++const MARGE = 8;
++const ECART = 4;
++
++export interface PlacementDuMenu {
++  top: number;
++  right: number;
++  maxWidth: number;
++  maxHeight: number;
++}
++
++/** Sous le déclencheur, bord droit aligné, jamais hors de la fenêtre ; au-delà de `maxHeight` le menu défile. */
++export function placerLeMenu(
++  declencheur: { right: number; bottom: number },
++  fenetre: { largeur: number; hauteur: number },
++): PlacementDuMenu {
++  const top = declencheur.bottom + ECART;
++  const right = Math.max(MARGE, fenetre.largeur - declencheur.right);
++  return {
++    top,
++    right,
++    maxWidth: Math.max(0, fenetre.largeur - right - MARGE),
++    maxHeight: Math.max(0, fenetre.hauteur - top - MARGE),
++  };
++}
++
++/** Item à focaliser après une touche de navigation, ou `null` si la touche n'en est pas une. `courant` vaut -1 sans focus. */
++export function indexApresTouche(touche: string, courant: number, total: number): number | null {
++  if (total <= 0) return null;
++  switch (touche) {
++    case "ArrowDown":
++      return (courant + 1) % total;
++    case "ArrowUp":
++      return courant <= 0 ? total - 1 : courant - 1;
++    case "Home":
++      return 0;
++    case "End":
++      return total - 1;
++    default:
++      return null;
++  }
++}
+diff --git a/apps/mobile/lib/usePwaInstall.ts b/apps/mobile/lib/usePwaInstall.ts
+index fda080d..50e1ce4 100644
+--- a/apps/mobile/lib/usePwaInstall.ts
++++ b/apps/mobile/lib/usePwaInstall.ts
+@@ -1 +1,10 @@
+-export * from "@fiance/ui/utils/pwa-install";
++import { usePwaInstall as usePwaInstallBrut } from "@fiance/ui/utils/pwa-install";
++import { peutProposerLInstallation, sousReserveDeCompte } from "@/lib/installation-pwa";
++import { useCompteStore } from "@/store/useCompteStore";
++
++export { isPwaStandalone } from "@fiance/ui/utils/pwa-install";
++
++export function usePwaInstall() {
++  const permise = useCompteStore((s) => peutProposerLInstallation(s.charge, s.compte !== null));
++  return sousReserveDeCompte(usePwaInstallBrut(), permise);
++}
+diff --git a/apps/mobile/i18n/locales/fr/settings.json b/apps/mobile/i18n/locales/fr/settings.json
+index 6ff40e4..7708700 100644
+--- a/apps/mobile/i18n/locales/fr/settings.json
++++ b/apps/mobile/i18n/locales/fr/settings.json
+@@ -1,6 +1,7 @@
+ {
+   "title": "Réglages",
+   "postit": "tout est là ✨",
++  "plusDOptions": "Plus d'options",
+   "weddingInfo": "Informations du mariage",
+   "weddingName": "Nom du mariage",
+   "partner1": "Marié(e) 1",
+diff --git a/apps/mobile/i18n/locales/en/settings.json b/apps/mobile/i18n/locales/en/settings.json
+index 9d1e35f..8a7279f 100644
+--- a/apps/mobile/i18n/locales/en/settings.json
++++ b/apps/mobile/i18n/locales/en/settings.json
+@@ -1,6 +1,7 @@
+ {
+   "title": "Settings",
+   "postit": "it's all here ✨",
++  "plusDOptions": "More options",
+   "weddingInfo": "Wedding information",
+   "weddingName": "Wedding name",
+   "partner1": "Partner 1",

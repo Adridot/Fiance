@@ -19,6 +19,10 @@ let mockPoussEnEchec: Set<string> = new Set();
 const mockPoussees: { nodeId: string; contenu: unknown }[] = [];
 /** Les nœuds dont la première poussée lève un conflit — le mutateur doit être rappelé. */
 let mockConflitUneFois: Set<string> = new Set();
+/** Les nœuds dont la première poussée prend le chemin rapide : mutateur à `null`, rien d'écrit. */
+let mockCheminRapideUneFois: Set<string> = new Set();
+/** Les nœuds dont la lecture échoue. */
+let mockLectureEnEchec: Set<string> = new Set();
 
 vi.mock("@fiance/sdk", () => ({
   readObjectTree: async () => mockArbre,
@@ -29,6 +33,7 @@ vi.mock("@fiance/sdk", () => ({
     client: {
       pull: async (chemin: string) => {
         if (chemin.includes("_keyring")) return { hash: "k", data: mockKeyring };
+        if (mockLectureEnEchec.has(nodeId)) throw new Error("réseau");
         return mockDocs[nodeId] ?? { hash: "", data: {} };
       },
       push: vi.fn(),
@@ -39,6 +44,11 @@ vi.mock("@fiance/sdk", () => ({
       mutateur: (cur: Record<string, unknown> | null) => Record<string, unknown> | null,
     ) => {
       if (mockPoussEnEchec.has(nodeId)) throw new Error("403");
+      if (mockCheminRapideUneFois.has(nodeId)) {
+        mockCheminRapideUneFois.delete(nodeId);
+        mutateur(null);
+        return;
+      }
       if (mockConflitUneFois.has(nodeId)) {
         // Premier essai au hash périmé : `runCas` relit et rappelle le mutateur.
         mockConflitUneFois.delete(nodeId);
@@ -71,6 +81,8 @@ describe("rescellerEspace", () => {
     mockPoussees.length = 0;
     mockPoussEnEchec = new Set();
     mockConflitUneFois = new Set();
+    mockCheminRapideUneFois = new Set();
+    mockLectureEnEchec = new Set();
     mockKeyring = KEYRING;
     mockArbre = [noeud("guest"), noeud("vendor"), noeud("household")];
     mockDocs = {
@@ -157,6 +169,47 @@ describe("rescellerEspace", () => {
     const r = await rescellerEspace(SESSION, "sp-1");
 
     expect([...r.rescellees, ...r.dejaAJour, ...r.restant]).not.toContain("publicPage");
+  });
+
+  it("une écriture sautée par le chemin rapide n'est pas comptée à jour : elle est refaite", async () => {
+    mockCheminRapideUneFois = new Set(["col:guest:node-A"]);
+    const { rescellerEspace, rescellementComplet } = await import("@/lib/rescellement");
+    const r = await rescellerEspace(SESSION, "sp-1");
+
+    expect(r.rescellees.sort()).toEqual(["guest", "vendor"]);
+    expect(r.restant).toEqual([]);
+    expect(rescellementComplet(r)).toBe(true);
+    expect(mockDocs["col:guest:node-A"].data?._epoch).toBe(2);
+  });
+
+  it("deux passes sautées : la collection est nommée comme restante, jamais comme à jour", async () => {
+    mockPoussEnEchec = new Set(["col:guest:node-A"]);
+    const { rescellerEspace, rescellementComplet } = await import("@/lib/rescellement");
+    const r = await rescellerEspace(SESSION, "sp-1");
+
+    expect(r.dejaAJour).not.toContain("guest");
+    expect(r.rescellees).not.toContain("guest");
+    expect(r.restant).toEqual(["guest"]);
+    expect(rescellementComplet(r)).toBe(false);
+  });
+
+  it("neutralise les caches juste avant CHAQUE écriture", async () => {
+    const { neutraliserCachesDePoussée } = await import("@/lib/space-sync");
+    const { rescellerEspace } = await import("@/lib/rescellement");
+    await rescellerEspace(SESSION, "sp-1");
+
+    const appels = (neutraliserCachesDePoussée as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect(appels).toContainEqual(["sp-1", ["col:guest:node-A"]]);
+    expect(appels).toContainEqual(["sp-1", ["col:vendor:node-A"]]);
+  });
+
+  it("un relevé en échec n'écrit rien et nomme la collection", async () => {
+    mockLectureEnEchec = new Set(["col:vendor:node-A"]);
+    const { rescellerEspace } = await import("@/lib/rescellement");
+    const r = await rescellerEspace(SESSION, "sp-1");
+
+    expect(mockPoussees.map((p) => p.nodeId)).toEqual(["col:guest:node-A"]);
+    expect(r.restant).toEqual(["vendor"]);
   });
 
   it("rend l'avancement, du premier au dernier", async () => {

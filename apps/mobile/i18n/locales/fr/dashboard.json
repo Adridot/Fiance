@@ -34,7 +34,7 @@
   "noUpcomingTask": "Aucune tâche à faire",
   "installApp": "Installer l'application",
   "installAppDesc": "Accédez à Fiancé depuis votre écran d'accueil",
-  "installIosSteps": "Appuyez sur le bouton Partager puis « Sur l'écran d'accueil »",
+  "installIosSteps": "Appuyez sur le bouton Partager puis « Sur l'écran d'accueil ». Une fois installée, connectez-vous avec votre identifiant et votre mot de passe.",
   "resyncBannerTitle": "Sauvegarde en ligne interrompue",
   "resyncBannerDesc": "Reconnectez ce mariage dans Réglages pour continuer à sauvegarder",
   "progress": "Progression",

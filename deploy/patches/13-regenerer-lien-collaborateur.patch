@@ -879,14 +879,15 @@ index 1355999..5323613 100644
      </ScrollView>
    );
 diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
-index 8c90fdb..87dbc02 100644
+index 8c90fdb..86969ce 100644
 --- a/apps/mobile/lib/invite-link.ts
 +++ b/apps/mobile/lib/invite-link.ts
-@@ -1,12 +1,25 @@
+@@ -1,18 +1,52 @@
  import * as Linking from "expo-linking";
  import * as Crypto from "expo-crypto";
- import { createSpaceInviteLink, getSyncNamespace, roleCanWrite, serializeSpaceInviteStore, isWithinFreeLimit } from "@fiance/sdk";
+-import { createSpaceInviteLink, getSyncNamespace, roleCanWrite, serializeSpaceInviteStore, isWithinFreeLimit } from "@fiance/sdk";
 -import { resolveSessionConfig } from "@/lib/server";
++import { createSpaceInviteLink, getSyncNamespace, hydrateSpaceInviteStore, roleCanWrite, serializeSpaceInviteStore, isWithinFreeLimit } from "@fiance/sdk";
 +import { normalizeSyncBase, resolveServerUrl, resolveSessionConfig } from "@/lib/server";
 +// MODIFICATION LOCALE — le lien passe de ~1342 à ~81 caractères : jeton chiffré
 +// déposé derrière un code court, clé dans le fragment. Voir `invitation-courte.ts`.
@@ -908,13 +909,40 @@ index 8c90fdb..87dbc02 100644
 +// MODIFICATION LOCALE — la limite porte sur les personnes, pas sur les liens.
 +import { estUnCollaborateurConnu, nombreDeCollaborateursDistincts } from "@/lib/collaborateurs";
  import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
++// MODIFICATION LOCALE — liens longs, et contenu à l'époque courante avant d'inviter.
++import { DUREE_D_UN_ACCES_SEC } from "@/lib/renouvellement-des-acces";
++import { rescellerEspace } from "@/lib/rescellement";
  
  /** KV key holding the serialized space-invite store (edPub/kemPub/cap handles per invite),
+  *  persisted so `revokeSpaceAccess` can look up the entry after an app restart. */
+ export const SPACE_INVITE_STORE_KEY = "spaceInviteStore";
+ 
++/** Recharge le magasin persisté dans la mémoire (additif) : sans lui, une sérialisation perd les liens des sessions passées. */
++export function hydraterLeMagasinDInvitations(): void {
++  try {
++    const brut = readCollection<string>(SPACE_INVITE_STORE_KEY);
++    if (brut) hydrateSpaceInviteStore(brut);
++  } catch (err) {
++    console.warn("[invite] magasin d'invitations illisible", err);
++  }
++}
++
++/** Persiste le magasin d'invitations, entrées des sessions passées comprises. */
++export function persisterLeMagasinDInvitations(): void {
++  hydraterLeMagasinDInvitations();
++  try { writeCollection(SPACE_INVITE_STORE_KEY, serializeSpaceInviteStore()); } catch (err) {
++    console.warn("[invite] failed to persist space-invite store", err);
++  }
++}
++
+ /**
+  * Generate a space invite link for the given wedding entry, scoped to a role.
+  *
 diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
-index 8c90fdb..87dbc02 100644
+index 8c90fdb..86969ce 100644
 --- a/apps/mobile/lib/invite-link.ts
 +++ b/apps/mobile/lib/invite-link.ts
-@@ -20,11 +33,26 @@ export const SPACE_INVITE_STORE_KEY = "spaceInviteStore";
+@@ -20,11 +54,26 @@ export const SPACE_INVITE_STORE_KEY = "spaceInviteStore";
   * role mints a read-only member cap). The role assignment is recorded against the
   * invite's ephemeral subject id and pushed so the joining member can resolve its
   * per-feature permissions (Phase 1). Throws a human-readable message on failure.

@@ -10,7 +10,7 @@ export interface StackMenuItem {
   onPress: () => void;
 }
 
-interface StackMenuProps {
+export interface StackMenuProps {
   items: StackMenuItem[];
 }
 
@@ -20,6 +20,7 @@ interface StackMenuProps {
 // SF Symbol name on iOS, and mapping lucide icons to the right symbol names
 // without visual verification risks shipping wrong icons; text-only native
 // items already resolve the "not native" complaint.
+// Web : StackMenu.web.tsx — MenuView n'y ouvre rien.
 export function StackMenu({ items }: StackMenuProps) {
   return (
     <MenuView

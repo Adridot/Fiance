@@ -1053,10 +1053,10 @@ index 0513fe7..8266009 100644
      const registry = await loadRegistry();
      // Reset BEFORE the registry update below triggers React's re-render, so
 diff --git a/apps/mobile/i18n/locales/fr/settings.json b/apps/mobile/i18n/locales/fr/settings.json
-index 6ff40e4..33dae6b 100644
+index 6ff40e4..7708700 100644
 --- a/apps/mobile/i18n/locales/fr/settings.json
 +++ b/apps/mobile/i18n/locales/fr/settings.json
-@@ -33,6 +34,8 @@
+@@ -33,6 +35,8 @@
    "tapToSwitch": "Appuyez pour basculer",
    "createNewWedding": "Créer un nouveau mariage",
    "newWeddingConfirm": "Vous avez déjà {{count}} mariage(s). Créer un nouveau mariage ? Vous pourrez basculer entre vos mariages à tout moment.",
@@ -1066,10 +1066,10 @@ index 6ff40e4..33dae6b 100644
    "security": "Sécurité",
    "appLock": "Verrouillage de l'app",
 diff --git a/apps/mobile/i18n/locales/en/settings.json b/apps/mobile/i18n/locales/en/settings.json
-index 9d1e35f..615bd18 100644
+index 9d1e35f..8a7279f 100644
 --- a/apps/mobile/i18n/locales/en/settings.json
 +++ b/apps/mobile/i18n/locales/en/settings.json
-@@ -33,6 +34,8 @@
+@@ -33,6 +35,8 @@
    "tapToSwitch": "Tap to switch",
    "createNewWedding": "Create a new wedding",
    "newWeddingConfirm": "You already have {{count}} wedding(s). Create a new wedding? You can switch between weddings at any time.",

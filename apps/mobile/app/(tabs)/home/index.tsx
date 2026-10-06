@@ -26,6 +26,8 @@ import { TimelineItem } from "@/components/TimelineItem";
 import { usePwaInstall } from "@/lib/usePwaInstall";
 import { useWidgetBanner } from "@/lib/useWidgetBanner";
 import { HomeBanner } from "@/components/HomeBanner";
+// MODIFICATION LOCALE — un accès refusé par le serveur se dit.
+import { BandeauAccesRefuse } from "@/components/BandeauAccesRefuse";
 import { TipsBanner } from "@/components/TipsBanner";
 import { analytics } from "@/lib/analytics";
 import { theme as GP } from "@/lib/theme";
@@ -261,6 +263,7 @@ function DashboardScreen() {
 
       {/* ── Content — overlaps hero by 20px ── */}
       <View className="px-4 -mt-5">
+        <BandeauAccesRefuse className="mb-3" />
         {/* Urgent actions */}
         {hasUrgent && (
           <View
