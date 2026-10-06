@@ -1,0 +1,741 @@
+diff --git a/apps/mobile/__tests__/cible-tactile.test.ts b/apps/mobile/__tests__/cible-tactile.test.ts
+new file mode 100644
+index 0000000..669ced6
+--- /dev/null
++++ b/apps/mobile/__tests__/cible-tactile.test.ts
+@@ -0,0 +1,22 @@
++import { describe, it, expect } from "vitest";
++import { CIBLE_TACTILE, debordement } from "@/lib/cible-tactile";
++
++describe("débordement d'une cible tactile", () => {
++  it("une cible de 44 px garde 44 px, ou rend l'excédent à la mise en page", () => {
++    expect(CIBLE_TACTILE).toBe(44);
++    expect(debordement(32)).toBe(-6);
++    expect(debordement(24)).toBe(-10);
++    expect(debordement(0)).toBe(-22);
++  });
++
++  it("jamais de marge positive : une rangée plus haute que la cible n'est pas agrandie", () => {
++    expect(debordement(44)).toBe(0);
++    expect(debordement(60)).toBe(0);
++  });
++
++  it("l'empreinte plus le double du débordement redonne 44 px de cible", () => {
++    for (const empreinte of [16, 22, 30, 32, 40]) {
++      expect(empreinte - 2 * debordement(empreinte)).toBe(CIBLE_TACTILE);
++    }
++  });
++});
+diff --git a/apps/mobile/app/(tabs)/guests/communications.tsx b/apps/mobile/app/(tabs)/guests/communications.tsx
+index 2570db1..aa2245a 100644
+--- a/apps/mobile/app/(tabs)/guests/communications.tsx
++++ b/apps/mobile/app/(tabs)/guests/communications.tsx
+@@ -10,11 +10,13 @@ import { useCommunicationTemplatesStore } from "@/store/useCommunicationTemplate
+ import { useGuestsStore } from "@/store/useGuestsStore";
+ import { useWeddingStore } from "@/store/useWeddingStore";
+ import { FAB } from "@/components/FAB";
++import { BoutonIcone } from "@/components/BoutonIcone";
+ import { EmptyState } from "@/components/EmptyState";
+ import { ConfirmSheet } from "@/components/ConfirmSheet";
+ import { FormCard, DateRow, InputRow, ChipSelect, FormActions } from "@/components/FormSection";
+ import { StackMenu } from "@/components/StackMenu";
+ import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
++import { CIBLE_TACTILE } from "@/lib/cible-tactile";
+ import { theme as GP } from "@/lib/theme";
+ import { analytics } from "@/lib/analytics";
+ import { renderTemplate, COMMUNICATION_CHANNEL_LABELS, type CommunicationChannel } from "@fiance/sdk";
+@@ -145,7 +147,8 @@ export default function CommunicationsScreen() {
+             <View className="bg-accent-card rounded-2xl p-4 mb-4 border border-primary-200 dark:border-primary-800">
+               <Text className="text-base font-semibold text-ink mb-3">{t("newCommunication")}</Text>
+               <TextInput
+-                className="text-base text-ink border-b border-hair pb-2 mb-2"
++                className="text-base text-ink border-b border-hair mb-2"
++                style={{ minHeight: CIBLE_TACTILE }}
+                 placeholder={t("communicationNamePlaceholder")}
+                 placeholderTextColor="#D0D0D8"
+                 value={newForm.label}
+@@ -217,7 +220,8 @@ export default function CommunicationsScreen() {
+                 <View key={comm.id} className="bg-accent-card rounded-2xl p-4 mb-2.5 border border-primary-200 dark:border-primary-800">
+                   <Text className="text-sm text-mute mb-2">{comm.label}</Text>
+                   <TextInput
+-                    className="text-base text-ink border-b border-hair pb-2 mb-2"
++                    className="text-base text-ink border-b border-hair mb-2"
++                    style={{ minHeight: CIBLE_TACTILE }}
+                     placeholder={t("communicationName")}
+                     placeholderTextColor="#D0D0D8"
+                     value={editForm.label}
+@@ -317,14 +321,14 @@ export default function CommunicationsScreen() {
+                       </View>
+                     )}
+                     {canEdit && (
+-                      <Pressable onPress={() => handleEdit(comm)} className="w-8 h-8 items-center justify-center">
++                      <BoutonIcone libelle={`${t("common:edit")} ${comm.label}`} onPress={() => handleEdit(comm)}>
+                         <Pencil size={15} color="#9CA3AF" />
+-                      </Pressable>
++                      </BoutonIcone>
+                     )}
+                     {canEdit && (
+-                      <Pressable onPress={() => setDeleteId(comm.id)} className="w-8 h-8 items-center justify-center">
++                      <BoutonIcone libelle={`${t("common:delete")} ${comm.label}`} onPress={() => setDeleteId(comm.id)}>
+                         <Trash2 size={15} color="#EF4444" />
+-                      </Pressable>
++                      </BoutonIcone>
+                     )}
+                     <ChevronRight size={15} color="#9CA3AF" />
+                   </View>
+diff --git a/apps/mobile/app/(tabs)/guests/communications/templates.tsx b/apps/mobile/app/(tabs)/guests/communications/templates.tsx
+index 420aa1d..6c53687 100644
+--- a/apps/mobile/app/(tabs)/guests/communications/templates.tsx
++++ b/apps/mobile/app/(tabs)/guests/communications/templates.tsx
+@@ -1,5 +1,5 @@
+ import React, { useState } from "react";
+-import { View, Text, ScrollView, Pressable, TextInput } from "react-native-css/components";
++import { View, Text, ScrollView, TextInput } from "react-native-css/components";
+ import { Alert } from "react-native";
+ import { useTranslation } from "react-i18next";
+ import { FileText, Trash2, Pencil } from "lucide-react-native";
+@@ -8,8 +8,10 @@ import { useCommunicationTemplatesStore } from "@/store/useCommunicationTemplate
+ import { EmptyState } from "@/components/EmptyState";
+ import { ConfirmSheet } from "@/components/ConfirmSheet";
+ import { FAB } from "@/components/FAB";
++import { BoutonIcone } from "@/components/BoutonIcone";
+ import { ChipSelect, FormActions } from "@/components/FormSection";
+ import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
++import { CIBLE_TACTILE } from "@/lib/cible-tactile";
+ import { COMMUNICATION_CHANNEL_LABELS, type CommunicationChannel } from "@fiance/sdk";
+ import type { CommunicationTemplate } from "@/db/schema";
+ 
+@@ -92,7 +94,8 @@ export default function CommunicationTemplatesScreen() {
+         {editingId ? t("communications.templates.editTemplate") : t("communications.templates.newTemplate")}
+       </Text>
+       <TextInput
+-        className="text-base text-ink border-b border-hair pb-2 mb-3"
++        className="text-base text-ink border-b border-hair mb-3"
++        style={{ minHeight: CIBLE_TACTILE }}
+         placeholder={t("communications.templates.namePlaceholder")}
+         placeholderTextColor="#D0D0D8"
+         value={form.name}
+@@ -101,7 +104,8 @@ export default function CommunicationTemplatesScreen() {
+       />
+       <ChipSelect options={CHANNELS} value={form.channel} onChange={(channel) => setForm((f) => ({ ...f, channel }))} labels={channelLabels} />
+       <TextInput
+-        className="text-base text-ink border-b border-hair pb-2 mt-3"
++        className="text-base text-ink border-b border-hair mt-3"
++        style={{ minHeight: CIBLE_TACTILE }}
+         placeholder={t("communications.subject")}
+         placeholderTextColor="#D0D0D8"
+         value={form.subject}
+@@ -156,14 +160,14 @@ export default function CommunicationTemplatesScreen() {
+                   </View>
+                   <View className="flex-row items-center gap-1">
+                     {canEdit && (
+-                      <Pressable onPress={() => handleEdit(tpl)} className="w-8 h-8 items-center justify-center">
++                      <BoutonIcone libelle={`${t("common:edit")} ${tpl.name}`} onPress={() => handleEdit(tpl)}>
+                         <Pencil size={15} color="#9CA3AF" />
+-                      </Pressable>
++                      </BoutonIcone>
+                     )}
+                     {!tpl.isSystem && canEdit && (
+-                      <Pressable onPress={() => setDeleteId(tpl.id)} className="w-8 h-8 items-center justify-center">
++                      <BoutonIcone libelle={`${t("common:delete")} ${tpl.name}`} onPress={() => setDeleteId(tpl.id)}>
+                         <Trash2 size={15} color="#EF4444" />
+-                      </Pressable>
++                      </BoutonIcone>
+                     )}
+                   </View>
+                 </View>
+diff --git a/apps/mobile/app/(tabs)/guests/invitation-types.tsx b/apps/mobile/app/(tabs)/guests/invitation-types.tsx
+index b9bd8e9..49cd5d4 100644
+--- a/apps/mobile/app/(tabs)/guests/invitation-types.tsx
++++ b/apps/mobile/app/(tabs)/guests/invitation-types.tsx
+@@ -1,5 +1,5 @@
+ import React, { useState } from "react";
+-import { View, Text, ScrollView, Pressable, TextInput, Switch } from "react-native-css/components";
++import { View, Text, ScrollView, TextInput, Switch } from "react-native-css/components";
+ import { Alert } from "react-native";
+ import { useTranslation } from "react-i18next";
+ import { Tag, Trash2, Pencil, Moon } from "lucide-react-native";
+@@ -7,10 +7,12 @@ import * as Crypto from "expo-crypto";
+ import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
+ import { useGuestsStore } from "@/store/useGuestsStore";
+ import { FAB } from "@/components/FAB";
++import { BoutonIcone } from "@/components/BoutonIcone";
+ import { EmptyState } from "@/components/EmptyState";
+ import { ConfirmSheet } from "@/components/ConfirmSheet";
+ import { FormActions } from "@/components/FormSection";
+ import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
++import { CIBLE_TACTILE } from "@/lib/cible-tactile";
+ import { theme as GP } from "@/lib/theme";
+ import { analytics } from "@/lib/analytics";
+ import type { InvitationTypeEntity } from "@/db/schema";
+@@ -129,7 +131,8 @@ export default function InvitationTypesScreen() {
+                 {t("newInvitationType")}
+               </Text>
+               <TextInput
+-                className="text-base text-ink border-b border-hair pb-2"
++                className="text-base text-ink border-b border-hair"
++                style={{ minHeight: CIBLE_TACTILE }}
+                 placeholder={t("invitationTypeNamePlaceholder")}
+                 placeholderTextColor="#D0D0D8"
+                 value={newLabel}
+@@ -162,7 +165,8 @@ export default function InvitationTypesScreen() {
+                 <View key={type.id} className="bg-accent-card rounded-2xl p-4 mb-2.5 border border-primary-200 dark:border-primary-800">
+                   <Text className="text-sm text-mute mb-2">{type.label}</Text>
+                   <TextInput
+-                    className="text-base text-ink border-b border-hair pb-2"
++                    className="text-base text-ink border-b border-hair"
++                    style={{ minHeight: CIBLE_TACTILE }}
+                     placeholder={t("invitationTypeName")}
+                     placeholderTextColor="#D0D0D8"
+                     value={editingLabel}
+@@ -212,14 +216,14 @@ export default function InvitationTypesScreen() {
+                       </View>
+                     )}
+                     {canEdit && (
+-                      <Pressable onPress={() => handleEdit(type)} className="w-8 h-8 items-center justify-center">
++                      <BoutonIcone libelle={`${t("common:edit")} ${type.label}`} onPress={() => handleEdit(type)}>
+                         <Pencil size={15} color="#9CA3AF" />
+-                      </Pressable>
++                      </BoutonIcone>
+                     )}
+                     {!type.isDefault && canEdit && (
+-                      <Pressable onPress={() => setDeleteId(type.id)} className="w-8 h-8 items-center justify-center">
++                      <BoutonIcone libelle={`${t("common:delete")} ${type.label}`} onPress={() => setDeleteId(type.id)}>
+                         <Trash2 size={15} color="#EF4444" />
+-                      </Pressable>
++                      </BoutonIcone>
+                     )}
+                   </View>
+                 </View>
+diff --git a/apps/mobile/app/(tabs)/guests/wedding-party.tsx b/apps/mobile/app/(tabs)/guests/wedding-party.tsx
+index ef64511..5ba06d6 100644
+--- a/apps/mobile/app/(tabs)/guests/wedding-party.tsx
++++ b/apps/mobile/app/(tabs)/guests/wedding-party.tsx
+@@ -10,6 +10,8 @@ import { useWeddingPartyStore } from "@/store/useWeddingPartyStore";
+ import { EmptyState } from "@/components/EmptyState";
+ import { ConfirmSheet } from "@/components/ConfirmSheet";
+ import { FAB } from "@/components/FAB";
++import { BoutonIcone } from "@/components/BoutonIcone";
++import { CIBLE_TACTILE } from "@/lib/cible-tactile";
+ import { FormActions } from "@/components/FormSection";
+ import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
+ import { analytics } from "@/lib/analytics";
+@@ -73,7 +75,8 @@ export default function WeddingPartyScreen() {
+         {editingId ? t("weddingParty.editRole") : t("weddingParty.newRole")}
+       </Text>
+       <TextInput
+-        className="text-base text-ink border-b border-hair pb-2"
++        className="text-base text-ink border-b border-hair"
++        style={{ minHeight: CIBLE_TACTILE }}
+         placeholder={t("weddingParty.roleNamePlaceholder")}
+         placeholderTextColor="#D0D0D8"
+         value={name}
+@@ -123,14 +126,14 @@ export default function WeddingPartyScreen() {
+                     </View>
+                   )}
+                   {canEdit && (
+-                    <Pressable onPress={() => handleEdit(role)} className="w-8 h-8 items-center justify-center">
++                    <BoutonIcone libelle={`${t("common:edit")} ${role.name}`} onPress={() => handleEdit(role)}>
+                       <Pencil size={15} color="#9CA3AF" />
+-                    </Pressable>
++                    </BoutonIcone>
+                   )}
+                   {canEdit && (
+-                    <Pressable onPress={() => setDeleteId(role.id)} className="w-8 h-8 items-center justify-center">
++                    <BoutonIcone libelle={`${t("common:delete")} ${role.name}`} onPress={() => setDeleteId(role.id)}>
+                       <Trash2 size={15} color="#EF4444" />
+-                    </Pressable>
++                    </BoutonIcone>
+                   )}
+                 </View>
+               </View>
+@@ -138,7 +141,7 @@ export default function WeddingPartyScreen() {
+           })}
+ 
+           {missingDefaults.length > 0 && (
+-            <Pressable onPress={seedDefaultRoles} className="mt-2 active:opacity-60">
++            <Pressable onPress={seedDefaultRoles} className="active:opacity-60" style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}>
+               <Text className="text-xs text-primary-500 font-medium">{t("weddingParty.createDefaults")}</Text>
+             </Pressable>
+           )}
+diff --git a/apps/mobile/app/ideas/collections.tsx b/apps/mobile/app/ideas/collections.tsx
+index e477af8..c2ef959 100644
+--- a/apps/mobile/app/ideas/collections.tsx
++++ b/apps/mobile/app/ideas/collections.tsx
+@@ -7,6 +7,8 @@ import * as Crypto from "expo-crypto";
+ import { useIdeasStore } from "@/store/useIdeasStore";
+ import { PageHeader } from "@/components/PageHeader";
+ import { FAB } from "@/components/FAB";
++import { BoutonIcone } from "@/components/BoutonIcone";
++import { CIBLE_TACTILE } from "@/lib/cible-tactile";
+ import { ConfirmSheet } from "@/components/ConfirmSheet";
+ import { analytics } from "@/lib/analytics";
+ import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
+@@ -58,7 +60,8 @@ export default function CollectionsScreen() {
+               {t("newCollection")}
+             </Text>
+             <TextInput
+-              className="text-base text-ink border-b border-hair pb-2 mb-3"
++              className="text-base text-ink border-b border-hair mb-3"
++              style={{ minHeight: CIBLE_TACTILE }}
+               placeholder={t("collectionName")}
+               placeholderTextColor="#9CA3AF"
+               value={newName}
+@@ -67,7 +70,8 @@ export default function CollectionsScreen() {
+               editable={canEdit}
+             />
+             <TextInput
+-              className="text-base text-ink border-b border-hair pb-2 mb-3"
++              className="text-base text-ink border-b border-hair mb-3"
++              style={{ minHeight: CIBLE_TACTILE }}
+               placeholder={t("collectionDesc")}
+               placeholderTextColor="#9CA3AF"
+               value={newDescription}
+@@ -77,13 +81,15 @@ export default function CollectionsScreen() {
+             <View className="flex-row gap-2">
+               <Pressable
+                 onPress={handleAdd}
+-                className="flex-1 bg-primary-500 py-2 rounded-lg items-center"
++                className="flex-1 bg-primary-500 rounded-lg items-center justify-center"
++                style={{ minHeight: CIBLE_TACTILE }}
+               >
+                 <Text className="text-white font-semibold">{t("common:create")}</Text>
+               </Pressable>
+               <Pressable
+                 onPress={() => setShowAdd(false)}
+-                className="flex-1 bg-accent-paper py-2 rounded-lg items-center"
++                className="flex-1 bg-accent-paper rounded-lg items-center justify-center"
++                style={{ minHeight: CIBLE_TACTILE }}
+               >
+                 <Text className="text-mute">{t("common:cancel")}</Text>
+               </Pressable>
+@@ -113,9 +119,9 @@ export default function CollectionsScreen() {
+                   </Text>
+                 </View>
+                 {canEdit && (
+-                  <Pressable onPress={() => setDeleteId(col.id)}>
++                  <BoutonIcone libelle={`${t("common:delete")} ${col.name}`} onPress={() => setDeleteId(col.id)}>
+                     <Trash2 size={18} color="#EF4444" />
+-                  </Pressable>
++                  </BoutonIcone>
+                 )}
+               </View>
+             </View>
+diff --git a/apps/mobile/app/settings/event-photos.tsx b/apps/mobile/app/settings/event-photos.tsx
+index 245ba14..9ac05ae 100644
+--- a/apps/mobile/app/settings/event-photos.tsx
++++ b/apps/mobile/app/settings/event-photos.tsx
+@@ -7,6 +7,7 @@ import * as Crypto from "expo-crypto";
+ import { Camera, Plus, Trash2 } from "lucide-react-native";
+ import { useWeddingStore } from "@/store/useWeddingStore";
+ import { PageHeader } from "@/components/PageHeader";
++import { CIBLE_TACTILE } from "@/lib/cible-tactile";
+ 
+ export interface EventPhoto {
+   id: string;
+@@ -115,9 +116,14 @@ export default function EventPhotosScreen() {
+                   />
+                   <Pressable
+                     onPress={() => handleDelete(photo.id)}
+-                    className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/50 items-center justify-center active:opacity-70"
++                    accessibilityRole="button"
++                    accessibilityLabel={t("common:delete")}
++                    className="absolute top-0 right-0 items-center justify-center active:opacity-70"
++                    style={{ width: CIBLE_TACTILE, height: CIBLE_TACTILE }}
+                   >
+-                    <Trash2 size={13} color="#fff" />
++                    <View className="w-7 h-7 rounded-full bg-black/50 items-center justify-center">
++                      <Trash2 size={13} color="#fff" />
++                    </View>
+                   </Pressable>
+                 </View>
+               ))}
+diff --git a/apps/mobile/components/BoutonIcone.tsx b/apps/mobile/components/BoutonIcone.tsx
+new file mode 100644
+index 0000000..cc9e848
+--- /dev/null
++++ b/apps/mobile/components/BoutonIcone.tsx
+@@ -0,0 +1,55 @@
++import React from "react";
++import { Pressable, type StyleProp, type ViewStyle } from "react-native";
++import { CIBLE_TACTILE, debordement } from "@/lib/cible-tactile";
++
++interface BoutonIconeProps {
++  /** Obligatoire : le bouton n'a pas de texte. */
++  libelle: string;
++  onPress: () => void;
++  /** L'icône, à sa taille d'origine. */
++  children: React.ReactNode;
++  /** Hauteur occupée dans la mise en page ; la cible mesure toujours 44 × 44 et déborde du reste. */
++  empreinte?: number;
++  /** Bouton à deux états (case, cœur…) : annoncé comme une case à cocher. */
++  coche?: boolean;
++  disabled?: boolean;
++  testID?: string;
++  style?: StyleProp<ViewStyle>;
++}
++
++export function BoutonIcone({
++  libelle,
++  onPress,
++  children,
++  empreinte = 32,
++  coche,
++  disabled,
++  testID,
++  style,
++}: BoutonIconeProps) {
++  return (
++    <Pressable
++      onPress={onPress}
++      disabled={disabled}
++      accessibilityRole={coche === undefined ? "button" : "checkbox"}
++      accessibilityLabel={libelle}
++      accessibilityState={{ disabled: !!disabled, ...(coche === undefined ? {} : { checked: coche }) }}
++      testID={testID}
++      style={({ pressed }) => [
++        {
++          width: CIBLE_TACTILE,
++          height: CIBLE_TACTILE,
++          marginTop: debordement(empreinte),
++          marginBottom: debordement(empreinte),
++          alignItems: "center",
++          justifyContent: "center",
++          borderRadius: 12,
++          opacity: pressed ? 0.55 : 1,
++        },
++        style,
++      ]}
++    >
++      {children}
++    </Pressable>
++  );
++}
+diff --git a/apps/mobile/components/PremiumGate.tsx b/apps/mobile/components/PremiumGate.tsx
+index bb2fdaa..5587d03 100644
+--- a/apps/mobile/components/PremiumGate.tsx
++++ b/apps/mobile/components/PremiumGate.tsx
+@@ -3,6 +3,7 @@ import { View, Text, Pressable } from "react-native-css/components";
+ import { useTranslation } from "react-i18next";
+ import { Lock } from "lucide-react-native";
+ import { PaywallSheet } from "@/components/PaywallSheet";
++import { CIBLE_TACTILE } from "@/lib/cible-tactile";
+ 
+ interface PremiumGateProps {
+   /** Render the blur-lock overlay instead of `children` when true. */
+@@ -67,7 +68,8 @@ export function PremiumGate({ locked, title, message, onUnlock, children }: Prem
+         ) : null}
+         <Pressable
+           onPress={() => (onUnlock ? onUnlock() : setShowPaywall(true))}
+-          className="bg-primary-500 rounded-full px-4 py-2 active:opacity-80"
++          className="bg-primary-500 rounded-full px-4 active:opacity-80"
++          style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}
+         >
+           <Text className="text-white text-xs font-semibold">{t("premiumGateCta")}</Text>
+         </Pressable>
+diff --git a/apps/mobile/components/SegmentedControl.web.tsx b/apps/mobile/components/SegmentedControl.web.tsx
+index a4f0688..7cdb27d 100644
+--- a/apps/mobile/components/SegmentedControl.web.tsx
++++ b/apps/mobile/components/SegmentedControl.web.tsx
+@@ -1,5 +1,6 @@
+ import React from "react";
+ import { View, Pressable, Text } from "react-native-css/components";
++import { CIBLE_TACTILE, debordement } from "@/lib/cible-tactile";
+ 
+ // Web fallback: @expo/ui's SegmentedControl (used on iOS/Android, see
+ // SegmentedControl.tsx) doesn't render reliably on web, so this keeps the
+@@ -27,17 +28,29 @@ export function SegmentedControl({ segments, activeKey, onSelect, compact = fals
+           <Pressable
+             key={seg.key}
+             onPress={() => onSelect(seg.key)}
+-            className={`flex-1 py-2 rounded-lg items-center ${
+-              isActive ? "bg-accent-card shadow-soft-1" : ""
+-            }`}
++            accessibilityRole="button"
++            accessibilityState={{ selected: isActive }}
++            className="flex-1"
++            style={{
++              height: CIBLE_TACTILE,
++              minWidth: CIBLE_TACTILE,
++              marginVertical: debordement(36),
++              justifyContent: "center",
++            }}
+           >
+-            <Text
+-              className={`text-sm font-medium ${
+-                isActive ? "text-primary-500" : "text-mute"
++            <View
++              className={`py-2 rounded-lg items-center ${compact ? "px-3" : ""} ${
++                isActive ? "bg-accent-card shadow-soft-1" : ""
+               }`}
+             >
+-              {seg.label}
+-            </Text>
++              <Text
++                className={`text-sm font-medium ${
++                  isActive ? "text-primary-500" : "text-mute"
++                }`}
++              >
++                {seg.label}
++              </Text>
++            </View>
+           </Pressable>
+         );
+       })}
+diff --git a/apps/mobile/components/StatusSelector.tsx b/apps/mobile/components/StatusSelector.tsx
+index 65a454c..253a1ed 100644
+--- a/apps/mobile/components/StatusSelector.tsx
++++ b/apps/mobile/components/StatusSelector.tsx
+@@ -1,6 +1,7 @@
+ import React from "react";
+-import { ScrollView, Pressable } from "react-native-css/components";
++import { ScrollView } from "react-native-css/components";
+ import { StatusBadge } from "@fiance/ui/components";
++import { ZoneTactile } from "@/components/ZoneTactile";
+ 
+ // Local re-implementation: seahorse's StatusSelector (never vendored into @fiance/ui)
+ // passes "rgb(165, 163, 163)" for inactive badges, which when concatenated with "18"
+@@ -30,13 +31,13 @@ export function StatusSelector({ options, activeKey, onSelect, className }: Stat
+       contentContainerStyle={{ gap: 8 }}
+     >
+       {options.map((opt) => (
+-        <Pressable key={opt.key} onPress={() => onSelect(opt.key)}>
++        <ZoneTactile key={opt.key} onPress={() => onSelect(opt.key)} accessibilityState={{ selected: activeKey === opt.key }}>
+           <StatusBadge
+             label={opt.label}
+             color={activeKey === opt.key ? opt.color : INACTIVE_COLOR}
+             size="md"
+           />
+-        </Pressable>
++        </ZoneTactile>
+       ))}
+     </ScrollView>
+   );
+diff --git a/apps/mobile/components/ZoneTactile.tsx b/apps/mobile/components/ZoneTactile.tsx
+new file mode 100644
+index 0000000..74be441
+--- /dev/null
++++ b/apps/mobile/components/ZoneTactile.tsx
+@@ -0,0 +1,24 @@
++import React from "react";
++import { Pressable, type PressableProps, type StyleProp, type ViewStyle } from "react-native";
++import { CIBLE_TACTILE } from "@/lib/cible-tactile";
++
++interface ZoneTactileProps extends Omit<PressableProps, "style" | "children"> {
++  children: React.ReactNode;
++  style?: StyleProp<ViewStyle>;
++}
++
++/** Cible d'au moins 44 px autour d'un dessin plus petit (puce, rangée, lien) : le dessin reste tel quel, centré. */
++export function ZoneTactile({ children, style, accessibilityRole = "button", ...reste }: ZoneTactileProps) {
++  return (
++    <Pressable
++      accessibilityRole={accessibilityRole}
++      {...reste}
++      style={({ pressed }) => [
++        { minHeight: CIBLE_TACTILE, minWidth: CIBLE_TACTILE, justifyContent: "center", opacity: pressed ? 0.7 : 1 },
++        style,
++      ]}
++    >
++      {children}
++    </Pressable>
++  );
++}
+diff --git a/apps/mobile/i18n/locales/en/ideas.json b/apps/mobile/i18n/locales/en/ideas.json
+index 3587f3d..e37d0ce 100644
+--- a/apps/mobile/i18n/locales/en/ideas.json
++++ b/apps/mobile/i18n/locales/en/ideas.json
+@@ -11,6 +11,8 @@
+     "OTHER": "Other inspiration"
+   },
+   "searchIdea": "Search an idea...",
++  "favoritesOnly": "Favorites only",
++  "favorite": "Favorite",
+   "all": "All",
+   "noIdeas": "No ideas",
+   "addFirstIdea": "Add your first inspirations",
+@@ -22,6 +24,8 @@
+   "sourceUrl": "Source URL",
+   "links": "Links",
+   "addLink": "Add a link",
++  "openLink": "Open link",
++  "removeLink": "Remove link",
+   "linkPlaceholder": "https://...",
+   "linkCount_one": "{{count}} link",
+   "linkCount_other": "{{count}} links",
+diff --git a/apps/mobile/i18n/locales/fr/ideas.json b/apps/mobile/i18n/locales/fr/ideas.json
+index 645464a..99b86c8 100644
+--- a/apps/mobile/i18n/locales/fr/ideas.json
++++ b/apps/mobile/i18n/locales/fr/ideas.json
+@@ -11,6 +11,8 @@
+     "OTHER": "Autre inspiration"
+   },
+   "searchIdea": "Rechercher une idée...",
++  "favoritesOnly": "Favoris uniquement",
++  "favorite": "Favori",
+   "all": "Toutes",
+   "noIdeas": "Aucune idée",
+   "addFirstIdea": "Ajoutez vos premières inspirations",
+@@ -22,6 +24,8 @@
+   "sourceUrl": "URL source",
+   "links": "Liens",
+   "addLink": "Ajouter un lien",
++  "openLink": "Ouvrir le lien",
++  "removeLink": "Retirer le lien",
+   "linkPlaceholder": "https://...",
+   "linkCount_one": "{{count}} lien",
+   "linkCount_other": "{{count}} liens",
+diff --git a/apps/mobile/lib/cible-tactile.ts b/apps/mobile/lib/cible-tactile.ts
+new file mode 100644
+index 0000000..d2e83e5
+--- /dev/null
++++ b/apps/mobile/lib/cible-tactile.ts
+@@ -0,0 +1,11 @@
++import { CIBLE_MIN, demiEcart } from "@fiance/ui/utils/cible-tactile";
++
++export * from "@fiance/ui/utils/cible-tactile";
++
++/** Côté minimal d'une cible tactile. `hitSlop` est inerte sur `Pressable` en react-native-web : la cible est sa boîte DOM. */
++export const CIBLE_TACTILE = CIBLE_MIN;
++
++/** Marge négative qui laisse une cible de 44 px n'occuper que `empreinte` px dans la mise en page. */
++export function debordement(empreinte: number): number {
++  return 0 - demiEcart(empreinte);
++}
+diff --git a/apps/mobile/tsconfig.json b/apps/mobile/tsconfig.json
+index 91168c8..aec6cd9 100644
+--- a/apps/mobile/tsconfig.json
++++ b/apps/mobile/tsconfig.json
+@@ -15,6 +15,7 @@
+       "@fiance/ui/utils/kv-storage": ["../../packages/fiance-ui/src/utils/kv-storage.ts"],
+       "@fiance/ui/utils/links": ["../../packages/fiance-ui/src/utils/links.ts"],
+       "@fiance/ui/utils/pwa-install": ["../../packages/fiance-ui/src/utils/pwa-install.ts"],
++      "@fiance/ui/utils/cible-tactile": ["../../packages/fiance-ui/src/utils/cible-tactile.ts"],
+       "@fiance/ui/utils/toast": ["../../packages/fiance-ui/src/utils/toast/sonner.ts"]
+     },
+     "jsx": "react-jsx",
+diff --git a/apps/mobile/vitest.config.ts b/apps/mobile/vitest.config.ts
+index e70a9a5..810215c 100644
+--- a/apps/mobile/vitest.config.ts
++++ b/apps/mobile/vitest.config.ts
+@@ -20,6 +20,7 @@ export default defineConfig({
+       "@fiance/ui/utils/kv-storage": path.resolve(__dirname, "../../packages/fiance-ui/src/utils/kv-storage.ts"),
+       "@fiance/ui/utils/links": path.resolve(__dirname, "../../packages/fiance-ui/src/utils/links.ts"),
+       "@fiance/ui/utils/pwa-install": path.resolve(__dirname, "../../packages/fiance-ui/src/utils/pwa-install.ts"),
++      "@fiance/ui/utils/cible-tactile": path.resolve(__dirname, "../../packages/fiance-ui/src/utils/cible-tactile.ts"),
+       "@fiance/ui/utils/toast": path.resolve(__dirname, "../../packages/fiance-ui/src/utils/toast/sonner.ts"),
+       "@fiance/ui": path.resolve(__dirname, "../../packages/fiance-ui/src/index.ts"),
+       "expo-crypto": path.resolve(__dirname, "__tests__/mocks/expo-crypto.ts"),
+diff --git a/packages/fiance-ui/package.json b/packages/fiance-ui/package.json
+index d231543..dd44fe7 100644
+--- a/packages/fiance-ui/package.json
++++ b/packages/fiance-ui/package.json
+@@ -79,6 +79,13 @@
+       "import": "./dist/utils/pwa-install.js",
+       "types": "./dist/utils/pwa-install.d.ts"
+     },
++    "./utils/cible-tactile": {
++      "source": "./src/utils/cible-tactile.ts",
++      "react-native": "./src/utils/cible-tactile.ts",
++      "require": "./src/utils/cible-tactile.ts",
++      "import": "./dist/utils/cible-tactile.js",
++      "types": "./dist/utils/cible-tactile.d.ts"
++    },
+     "./utils/toast": {
+       "source": "./src/utils/toast/sonner.ts",
+       "react-native": "./src/utils/toast/sonner.ts",
+diff --git a/apps/mobile/app/settings/roles.tsx b/apps/mobile/app/settings/roles.tsx
+index 1355999..1084271 100644
+--- a/apps/mobile/app/settings/roles.tsx
++++ b/apps/mobile/app/settings/roles.tsx
+@@ -113,8 +166,7 @@ export default function RolesScreen() {
+       >
+         <Pressable
+           onPress={() => setEditingId(null)}
+-          hitSlop={8}
+-          style={{ flexDirection: "row", alignItems: "center", gap: 2, marginBottom: 16 }}
++          style={{ flexDirection: "row", alignItems: "center", gap: 2, marginBottom: 8, minHeight: CIBLE_TACTILE }}
+         >
+           <ChevronLeft size={18} color={theme.mute} />
+           <Label color={theme.mute}>{t("rolesSectionTitle")}</Label>
+diff --git a/apps/mobile/app/settings/roles.tsx b/apps/mobile/app/settings/roles.tsx
+index 1355999..1084271 100644
+--- a/apps/mobile/app/settings/roles.tsx
++++ b/apps/mobile/app/settings/roles.tsx
+@@ -175,9 +227,10 @@ export default function RolesScreen() {
+                       onPress={() => setSurfaceLevel(editingRole, surface, lvl)}
+                       style={{
+                         flex: 1,
+-                        paddingVertical: 9,
++                        minHeight: CIBLE_TACTILE,
+                         borderRadius: 10,
+                         alignItems: "center",
++                        justifyContent: "center",
+                         backgroundColor: active ? tone : "transparent",
+                         opacity: readOnly && !active ? 0.35 : 1,
+                       }}
+diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
+index 07ec918..c386e80 100644
+--- a/apps/mobile/components/InviteQRSheet.tsx
++++ b/apps/mobile/components/InviteQRSheet.tsx
+@@ -302,7 +517,7 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
+ 
+             <Pressable
+               onPress={onClose}
+-              style={({ pressed }) => ({ alignItems: "center", paddingVertical: 8, opacity: pressed ? 0.6 : 1 })}
++              style={({ pressed }) => ({ alignItems: "center", justifyContent: "center", minHeight: CIBLE_TACTILE, opacity: pressed ? 0.6 : 1 })}
+             >
+               <Text style={{ fontSize: 14, color: theme.mute }}>
+                 {t("cancel")}
+diff --git a/apps/mobile/i18n/locales/fr/guests.json b/apps/mobile/i18n/locales/fr/guests.json
+index ae021bc..bfa825e 100644
+--- a/apps/mobile/i18n/locales/fr/guests.json
++++ b/apps/mobile/i18n/locales/fr/guests.json
+@@ -142,6 +143,7 @@
+   "thankYouPending": "Merci à envoyer",
+   "companionLabel": "Accompagnant / +1",
+   "selectCompanion": "Choisir un accompagnant...",
++  "removeCompanion": "Retirer l'accompagnant",
+   "searchCompanion": "Rechercher un invité...",
+   "withCompanion": "avec {{name}}",
+   "duplicateWarningTitle": "Doublons possibles",
+diff --git a/apps/mobile/i18n/locales/fr/guests.json b/apps/mobile/i18n/locales/fr/guests.json
+index ae021bc..bfa825e 100644
+--- a/apps/mobile/i18n/locales/fr/guests.json
++++ b/apps/mobile/i18n/locales/fr/guests.json
+@@ -245,7 +252,8 @@
+     "deleteRole": "Supprimer ce rôle ?",
+     "deleteRoleMsg": "Cette action est irréversible. Les invités portant ce rôle ne le porteront plus.",
+     "noRolesYet": "Aucun rôle n'a encore été créé.",
+-    "manageRoles": "Gérer les rôles"
++    "manageRoles": "Gérer les rôles",
++    "unassignRole": "Retirer le rôle"
+   },
+   "seatingConstraints": {
+     "title": "Contraintes de placement",
+diff --git a/apps/mobile/i18n/locales/en/guests.json b/apps/mobile/i18n/locales/en/guests.json
+index cf84921..e15dd6a 100644
+--- a/apps/mobile/i18n/locales/en/guests.json
++++ b/apps/mobile/i18n/locales/en/guests.json
+@@ -142,6 +143,7 @@
+   "thankYouPending": "Thank-you pending",
+   "companionLabel": "Companion / +1",
+   "selectCompanion": "Select a companion...",
++  "removeCompanion": "Remove companion",
+   "searchCompanion": "Search a guest...",
+   "withCompanion": "with {{name}}",
+   "duplicateWarningTitle": "Possible duplicates",
+diff --git a/apps/mobile/i18n/locales/en/guests.json b/apps/mobile/i18n/locales/en/guests.json
+index cf84921..e15dd6a 100644
+--- a/apps/mobile/i18n/locales/en/guests.json
++++ b/apps/mobile/i18n/locales/en/guests.json
+@@ -245,7 +252,8 @@
+     "deleteRole": "Delete this role?",
+     "deleteRoleMsg": "This action cannot be undone. Guests holding this role will no longer have it.",
+     "noRolesYet": "No roles have been created yet.",
+-    "manageRoles": "Manage roles"
++    "manageRoles": "Manage roles",
++    "unassignRole": "Remove role"
+   },
+   "seatingConstraints": {
+     "title": "Seating constraints",

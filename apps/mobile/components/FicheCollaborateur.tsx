@@ -4,6 +4,9 @@ import { RefreshCw, Trash2 } from "lucide-react-native";
 
 import { Display } from "@/components/Display";
 import { Label } from "@/components/Label";
+import { BoutonIcone } from "@/components/BoutonIcone";
+import { ZoneTactile } from "@/components/ZoneTactile";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { theme } from "@/lib/theme";
 import type { Collaborateur } from "@/lib/collaborateurs";
 
@@ -81,25 +84,28 @@ export function FicheCollaborateur({
 
       {/* Le rôle appartient à la PERSONNE : le changer vaut pour tous ses liens,
           sans quoi ses deux appareils divergeraient. */}
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 6 }}>
         {roles.map((r) => {
           const actif = r.id === collaborateur.roleId;
           return (
-            <Pressable
+            <ZoneTactile
               key={r.id}
               onPress={() => { if (!actif) onChangerDeRole(r.id); }}
-              style={({ pressed }) => ({
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-                borderRadius: 999,
-                backgroundColor: actif ? theme.clay : theme.paper,
-                borderWidth: 1,
-                borderColor: actif ? theme.clay : theme.hair,
-                opacity: pressed ? 0.7 : 1,
-              })}
+              accessibilityState={{ selected: actif }}
             >
-              <Label size={11} color={actif ? "#ffffff" : theme.mute}>{r.label}</Label>
-            </Pressable>
+              <View
+                style={{
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: 999,
+                  backgroundColor: actif ? theme.clay : theme.paper,
+                  borderWidth: 1,
+                  borderColor: actif ? theme.clay : theme.hair,
+                }}
+              >
+                <Label size={11} color={actif ? "#ffffff" : theme.mute}>{r.label}</Label>
+              </View>
+            </ZoneTactile>
           );
         })}
       </View>
@@ -125,13 +131,13 @@ export function FicheCollaborateur({
               <Display size={12.5} color={theme.mute} style={{ flex: 1 }} numberOfLines={1}>
                 {date ? t("lienEmisLe", { date }) : lien.subjectUserId.slice(0, 12)}
               </Display>
-              <Pressable
+              <BoutonIcone
+                libelle={t("revoquerCeLien")}
                 onPress={() => onRevoquerLien(lien.id, lien.subjectUserId, liens.length === 1)}
-                hitSlop={8}
-                accessibilityLabel={t("revoquerCeLien")}
+                empreinte={28}
               >
                 <Trash2 size={15} color={theme.strawberryInk} />
-              </Pressable>
+              </BoutonIcone>
             </View>
           );
         })}
@@ -147,7 +153,7 @@ export function FicheCollaborateur({
           borderRadius: 14,
           borderWidth: 1,
           borderColor: theme.hair,
-          paddingVertical: 11,
+          minHeight: CIBLE_TACTILE,
           opacity: pressed ? 0.7 : 1,
         })}
       >

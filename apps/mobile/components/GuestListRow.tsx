@@ -10,6 +10,7 @@ import type { RsvpStatus } from "@/db/types";
 import { theme as GP } from "@/lib/theme";
 import type { InlineSelectAnchor } from "@/components/InlineSelectMenu";
 import type { Guest } from "@/db/schema";
+import { CIBLE_TACTILE, debordement } from "@/lib/cible-tactile";
 
 /** Hauteur de ligne CONSTANTE : c'est elle qui fait tenir 352 lignes en registre. */
 export const GUEST_ROW_HEIGHT = 40;
@@ -145,18 +146,28 @@ export function GuestListRow({
           <Pressable
             onPress={onToggleSelected}
             {...survol}
-            hitSlop={10}
             accessibilityRole="checkbox"
             accessibilityState={{ checked: selected }}
-            className="w-5 h-5 rounded-full items-center justify-center"
+            accessibilityLabel={formatGuestName(guest)}
             style={{
+              width: CIBLE_TACTILE,
+              height: CIBLE_TACTILE,
+              marginVertical: debordement(GUEST_ROW_HEIGHT),
+              alignItems: "center",
+              justifyContent: "center",
               opacity: boxVisible ? 1 : 0,
-              backgroundColor: selected ? GP.clay : "transparent",
-              borderWidth: selected ? 0 : 1.5,
-              borderColor: GP.hairStrong,
             }}
           >
-            {selected ? <Check size={11} color={GP.card} strokeWidth={3.4} /> : null}
+            <View
+              className="w-5 h-5 rounded-full items-center justify-center"
+              style={{
+                backgroundColor: selected ? GP.clay : "transparent",
+                borderWidth: selected ? 0 : 1.5,
+                borderColor: GP.hairStrong,
+              }}
+            >
+              {selected ? <Check size={11} color={GP.card} strokeWidth={3.4} /> : null}
+            </View>
           </Pressable>
         )}
       </View>
@@ -210,50 +221,68 @@ export function GuestListRow({
 
       <View style={{ width: columns.invitationType }}>
         <Pressable
-          ref={typeRef}
           disabled={!canEdit}
           {...survol}
           onPress={() => measure(typeRef, onOpenInvitationType)}
-          className="flex-row items-center gap-1.5 rounded-lg"
           style={{
-            height: 30,
-            paddingLeft: 10,
-            paddingRight: 6,
-            borderWidth: canEdit ? 1 : 0,
-            borderColor: GP.hair,
+            height: CIBLE_TACTILE,
+            marginVertical: debordement(GUEST_ROW_HEIGHT),
+            justifyContent: "center",
             width: columns.invitationType - 12,
           }}
         >
-          <Text numberOfLines={1} className="flex-1" style={{ fontSize: 13, color: GP.inkSoft }}>
-            {invitationTypeLabel}
-          </Text>
-          {canEdit && <ChevronDown size={12} color={GP.mute} />}
+          <View
+            ref={typeRef}
+            className="flex-row items-center gap-1.5 rounded-lg"
+            style={{
+              height: 30,
+              paddingLeft: 10,
+              paddingRight: 6,
+              borderWidth: canEdit ? 1 : 0,
+              borderColor: GP.hair,
+            }}
+          >
+            <Text numberOfLines={1} className="flex-1" style={{ fontSize: 13, color: GP.inkSoft }}>
+              {invitationTypeLabel}
+            </Text>
+            {canEdit && <ChevronDown size={12} color={GP.mute} />}
+          </View>
         </Pressable>
       </View>
 
       <View style={{ width: columns.rsvp }}>
         <Pressable
-          ref={rsvpRef}
           disabled={!canEdit}
           {...survol}
           onPress={() => measure(rsvpRef, onOpenRsvp)}
-          className="flex-row items-center gap-1.5 rounded-full self-start"
+          className="self-start"
           style={{
-            height: 26,
-            paddingLeft: 10,
-            paddingRight: canEdit ? 6 : 10,
-            backgroundColor: rsvpColor + "18",
+            height: CIBLE_TACTILE,
+            marginVertical: debordement(GUEST_ROW_HEIGHT),
+            justifyContent: "center",
             maxWidth: columns.rsvp - 8,
           }}
         >
-          <Text
-            numberOfLines={1}
-            className="font-semibold"
-            style={{ fontSize: 12.5, color: rsvpColor }}
+          <View
+            ref={rsvpRef}
+            className="flex-row items-center gap-1.5 rounded-full self-start"
+            style={{
+              height: 26,
+              paddingLeft: 10,
+              paddingRight: canEdit ? 6 : 10,
+              backgroundColor: rsvpColor + "18",
+              maxWidth: "100%",
+            }}
           >
-            {rsvpLabel}
-          </Text>
-          {canEdit && <ChevronDown size={11} color={rsvpColor} />}
+            <Text
+              numberOfLines={1}
+              className="font-semibold"
+              style={{ fontSize: 12.5, color: rsvpColor }}
+            >
+              {rsvpLabel}
+            </Text>
+            {canEdit && <ChevronDown size={11} color={rsvpColor} />}
+          </View>
         </Pressable>
       </View>
 

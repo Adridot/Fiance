@@ -137,17 +137,38 @@ export async function epoquesDetenuesDeLEspace(
   client: ClientDePull,
   entreeDAcces?: { kind?: string; kemPub?: string } | null,
 ): Promise<Set<number> | null> {
+  return (await lireLeKeyringDeLEspace(session, spaceId, client, entreeDAcces)).detenues;
+}
+
+/** MODIFICATION LOCALE — les époques détenues ET l'époque courante, d'une seule lecture. */
+export async function lireLeKeyringDeLEspace(
+  session: SessionMinimale,
+  spaceId: string,
+  client: ClientDePull,
+  entreeDAcces?: { kind?: string; kemPub?: string } | null,
+): Promise<{ detenues: Set<number> | null; courante: number | null }> {
   try {
     const kemPub =
       entreeDAcces?.kind === "link" && entreeDAcces.kemPub ? entreeDAcces.kemPub : session.keys.kemPub;
     const res = await client.pull(session.layout.keyringPull(spaceId));
     const keyring = res?.data;
-    if (!keyring) return null;
+    if (!keyring) return { detenues: null, courante: null };
     const detenues = epoquesDetenues(keyring, kemPub);
-    return detenues.size ? detenues : null;
+    return { detenues: detenues.size ? detenues : null, courante: epoqueCourante(keyring) };
   } catch {
-    return null;
+    return { detenues: null, courante: null };
   }
+}
+
+/** Les collections scellées sous une époque antérieure à la courante : à resceller. */
+export function collectionsEnRetardDEpoque(
+  epoquesLues: Readonly<Record<string, number | null>>,
+  courante: number | null,
+): string[] {
+  if (courante === null) return [];
+  return Object.entries(epoquesLues)
+    .filter(([, epoque]) => epoque !== null && epoque < courante)
+    .map(([collection]) => collection);
 }
 
 /**

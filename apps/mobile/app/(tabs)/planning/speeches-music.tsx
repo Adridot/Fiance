@@ -15,6 +15,8 @@ import { useGuestsStore } from "@/store/useGuestsStore";
 import { useWeddingPartyStore } from "@/store/useWeddingPartyStore";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { ChipSelect, ToggleRow, FormActions } from "@/components/FormSection";
@@ -150,7 +152,8 @@ export default function SpeechesMusicScreen() {
         {editingId ? t("music.editTrack") : t("music.newTrack")}
       </Text>
       <TextInput
-        className="text-base text-ink border-b border-hair pb-2 mb-3"
+        className="text-base text-ink border-b border-hair mb-3"
+        style={{ minHeight: CIBLE_TACTILE }}
         placeholder={t("music.titlePlaceholder")}
         placeholderTextColor="#D0D0D8"
         value={form.title}
@@ -158,7 +161,8 @@ export default function SpeechesMusicScreen() {
         editable={canEdit}
       />
       <TextInput
-        className="text-base text-ink border-b border-hair pb-2 mb-3"
+        className="text-base text-ink border-b border-hair mb-3"
+        style={{ minHeight: CIBLE_TACTILE }}
         placeholder={t("music.artistPlaceholder")}
         placeholderTextColor="#D0D0D8"
         value={form.artist}
@@ -183,7 +187,8 @@ export default function SpeechesMusicScreen() {
         <ToggleRow label={t("music.mustPlay")} value={form.mustPlay} onToggle={() => setForm((f) => ({ ...f, mustPlay: !f.mustPlay }))} />
       </View>
       <TextInput
-        className="text-base text-ink border-b border-hair pb-2 mt-3"
+        className="text-base text-ink border-b border-hair mt-3"
+        style={{ minHeight: CIBLE_TACTILE }}
         placeholder={t("music.notesPlaceholder")}
         placeholderTextColor="#D0D0D8"
         value={form.notes}
@@ -214,14 +219,14 @@ export default function SpeechesMusicScreen() {
           </View>
           <View className="flex-row items-center gap-1">
             {canEdit && (
-              <Pressable onPress={() => handleEditTrack(track)} className="w-8 h-8 items-center justify-center">
+              <BoutonIcone libelle={`${t("common:edit")} ${track.title}`} onPress={() => handleEditTrack(track)}>
                 <Pencil size={15} color="#9CA3AF" />
-              </Pressable>
+              </BoutonIcone>
             )}
             {canEdit && (
-              <Pressable onPress={() => setDeleteId(track.id)} className="w-8 h-8 items-center justify-center">
+              <BoutonIcone libelle={`${t("common:delete")} ${track.title}`} onPress={() => setDeleteId(track.id)}>
                 <Trash2 size={15} color="#EF4444" />
-              </Pressable>
+              </BoutonIcone>
             )}
           </View>
         </View>
@@ -235,7 +240,11 @@ export default function SpeechesMusicScreen() {
       <Stack.Screen
         options={{
           headerRight: () => (
-            <Pressable onPress={handleExport} className="mr-2 px-3 py-1.5 rounded-lg active:opacity-60 flex-row items-center gap-1">
+            <Pressable
+              onPress={handleExport}
+              className="mr-2 px-3 rounded-lg active:opacity-60 flex-row items-center gap-1"
+              style={{ minHeight: CIBLE_TACTILE }}
+            >
               {!hasExports && <Lock size={12} color={GP.clay} />}
               <Text className="text-primary-500 text-sm font-semibold">{t("music.exportPack")}</Text>
             </Pressable>

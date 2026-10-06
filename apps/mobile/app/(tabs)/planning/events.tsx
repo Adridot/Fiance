@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, ScrollView, Pressable, TextInput } from "react-native-css/components";
+import { View, Text, ScrollView, TextInput } from "react-native-css/components";
 import { Alert } from "react-native";
 import { useTranslation } from "react-i18next";
 import { CalendarRange, Trash2, Pencil, Star } from "lucide-react-native";
@@ -9,8 +9,10 @@ import { useWeddingEventsStore } from "@/store/useWeddingEventsStore";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
 import { ChipSelect, ToggleRow, DateRow, TimeRow, FormActions } from "@/components/FormSection";
 import { analytics } from "@/lib/analytics";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
 import { useShowPaywall } from "@/components/PaywallProvider";
 import { QuotaBadge } from "@/components/QuotaBadge";
@@ -138,7 +140,8 @@ export default function PlanningEventsScreen() {
       </Text>
 
       <TextInput
-        className="text-base text-ink border-b border-hair pb-2 mb-4"
+        className="text-base text-ink border-b border-hair mb-4"
+        style={{ minHeight: CIBLE_TACTILE }}
         placeholder={t("events.titlePlaceholder")}
         placeholderTextColor="#D0D0D8"
         value={form.title}
@@ -154,7 +157,8 @@ export default function PlanningEventsScreen() {
       </View>
 
       <TextInput
-        className="text-base text-ink border-b border-hair pb-2 mt-3"
+        className="text-base text-ink border-b border-hair mt-3"
+        style={{ minHeight: CIBLE_TACTILE }}
         placeholder={t("events.venuePlaceholder")}
         placeholderTextColor="#D0D0D8"
         value={form.venueName}
@@ -162,7 +166,8 @@ export default function PlanningEventsScreen() {
         editable={canEdit}
       />
       <TextInput
-        className="text-base text-ink border-b border-hair pb-2 mt-3"
+        className="text-base text-ink border-b border-hair mt-3"
+        style={{ minHeight: CIBLE_TACTILE }}
         placeholder={t("events.addressPlaceholder")}
         placeholderTextColor="#D0D0D8"
         value={form.address}
@@ -224,14 +229,14 @@ export default function PlanningEventsScreen() {
                   </View>
                   <View className="flex-row items-center gap-1">
                     {canEdit && (
-                      <Pressable onPress={() => handleEdit(e)} className="w-8 h-8 items-center justify-center">
+                      <BoutonIcone libelle={`${t("common:edit")} ${e.title}`} onPress={() => handleEdit(e)}>
                         <Pencil size={15} color="#9CA3AF" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                     {canEdit && (
-                      <Pressable onPress={() => setDeleteId(e.id)} className="w-8 h-8 items-center justify-center">
+                      <BoutonIcone libelle={`${t("common:delete")} ${e.title}`} onPress={() => setDeleteId(e.id)}>
                         <Trash2 size={15} color="#EF4444" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                   </View>
                 </View>

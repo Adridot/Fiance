@@ -10,6 +10,8 @@ import { useGuestsStore } from "@/store/useGuestsStore";
 import { useSeatingConstraintsStore } from "@/store/useSeatingConstraintsStore";
 import { DIET_LABELS } from "@/db/types";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
+import { CIBLE_TACTILE, debordement } from "@/lib/cible-tactile";
 import { useCan } from "@/lib/permissions/usePermissions";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
@@ -124,7 +126,8 @@ export default function TableManagementScreen() {
           {tables.length > 0 && (
             <Pressable
               onPress={() => router.push("/(tabs)/guests/tables")}
-              className="flex-row items-center justify-center gap-2 mb-4 py-2.5 rounded-xl bg-primary-50 dark:bg-primary-950 border border-primary-100 dark:border-primary-900 active:opacity-70"
+              className="flex-row items-center justify-center gap-2 mb-4 rounded-xl bg-primary-50 dark:bg-primary-950 border border-primary-100 dark:border-primary-900 active:opacity-70"
+          style={{ minHeight: CIBLE_TACTILE }}
             >
               <MapIcon size={16} color={GP.clay} />
               <Text className="text-sm font-semibold text-primary-500">{t("openPlanView")}</Text>
@@ -138,7 +141,8 @@ export default function TableManagementScreen() {
                 {t("newTable")}
               </Text>
               <TextInput
-                className="text-base text-ink border-b border-hair pb-2 mb-3"
+                className="text-base text-ink border-b border-hair mb-3"
+                style={{ minHeight: CIBLE_TACTILE }}
                 placeholder={t("tableName")}
                 placeholderTextColor="#D0D0D8"
                 value={newTableName}
@@ -147,7 +151,8 @@ export default function TableManagementScreen() {
                 editable={canEdit}
               />
               <TextInput
-                className="text-base text-ink border-b border-hair pb-2 mb-3"
+                className="text-base text-ink border-b border-hair mb-3"
+                style={{ minHeight: CIBLE_TACTILE }}
                 placeholder={t("capacity")}
                 placeholderTextColor="#D0D0D8"
                 value={newTableCapacity}
@@ -158,13 +163,15 @@ export default function TableManagementScreen() {
               <View className="flex-row gap-2">
                 <Pressable
                   onPress={handleAdd}
-                  className="flex-1 bg-primary-500 py-2.5 rounded-xl items-center active:bg-primary-600"
+                  className="flex-1 bg-primary-500 rounded-xl items-center justify-center active:bg-primary-600"
+              style={{ minHeight: CIBLE_TACTILE }}
                 >
                   <Text className="text-white font-semibold text-sm">{t("createTable")}</Text>
                 </Pressable>
                 <Pressable
                   onPress={() => setShowAdd(false)}
-                  className="flex-1 bg-accent-paper py-2.5 rounded-xl items-center"
+                  className="flex-1 bg-accent-paper rounded-xl items-center justify-center"
+              style={{ minHeight: CIBLE_TACTILE }}
                 >
                   <Text className="text-mute text-sm">{t("common:cancel")}</Text>
                 </Pressable>
@@ -193,6 +200,7 @@ export default function TableManagementScreen() {
                       setEditingName(table.name);
                     }}
                     className="flex-row items-center flex-1"
+                    style={{ minHeight: CIBLE_TACTILE, marginVertical: debordement(32) }}
                   >
                     <View className="w-8 h-8 rounded-lg bg-accent-blush dark:bg-primary-900 items-center justify-center mr-2">
                       <LayoutGrid size={16} color={GP.clay} />
@@ -200,6 +208,7 @@ export default function TableManagementScreen() {
                     {editingTableId === table.id ? (
                       <TextInput
                         className="text-base font-semibold text-ink flex-1"
+                        style={{ minHeight: CIBLE_TACTILE }}
                         value={editingName}
                         onChangeText={setEditingName}
                         onBlur={() => {
@@ -247,12 +256,9 @@ export default function TableManagementScreen() {
                       </Text>
                     </View>
                     {canEdit && (
-                      <Pressable
-                        onPress={() => setDeleteId(table.id)}
-                        className="w-8 h-8 items-center justify-center"
-                      >
+                      <BoutonIcone libelle={`${t("common:delete")} ${table.name}`} onPress={() => setDeleteId(table.id)}>
                         <Trash2 size={16} color="#EF4444" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                   </View>
                 </View>

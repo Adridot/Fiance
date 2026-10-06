@@ -1,5 +1,5 @@
-const CACHE_NAME = "fiance-v4";
-const PRECACHE = ["/", "/manifest.json"];
+const CACHE_NAME = "fiance-v5";
+const PRECACHE = ["/home", "/manifest.json"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
@@ -29,7 +29,7 @@ self.addEventListener("fetch", (e) => {
   // shell only when offline.
   if (request.mode === "navigate") {
     e.respondWith(
-      fetch(request).catch(async () => (await caches.match("/")) ?? Response.error())
+      fetch(request).catch(async () => (await caches.match("/home")) ?? Response.error())
     );
     return;
   }

@@ -11,6 +11,7 @@ import { useShowPaywall } from "@/components/PaywallProvider";
 import { toast } from "@/lib/toast/sonner";
 import { StackMenu } from "@/components/StackMenu";
 import { HeaderAddButton } from "@/components/HeaderAddButton";
+import { optionsDeRetour } from "@/components/BoutonRetour";
 import { useIsWideScreen } from "@/lib/useIsWideScreen";
 import { theme as GP } from "@/lib/theme";
 
@@ -27,11 +28,12 @@ export default function InvitesLayout() {
 
   return (
     <Stack
-      screenOptions={{
+      screenOptions={({ route }) => ({
         headerStyle: { backgroundColor: isDark ? "#111827" : "#FFFFFF" },
         headerTintColor: isDark ? "#FFFFFF" : "#111827",
         headerTitleStyle: { fontWeight: "600" },
-      }}
+        ...optionsDeRetour("guests", route.name),
+      })}
     >
       <Stack.Screen
         name="index"

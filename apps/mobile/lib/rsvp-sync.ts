@@ -13,7 +13,7 @@
  * one link, one page, one answer per envelope.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Platform } from "react-native";
 import { useGuestsStore } from "@/store/useGuestsStore";
 import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
@@ -31,6 +31,7 @@ import {
   rsvpMemberFromGuest,
   resolveHousehold,
   householdName,
+  onSseStatus,
   type HouseholdRsvpDoc,
   type Session,
   type ObjectNode,
@@ -38,6 +39,12 @@ import {
 import { publicPageNodeId, getPublicPageInviteLink, ensurePublicPageNode } from "@/lib/public-page";
 import { withIndexLock } from "@/lib/index-lock";
 import { encodeGuestLink } from "@/lib/guest-link";
+import { getActiveSession, getActiveSpaceId, getActiveWeddingNodeId, isSyncActive } from "@/lib/starfish";
+import {
+  disponibiliteDuLien,
+  etatDuBoutonRsvp,
+  type EtatDuBoutonRsvp,
+} from "@/lib/disponibilite-du-lien-rsvp";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,56 +56,90 @@ export type { HouseholdRsvpDoc, RsvpMember, HouseholdRsvpSubmission } from "@fia
 // Hooks
 // ---------------------------------------------------------------------------
 
+const ATTENTE_MAX_DE_LA_SYNC_MS = 20_000;
+
+function laSyncEstPrete(): boolean {
+  return isSyncActive() && !!getActiveSession() && !!getActiveSpaceId() && !!getActiveWeddingNodeId();
+}
+
+export interface LienRsvp {
+  url: string | null;
+  etat: EtatDuBoutonRsvp;
+  reessayer: () => void;
+}
+
 /**
- * Returns the combined guest invite link URL for a guest.
- * Bundles page-read cap + rsvp-write cap into one URL.
- * Returns null until the link is minted (requires active sync session).
+ * Combined guest invite link for a guest (page-read cap + rsvp-write cap in one URL).
+ * Minted as soon as sync is active — a page opened cold gets its session after the
+ * first render — and exposed with a state so the share button is never silent.
  */
-export function useGuestRsvpUrl(
+export function useGuestRsvpLink(
   guestId: string | undefined,
   activeEntry: WeddingRegistryEntry | undefined,
-): string | null {
-  const [url, setUrl] = useState<string | null>(null);
+): LienRsvp {
+  const [lien, setLien] = useState<{ guestId: string; url: string } | null>(null);
+  const [echecDe, setEchecDe] = useState<string | null>(null);
+  const [essai, setEssai] = useState(0);
+  const [synchroPrete, setSynchroPrete] = useState(laSyncEstPrete);
+  const invitePresent = useGuestsStore((s) => !!guestId && s.guests.some((g) => g.id === guestId));
+
+  const disponibilite = disponibiliteDuLien({
+    aUnInvite: invitePresent,
+    aUneGraine: !!activeEntry?.seedPhrase,
+    synchroDesactivee: activeEntry?.syncDisabled === true,
+    synchroPrete,
+  });
+  const url = lien && lien.guestId === guestId ? lien.url : null;
+  // Un échec ne vaut que pour la tentative et l'état de la sync où il s'est produit.
+  const cle = `${guestId}|${essai}|${synchroPrete}`;
+  const echec = echecDe === cle;
 
   useEffect(() => {
-    if (!guestId || !activeEntry?.seedPhrase) return;
-    let cancelled = false;
+    const retirer = onSseStatus(() => setSynchroPrete(laSyncEstPrete()));
+    return () => { retirer(); };
+  }, []);
 
-    import("@/lib/starfish").then(({ getActiveSession, getActiveSpaceId, getActiveWeddingNodeId }) => {
-      const session = getActiveSession();
-      const spaceId = getActiveSpaceId();
-      const weddingNodeId = getActiveWeddingNodeId();
+  useEffect(() => {
+    if (disponibilite !== "attente-de-la-sync") return;
+    const minuteur = setTimeout(() => setEchecDe(cle), ATTENTE_MAX_DE_LA_SYNC_MS);
+    return () => clearTimeout(minuteur);
+  }, [disponibilite, cle]);
 
-      if (!session || !spaceId || !weddingNodeId) return;
+  useEffect(() => {
+    if (disponibilite !== "pret" || !guestId || url) return;
+    const session = getActiveSession();
+    const spaceId = getActiveSpaceId();
+    const weddingNodeId = getActiveWeddingNodeId();
+    if (!session || !spaceId || !weddingNodeId) return;
+    let annule = false;
 
-      const { guests, households } = useGuestsStore.getState();
-      // Invitation labels are seeded with the members: the public form cannot
-      // resolve an invitation-type id (see RsvpMember.invitationLabel).
-      const invitationLabels = Object.fromEntries(
-        useInvitationTypesStore.getState().invitationTypes.map((it) => [it.id, it.label]),
-      );
-      const { household, members } = resolveHousehold(households, guests, guestId);
-      if (members.length === 0) return;
-      const recipientId = household?.id ?? guestId;
-      const label = householdName(household, members);
+    (async () => {
+      try {
+        const { guests, households } = useGuestsStore.getState();
+        // Invitation labels are seeded with the members: the public form cannot
+        // resolve an invitation-type id (see RsvpMember.invitationLabel).
+        const invitationLabels = Object.fromEntries(
+          useInvitationTypesStore.getState().invitationTypes.map((it) => [it.id, it.label]),
+        );
+        const { household, members } = resolveHousehold(households, guests, guestId);
+        if (members.length === 0) throw new Error("guest not found");
+        const link = await getHouseholdInviteLink(
+          session, spaceId, weddingNodeId, household?.id ?? guestId, householdName(household, members),
+          household?.id ?? null, members, invitationLabels,
+        );
+        if (!annule) setLien({ guestId, url: link });
+      } catch (err) {
+        console.warn("[rsvp] link not prepared:", err);
+        if (!annule) setEchecDe(cle);
+      }
+    })();
 
-      (async () => {
-        try {
-          const link = await getHouseholdInviteLink(
-            session, spaceId, weddingNodeId, recipientId, label,
-            household?.id ?? null, members, invitationLabels,
-          );
-          if (!cancelled) setUrl(link);
-        } catch {
-          // Session not ready — link minting deferred
-        }
-      })();
-    }).catch(() => {});
+    return () => { annule = true; };
+  }, [disponibilite, guestId, url, cle]);
 
-    return () => { cancelled = true; };
-  }, [guestId, activeEntry?.seedPhrase]);
+  const reessayer = useCallback(() => setEssai((n) => n + 1), []);
 
-  return url;
+  return { url, etat: etatDuBoutonRsvp({ url, disponibilite, echec }), reessayer };
 }
 
 // ---------------------------------------------------------------------------

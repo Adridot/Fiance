@@ -27,6 +27,8 @@ import {
   rsvpStatusUpdate,
 } from "@fiance/sdk";
 import { HomeBanner } from "@/components/HomeBanner";
+// MODIFICATION LOCALE — un accès refusé par le serveur n'est pas une liste vide.
+import { BandeauAccesRefuse } from "@/components/BandeauAccesRefuse";
 import { Display } from "@/components/Display";
 import { theme as GP } from "@/lib/theme";
 import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
@@ -35,6 +37,8 @@ import { useWeddingStore } from "@/store/useWeddingStore";
 import { RSVP_STATUS_LABELS, RSVP_STATUS_COLORS } from "@/db/types";
 import type { RsvpStatus } from "@/db/types";
 import { FAB } from "@/components/FAB";
+import { ZoneTactile } from "@/components/ZoneTactile";
+import { CIBLE_TACTILE, debordement } from "@/lib/cible-tactile";
 import { GuestBulkBar } from "@/components/GuestBulkBar";
 import {
   GuestListRow,
@@ -115,31 +119,43 @@ function GroupBox({
   onPress,
   visible,
   survol,
+  label,
 }: {
   state: "none" | "partial" | "all";
   onPress: () => void;
   visible: boolean;
   survol: { onHoverIn: () => void; onHoverOut: () => void };
+  label: string;
 }) {
   return (
     <Pressable
       onPress={onPress}
       {...survol}
-      hitSlop={10}
       accessibilityRole="checkbox"
       accessibilityState={{ checked: state === "all" }}
-      className="w-5 h-5 rounded-full items-center justify-center"
+      accessibilityLabel={label}
       style={{
+        width: CIBLE_TACTILE,
+        height: CIBLE_TACTILE,
+        margin: debordement(20),
+        alignItems: "center",
+        justifyContent: "center",
         opacity: visible ? 1 : 0,
-        backgroundColor: state === "none" ? "transparent" : GP.clay,
-        borderWidth: state === "none" ? 1.5 : 0,
-        borderColor: GP.hairStrong,
       }}
     >
-      {state === "all" ? <Check size={11} color={GP.card} strokeWidth={3.4} /> : null}
-      {state === "partial" ? (
-        <View style={{ width: 9, height: 2.5, borderRadius: 2, backgroundColor: GP.card }} />
-      ) : null}
+      <View
+        className="w-5 h-5 rounded-full items-center justify-center"
+        style={{
+          backgroundColor: state === "none" ? "transparent" : GP.clay,
+          borderWidth: state === "none" ? 1.5 : 0,
+          borderColor: GP.hairStrong,
+        }}
+      >
+        {state === "all" ? <Check size={11} color={GP.card} strokeWidth={3.4} /> : null}
+        {state === "partial" ? (
+          <View style={{ width: 9, height: 2.5, borderRadius: 2, backgroundColor: GP.card }} />
+        ) : null}
+      </View>
     </Pressable>
   );
 }
@@ -191,13 +207,14 @@ function GroupHeader({
 
   return (
     <View className="bg-accent-paper" style={{ paddingHorizontal: PAGE_X }}>
-      <Pressable onPress={onToggle} {...survol} className="flex-row items-center gap-2.5 pt-5 pb-1.5">
+      <Pressable onPress={onToggle} {...survol} className="flex-row items-center gap-2.5 pt-5 pb-2.5">
         {canEdit ? (
           <GroupBox
             state={selectionState}
             onPress={onToggleGroupSelection}
             visible={boxVisible || hovered}
             survol={survol}
+            label={formatGuestGroupName(group.name)}
           />
         ) : null}
         <Chevron size={13} color={GP.ink} />
@@ -222,17 +239,17 @@ function GroupHeader({
         <View className="flex-1" style={{ height: 1, backgroundColor: GP.hair }} />
 
         {missingCount > 0 && onStartCapture ? (
-          <Pressable
-            onPress={onStartCapture}
-            accessibilityRole="button"
-            className="flex-row items-center gap-1.5 rounded-full active:opacity-70"
-            style={{ height: 28, paddingHorizontal: 11, backgroundColor: GP.mustardSoft }}
-          >
-            <Pencil size={12} color={GP.mustard} />
-            <Text className="font-semibold" style={{ fontSize: 12, color: GP.mustard }} numberOfLines={1}>
-              {t("namesToComplete", { count: missingCount })}
-            </Text>
-          </Pressable>
+          <ZoneTactile onPress={onStartCapture} style={{ marginVertical: debordement(28) }}>
+            <View
+              className="flex-row items-center gap-1.5 rounded-full"
+              style={{ height: 28, paddingHorizontal: 11, backgroundColor: GP.mustardSoft }}
+            >
+              <Pencil size={12} color={GP.mustard} />
+              <Text className="font-semibold" style={{ fontSize: 12, color: GP.mustard }} numberOfLines={1}>
+                {t("namesToComplete", { count: missingCount })}
+              </Text>
+            </View>
+          </ZoneTactile>
         ) : null}
 
         {/* Sur écran étroit la jauge prendrait au nom la place qu'elle occupe. */}
@@ -263,11 +280,11 @@ function GroupHeader({
               ? t("nameQueueRemaining", { count: captureRemaining })
               : t("nameQueueAllDone")}
           </Text>
-          <Pressable onPress={onFinishCapture} accessibilityRole="button" hitSlop={8}>
+          <ZoneTactile onPress={onFinishCapture} style={{ marginVertical: debordement(28) }}>
             <Text className="font-semibold" style={{ fontSize: 12.5, color: GP.mustard }}>
               {t("nameCaptureFinish")}
             </Text>
-          </Pressable>
+          </ZoneTactile>
         </View>
       ) : null}
 
@@ -275,8 +292,8 @@ function GroupHeader({
         <Pressable
           onPress={onOpenHouseholds ?? undefined}
           accessibilityRole="button"
-          className="pb-1.5 active:opacity-60"
-          style={{ marginLeft: GUEST_ROW_INDENT }}
+          className="active:opacity-60"
+          style={{ marginLeft: GUEST_ROW_INDENT, minHeight: CIBLE_TACTILE, justifyContent: "center" }}
         >
           <Text className="font-medium" style={{ fontSize: 11.5, color: GP.clay }} numberOfLines={1}>
             {t("household.remaining", { count: householdsToDo })}
@@ -962,6 +979,7 @@ function GuestsView() {
       <Pressable
         onPress={() => router.push("/(tabs)/guests/recipients")}
         className="flex-row items-center justify-between px-4 pt-5 active:opacity-60"
+        style={{ minHeight: CIBLE_TACTILE }}
       >
         <Text className="text-sm font-semibold text-primary-500">
           {t("household.recipientCount", { count: recipientCount })}
@@ -982,102 +1000,109 @@ function GuestsView() {
         showsHorizontalScrollIndicator={false}
         className="mt-6 mb-4"
         style={{ flexGrow: 0 }}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12, gap: 8, alignItems: "center" }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 6, gap: 8, alignItems: "center" }}
       >
         {rsvpTabs.map((tab) => {
           const isActive = tab.key === rsvpFilter;
           return (
-            <Pressable
+            <ZoneTactile
               key={tab.key}
               onPress={() => setRsvpFilter(tab.key)}
-              className={`px-4 py-2 rounded-full border ${
-                isActive
-                  ? "bg-primary-500 border-primary-500"
-                  : "bg-accent-card border-hair"
-              }`}
+              accessibilityState={{ selected: isActive }}
             >
-              <Text
-                className={`text-sm font-medium ${
-                  isActive ? "text-white" : "text-mute"
+              <View
+                className={`px-4 py-2 rounded-full border ${
+                  isActive
+                    ? "bg-primary-500 border-primary-500"
+                    : "bg-accent-card border-hair"
                 }`}
               >
-                {tab.label} ({tab.count})
-              </Text>
-            </Pressable>
+                <Text
+                  className={`text-sm font-medium ${
+                    isActive ? "text-white" : "text-mute"
+                  }`}
+                >
+                  {tab.label} ({tab.count})
+                </Text>
+              </View>
+            </ZoneTactile>
           );
         })}
         <View className="w-px bg-hair my-1" />
         {typeTabs.map((tab) => {
           const isActive = tab.key === typeFilter;
           return (
-            <Pressable
+            <ZoneTactile
               key={tab.key}
               onPress={() => setTypeFilter(isActive ? "ALL" : tab.key)}
-              className={`px-4 py-2 rounded-full border ${
-                isActive
-                  ? "border-primary-500 bg-primary-50 dark:bg-primary-900/30"
-                  : "bg-accent-card border-hair"
-              }`}
+              accessibilityState={{ selected: isActive }}
             >
-              <Text
-                className={`text-sm font-medium ${
+              <View
+                className={`px-4 py-2 rounded-full border ${
                   isActive
-                    ? "text-primary-500"
-                    : "text-mute"
+                    ? "border-primary-500 bg-primary-50 dark:bg-primary-900/30"
+                    : "bg-accent-card border-hair"
                 }`}
               >
-                {tab.label} ({tab.count})
-              </Text>
-            </Pressable>
+                <Text
+                  className={`text-sm font-medium ${
+                    isActive
+                      ? "text-primary-500"
+                      : "text-mute"
+                  }`}
+                >
+                  {tab.label} ({tab.count})
+                </Text>
+              </View>
+            </ZoneTactile>
           );
         })}
 
         {(childCount > 0 || childFilter) && (
-          <Pressable
-            onPress={() => setChildFilter(!childFilter)}
-            className={`px-4 py-2 rounded-full border ${
-              childFilter
-                ? "border-primary-500 bg-primary-50 dark:bg-primary-900/30"
-                : "bg-accent-card border-hair"
-            }`}
-          >
-            <Text className={`text-sm font-medium ${childFilter ? "text-primary-500" : "text-mute"}`}>
-              {t("child")} ({childCount})
-            </Text>
-          </Pressable>
+          <ZoneTactile onPress={() => setChildFilter(!childFilter)} accessibilityState={{ selected: childFilter }}>
+            <View
+              className={`px-4 py-2 rounded-full border ${
+                childFilter
+                  ? "border-primary-500 bg-primary-50 dark:bg-primary-900/30"
+                  : "bg-accent-card border-hair"
+              }`}
+            >
+              <Text className={`text-sm font-medium ${childFilter ? "text-primary-500" : "text-mute"}`}>
+                {t("child")} ({childCount})
+              </Text>
+            </View>
+          </ZoneTactile>
         )}
 
         {groupedGuests && groupedGuests.byGroup.length > 1 && (
           <>
             <View className="w-px bg-hair my-1" />
-            <Pressable
-              onPress={toggleAllGroups}
-              className="px-4 py-2 rounded-full border border-hair bg-accent-card"
-            >
-              <Text className="text-sm font-medium text-primary-500">
-                {allExpanded
-                  ? t("collapseAllGroups")
-                  : `${t("expandAllGroups")} (${groupedGuests.byGroup.length})`}
-              </Text>
-            </Pressable>
+            <ZoneTactile onPress={toggleAllGroups}>
+              <View className="px-4 py-2 rounded-full border border-hair bg-accent-card">
+                <Text className="text-sm font-medium text-primary-500">
+                  {allExpanded
+                    ? t("collapseAllGroups")
+                    : `${t("expandAllGroups")} (${groupedGuests.byGroup.length})`}
+                </Text>
+              </View>
+            </ZoneTactile>
           </>
         )}
 
         {canEditGuests && filteredIds.length > 0 && (
           <>
             <View className="w-px bg-hair my-1" />
-            <Pressable
-              onPress={toggleAllFiltered}
-              className="px-4 py-2 rounded-full border border-hair bg-accent-card"
-            >
-              <Text className="text-sm font-medium text-primary-500">
-                {allFilteredSelected
-                  ? t("bulkDeselectAllFiltered")
-                  : t("bulkSelectAllFiltered", {
-                      count: filteredIds.length - visibleSelectedCount,
-                    })}
-              </Text>
-            </Pressable>
+            <ZoneTactile onPress={toggleAllFiltered}>
+              <View className="px-4 py-2 rounded-full border border-hair bg-accent-card">
+                <Text className="text-sm font-medium text-primary-500">
+                  {allFilteredSelected
+                    ? t("bulkDeselectAllFiltered")
+                    : t("bulkSelectAllFiltered", {
+                        count: filteredIds.length - visibleSelectedCount,
+                      })}
+                </Text>
+              </View>
+            </ZoneTactile>
           </>
         )}
       </ScrollView>
@@ -1107,6 +1132,7 @@ function GuestsView() {
 
   return (
     <View className="relative flex-1">
+      <BandeauAccesRefuse className="mx-4 mt-4" />
       {/* Guest list — big CTA only when there are truly no guests; a search/filter that
           matches none keeps the search bar + filters visible with an inline message. */}
       {guests.length === 0 && listeIllisible ? (

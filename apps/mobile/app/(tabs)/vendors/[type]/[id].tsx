@@ -2,6 +2,8 @@ import React, { useState, useMemo } from "react";
 import { View, Text, ScrollView, TextInput, Pressable } from "react-native-css/components";
 import { Alert } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+import { revenir } from "@/lib/revenir";
+import { repliDe } from "@/lib/repli-des-ecrans";
 import { ChevronUp, ChevronDown, CheckSquare, Square, Trash2, FileText, Upload } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import * as Crypto from "expo-crypto";
@@ -11,7 +13,8 @@ import { useDocumentsStore } from "@/store/useDocumentsStore";
 import { calculateVendorTotal, isVendorDynamicPricing } from "@/lib/budget";
 import { formatMoney } from "@/components/MoneyDisplay";
 import { GuestPricingSection } from "@/components/vendors/GuestPricingSection";
-import { pickAndStoreDocument, isDocumentAvailableOnDevice, deleteDocumentFile } from "@/lib/documents";
+import { isDocumentAvailableOnDevice, deleteDocumentFile, type PickedDocumentFile } from "@/lib/documents";
+import { ChoixDeDocument } from "@/components/ChoixDeDocument";
 import { selectVendorInGroup } from "@/lib/vendor-comparison";
 import {
   VENDOR_TYPE_LABELS,
@@ -32,12 +35,17 @@ import { StatusSelector } from "@/components/StatusSelector";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { PageHeader } from "@/components/PageHeader";
 import { Seal } from "@/components/Seal";
+import { BoutonIcone } from "@/components/BoutonIcone";
+import { ZoneTactile } from "@/components/ZoneTactile";
 import { PremiumGate } from "@/components/PremiumGate";
 import { PaywallSheet } from "@/components/PaywallSheet";
 import { useHasFeature, useCanAddMore, FREE_LIMITS } from "@/lib/limits";
 import { toast } from "@/lib/toast/sonner";
 import type { Vendor, VendorPayment } from "@/db/schema";
 import { theme as GP } from "@/lib/theme";
+import { CIBLE_TACTILE, agrandir } from "@/lib/cible-tactile";
+
+const enTeteDesDates = agrandir({ haut: 12, bas: 8 }, { marges: { haut: 4, bas: 8 } });
 
 const STATUS_OPTIONS: VendorStatus[] = [
   "PROSPECT",
@@ -167,14 +175,14 @@ export default function VendorDetailScreen() {
     } else {
       updateVendor(id!, vendorData);
     }
-    router.back();
+    revenir(router, repliDe("vendors", "[type]/[id]"));
   };
 
   const handleDelete = () => {
     removeVendor(id!);
     analytics.capture("vendor_deleted", { category: type });
     setShowDelete(false);
-    router.back();
+    revenir(router, repliDe("vendors", "[type]/[id]"));
   };
 
   return (
@@ -246,12 +254,9 @@ export default function VendorDetailScreen() {
                         }
                       }}
                     />
-                    <Pressable
-                      onPress={() => router.push({ pathname: "/(tabs)/vendors/compare", params: { type } })}
-                      className="mt-2"
-                    >
+                    <ZoneTactile onPress={() => router.push({ pathname: "/(tabs)/vendors/compare", params: { type } })}>
                       <Text className="text-sm text-primary-500 font-medium">{t("comparison.viewAll")}</Text>
-                    </Pressable>
+                    </ZoneTactile>
                   </View>
                 </PremiumGate>
               </>
@@ -354,7 +359,8 @@ export default function VendorDetailScreen() {
 
             <Pressable
               onPress={() => setShowDates(!showDates)}
-              className="flex-row items-center justify-between mb-2 mt-1"
+              className="flex-row items-center justify-between"
+              style={enTeteDesDates}
             >
               <SectionTitle>{t("dates")}</SectionTitle>
               {showDates ? (
@@ -426,7 +432,10 @@ function PaymentsTab({ vendorId }: { vendorId: string }) {
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const handleAdd = () => {
-    if (!amount.trim()) return;
+    if (!amount.trim() || Number.isNaN(parseFloat(amount))) {
+      toast.error(t("paymentAmountRequired"));
+      return;
+    }
     const now = new Date().toISOString();
     addPayment({
       id: Crypto.randomUUID(),
@@ -475,12 +484,9 @@ function PaymentsTab({ vendorId }: { vendorId: string }) {
             )}
           </View>
           {canEdit && (
-            <Pressable
-              onPress={() => setDeleteId(p.id)}
-              className="w-8 h-8 items-center justify-center"
-            >
+            <BoutonIcone libelle={`${t("common:delete")} ${p.amount.toFixed(2)} €`} onPress={() => setDeleteId(p.id)}>
               <Trash2 size={16} color="#EF4444" />
-            </Pressable>
+            </BoutonIcone>
           )}
         </View>
       ))}
@@ -512,13 +518,15 @@ function PaymentsTab({ vendorId }: { vendorId: string }) {
           <View className="flex-row gap-2 mt-3">
             <Pressable
               onPress={handleAdd}
-              className="flex-1 bg-primary-500 py-2.5 rounded-xl items-center active:bg-primary-600"
+              className="flex-1 bg-primary-500 py-2.5 rounded-xl items-center justify-center active:bg-primary-600"
+              style={{ minHeight: CIBLE_TACTILE }}
             >
               <Text className="text-white font-semibold text-sm">{t("addPayment")}</Text>
             </Pressable>
             <Pressable
               onPress={() => setShowAdd(false)}
-              className="flex-1 bg-accent-paper py-2.5 rounded-xl items-center"
+              className="flex-1 bg-accent-paper py-2.5 rounded-xl items-center justify-center"
+              style={{ minHeight: CIBLE_TACTILE }}
             >
               <Text className="text-mute text-sm">{t("common:cancel")}</Text>
             </Pressable>
@@ -561,30 +569,23 @@ function DocumentsTab({ vendorId }: { vendorId: string }) {
   );
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const handlePick = async () => {
-    const docId = Crypto.randomUUID();
-    try {
-      const picked = await pickAndStoreDocument(docId);
-      if (!picked) return;
-      const now = new Date().toISOString();
-      addDocument({
-        id: docId,
-        ownerType: "VENDOR",
-        ownerId: vendorId,
-        label: picked.fileName,
-        fileName: picked.fileName,
-        mimeType: picked.mimeType,
-        localUri: picked.localUri,
-        fileSize: picked.fileSize,
-        uploadedAt: now,
-        notes: null,
-        createdAt: now,
-        updatedAt: now,
-      });
-      analytics.capture("document_attached");
-    } catch {
-      Alert.alert(t("common:error"), t("documentPickError"));
-    }
+  const handlePicked = (picked: PickedDocumentFile & { id: string }) => {
+    const now = new Date().toISOString();
+    addDocument({
+      id: picked.id,
+      ownerType: "VENDOR",
+      ownerId: vendorId,
+      label: picked.fileName,
+      fileName: picked.fileName,
+      mimeType: picked.mimeType,
+      localUri: picked.localUri,
+      fileSize: picked.fileSize,
+      uploadedAt: now,
+      notes: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    analytics.capture("document_attached");
   };
 
   return (
@@ -602,12 +603,9 @@ function DocumentsTab({ vendorId }: { vendorId: string }) {
               )}
             </View>
             {canEdit && (
-              <Pressable
-                onPress={() => setDeleteId(doc.id)}
-                className="w-8 h-8 items-center justify-center"
-              >
+              <BoutonIcone libelle={`${t("common:delete")} ${doc.label}`} onPress={() => setDeleteId(doc.id)}>
                 <Trash2 size={16} color="#EF4444" />
-              </Pressable>
+              </BoutonIcone>
             )}
           </View>
         );
@@ -618,13 +616,12 @@ function DocumentsTab({ vendorId }: { vendorId: string }) {
       )}
 
       {canEdit && (
-        <Pressable
-          onPress={handlePick}
-          className="bg-primary-50 dark:bg-primary-950 rounded-xl py-3 flex-row items-center justify-center gap-2 border border-primary-200 dark:border-primary-800 active:opacity-80 mt-1"
-        >
-          <Upload size={15} color={GP.clay} />
-          <Text className="text-sm font-semibold text-primary-500">{t("addDocument")}</Text>
-        </Pressable>
+        <ChoixDeDocument onChoisi={handlePicked} onErreur={() => Alert.alert(t("common:error"), t("documentPickError"))}>
+          <View className="bg-primary-50 dark:bg-primary-950 rounded-xl py-3 flex-row items-center justify-center gap-2 border border-primary-200 dark:border-primary-800 mt-1">
+            <Upload size={15} color={GP.clay} />
+            <Text className="text-sm font-semibold text-primary-500">{t("addDocument")}</Text>
+          </View>
+        </ChoixDeDocument>
       )}
 
       <ConfirmSheet
@@ -711,6 +708,7 @@ function CustomFieldRenderer({
                 }
               }}
               className="flex-row items-center py-2"
+              style={{ minHeight: CIBLE_TACTILE }}
             >
               {isChecked ? (
                 <CheckSquare size={20} color={GP.clay} />

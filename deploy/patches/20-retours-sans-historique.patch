@@ -1,0 +1,826 @@
+diff --git a/apps/mobile/__tests__/disponibilite-du-lien-rsvp.test.ts b/apps/mobile/__tests__/disponibilite-du-lien-rsvp.test.ts
+new file mode 100644
+index 0000000..21585fb
+--- /dev/null
++++ b/apps/mobile/__tests__/disponibilite-du-lien-rsvp.test.ts
+@@ -0,0 +1,45 @@
++import { describe, expect, it } from "vitest";
++import { disponibiliteDuLien, etatDuBoutonRsvp } from "@/lib/disponibilite-du-lien-rsvp";
++
++const tout = { aUnInvite: true, aUneGraine: true, synchroDesactivee: false, synchroPrete: true };
++
++describe("disponibiliteDuLien", () => {
++  it("prêt quand la sync est active", () => {
++    expect(disponibiliteDuLien(tout)).toBe("pret");
++  });
++
++  it("page ouverte à froid : on attend la sync, on n'abandonne pas", () => {
++    expect(disponibiliteDuLien({ ...tout, synchroPrete: false })).toBe("attente-de-la-sync");
++  });
++
++  it("sync coupée par l'utilisateur : aucun lien ne viendra", () => {
++    expect(disponibiliteDuLien({ ...tout, synchroDesactivee: true, synchroPrete: false })).toBe("sync-desactivee");
++  });
++
++  it("sans invité (nouvelle fiche) ou sans phrase du mariage : indisponible, même sync prête", () => {
++    expect(disponibiliteDuLien({ ...tout, aUnInvite: false })).toBe("indisponible");
++    expect(disponibiliteDuLien({ ...tout, aUneGraine: false })).toBe("indisponible");
++  });
++});
++
++describe("etatDuBoutonRsvp", () => {
++  it("un lien existant l'emporte sur tout : le bouton partage", () => {
++    expect(etatDuBoutonRsvp({ url: "https://x/y", disponibilite: "attente-de-la-sync", echec: true })).toBe("pret");
++    expect(etatDuBoutonRsvp({ url: "https://x/y", disponibilite: "sync-desactivee", echec: false })).toBe("pret");
++  });
++
++  it("sans lien : préparation tant que rien n'a échoué, y compris pendant l'attente de la sync", () => {
++    expect(etatDuBoutonRsvp({ url: null, disponibilite: "attente-de-la-sync", echec: false })).toBe("preparation");
++    expect(etatDuBoutonRsvp({ url: null, disponibilite: "pret", echec: false })).toBe("preparation");
++  });
++
++  it("sans lien après un échec (ou une attente trop longue) : réessayer", () => {
++    expect(etatDuBoutonRsvp({ url: null, disponibilite: "pret", echec: true })).toBe("echec");
++    expect(etatDuBoutonRsvp({ url: null, disponibilite: "attente-de-la-sync", echec: true })).toBe("echec");
++  });
++
++  it("sync coupée ou fiche sans invité : l'état dit pourquoi, pas de faux chargement", () => {
++    expect(etatDuBoutonRsvp({ url: null, disponibilite: "sync-desactivee", echec: false })).toBe("sync-desactivee");
++    expect(etatDuBoutonRsvp({ url: null, disponibilite: "indisponible", echec: true })).toBe("indisponible");
++  });
++});
+diff --git a/apps/mobile/__tests__/lien-rsvp-hook.test.ts b/apps/mobile/__tests__/lien-rsvp-hook.test.ts
+new file mode 100644
+index 0000000..3eed756
+--- /dev/null
++++ b/apps/mobile/__tests__/lien-rsvp-hook.test.ts
+@@ -0,0 +1,223 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { creerHarnais } from "./mocks/harnais-de-hook";
++
++const rt = vi.hoisted(() => ({ hooks: null as null | Record<string, (...a: unknown[]) => unknown> }));
++
++vi.mock("react", async (importOriginal) => {
++  const actual = await importOriginal<typeof import("react")>();
++  return {
++    ...actual,
++    useState: (...a: unknown[]) => rt.hooks!.useState(...a),
++    useEffect: (...a: unknown[]) => rt.hooks!.useEffect(...a),
++    useCallback: (...a: unknown[]) => rt.hooks!.useCallback(...a),
++  };
++});
++
++const synchro = vi.hoisted(() => ({
++  active: false,
++  session: null as object | null,
++  spaceId: null as string | null,
++  nodeId: null as string | null,
++  ecouteurs: new Set<(up: boolean) => void>(),
++}));
++
++const magasin = vi.hoisted(() => ({
++  guests: [] as Array<Record<string, unknown>>,
++  households: [] as unknown[],
++}));
++
++vi.mock("@/lib/starfish", () => ({
++  isSyncActive: () => synchro.active,
++  getActiveSession: () => synchro.session,
++  getActiveSpaceId: () => synchro.spaceId,
++  getActiveWeddingNodeId: () => synchro.nodeId,
++}));
++
++vi.mock("@/store/useGuestsStore", () => ({
++  useGuestsStore: Object.assign(
++    (selector: (s: typeof magasin) => unknown) => selector(magasin),
++    { getState: () => magasin },
++  ),
++}));
++vi.mock("@/store/useInvitationTypesStore", () => ({
++  useInvitationTypesStore: { getState: () => ({ invitationTypes: [] }) },
++}));
++vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
++vi.mock("@/lib/public-page", () => ({
++  publicPageNodeId: (w: string) => `pub-${w}`,
++  getPublicPageInviteLink: vi.fn(),
++  ensurePublicPageNode: vi.fn().mockResolvedValue("pub-w1"),
++}));
++vi.mock("@/lib/guest-link", () => ({
++  encodeGuestLink: vi.fn().mockReturnValue("https://example.com/wedding/jeton"),
++}));
++
++const sdk = vi.hoisted(() => ({
++  createNodeInviteLink: vi.fn(),
++}));
++
++vi.mock("@fiance/sdk", async (importOriginal) => {
++  const actual = await importOriginal<typeof import("@fiance/sdk")>();
++  return {
++    ...actual,
++    onSseStatus: (cb: (up: boolean) => void) => {
++      synchro.ecouteurs.add(cb);
++      cb(synchro.active);
++      return () => synchro.ecouteurs.delete(cb);
++    },
++    updateObjectIndex: vi.fn().mockResolvedValue(undefined),
++    getNodeAccess: vi.fn().mockResolvedValue({
++      client: { pull: vi.fn().mockResolvedValue(null), push: vi.fn().mockResolvedValue(undefined) },
++    }),
++    objInvPush: vi.fn().mockReturnValue("/p"),
++    objInvPull: vi.fn().mockReturnValue("/p"),
++    createNodeInviteLink: sdk.createNodeInviteLink,
++    rsvpToNode: vi.fn().mockReturnValue({
++      id: "rsvp-g1", type: "rsvp", parentId: "pub-w1", title: "", access: "invite", enc: false, contentKind: "merge",
++    }),
++  };
++});
++
++import { useGuestRsvpLink } from "@/lib/rsvp-sync";
++
++const invite = {
++  id: "g1", firstName: "Alice", lastName: "Dupont", nameParticle: null, householdId: null,
++  invitationType: "FULL", rsvpStatus: "PENDING", rsvpDate: null, diet: "STANDARD", dietNotes: null,
++};
++const entree = { id: "w1", seedPhrase: "graine", syncDisabled: false } as never;
++
++function activerLaSynchro() {
++  synchro.active = true;
++  synchro.session = {};
++  synchro.spaceId = "space-1";
++  synchro.nodeId = "w1";
++  for (const l of [...synchro.ecouteurs]) l(true);
++}
++
++async function laisserFinir() {
++  for (let i = 0; i < 40; i++) await Promise.resolve();
++}
++
++function monter(guestId: string | null = "g1", registre: unknown = entree) {
++  const h = creerHarnais(() => useGuestRsvpLink(guestId ?? undefined, registre as never));
++  rt.hooks = h.hooks as never;
++  h.rendre();
++  return h;
++}
++
++describe("useGuestRsvpLink", () => {
++  beforeEach(() => {
++    vi.useFakeTimers();
++    vi.spyOn(console, "warn").mockImplementation(() => {});
++    synchro.active = false;
++    synchro.session = null;
++    synchro.spaceId = null;
++    synchro.nodeId = null;
++    synchro.ecouteurs.clear();
++    magasin.guests = [{ ...invite }];
++    magasin.households = [];
++    sdk.createNodeInviteLink.mockReset();
++    sdk.createNodeInviteLink.mockResolvedValue({ token: {}, link: "" });
++  });
++
++  afterEach(() => {
++    vi.useRealTimers();
++    vi.restoreAllMocks();
++  });
++
++  it("page ouverte à froid : prépare le lien dès que la sync devient active, sans jamais abandonner", async () => {
++    const h = monter();
++    expect(h.dernier().etat).toBe("preparation");
++    expect(sdk.createNodeInviteLink).not.toHaveBeenCalled();
++
++    activerLaSynchro();
++    await laisserFinir();
++
++    expect(h.dernier().etat).toBe("pret");
++    expect(h.dernier().url).toBe("https://example.com/wedding/jeton");
++    expect(sdk.createNodeInviteLink).toHaveBeenCalledTimes(2);
++  });
++
++  it("page ouverte à chaud (sync déjà active) : un seul lien fabriqué", async () => {
++    activerLaSynchro();
++    const h = monter();
++    await laisserFinir();
++    expect(h.dernier().etat).toBe("pret");
++    expect(sdk.createNodeInviteLink).toHaveBeenCalledTimes(2);
++  });
++
++  it("la sync qui retombe puis revient ne fabrique pas un second lien", async () => {
++    activerLaSynchro();
++    const h = monter();
++    await laisserFinir();
++    synchro.active = false;
++    for (const l of [...synchro.ecouteurs]) l(false);
++    h.rendre();
++    activerLaSynchro();
++    await laisserFinir();
++    expect(h.dernier().etat).toBe("pret");
++    expect(sdk.createNodeInviteLink).toHaveBeenCalledTimes(2);
++  });
++
++  it("sync qui n'arrive pas : après l'attente maximale, « échec » ; si elle arrive ensuite, le lien se fait seul", async () => {
++    const h = monter();
++    await vi.advanceTimersByTimeAsync(20_000);
++    expect(h.dernier().etat).toBe("echec");
++
++    activerLaSynchro();
++    await laisserFinir();
++    expect(h.dernier().etat).toBe("pret");
++  });
++
++  it("fabrication en échec : « échec », puis « réessayer » relance et réussit", async () => {
++    sdk.createNodeInviteLink.mockRejectedValueOnce(new Error("hors ligne"));
++    activerLaSynchro();
++    const h = monter();
++    await laisserFinir();
++    expect(h.dernier().etat).toBe("echec");
++    expect(h.dernier().url).toBeNull();
++
++    h.dernier().reessayer();
++    h.rendre();
++    expect(h.dernier().etat).toBe("preparation");
++    await laisserFinir();
++    expect(h.dernier().etat).toBe("pret");
++  });
++
++  it("sync coupée par l'utilisateur : le dit, et ne fabrique rien", async () => {
++    activerLaSynchro();
++    const h = monter("g1", { id: "w1", seedPhrase: "graine", syncDisabled: true });
++    await laisserFinir();
++    expect(h.dernier().etat).toBe("sync-desactivee");
++    expect(sdk.createNodeInviteLink).not.toHaveBeenCalled();
++  });
++
++  it("invité absent du magasin : indisponible, pas de faux chargement", async () => {
++    magasin.guests = [];
++    activerLaSynchro();
++    const h = monter("g1");
++    await laisserFinir();
++    expect(h.dernier().etat).toBe("indisponible");
++    expect(sdk.createNodeInviteLink).not.toHaveBeenCalled();
++  });
++
++  it("nouvelle fiche (pas d'identifiant) : rien à fabriquer", async () => {
++    activerLaSynchro();
++    const h = monter(null);
++    await laisserFinir();
++    expect(h.dernier().etat).toBe("indisponible");
++    expect(sdk.createNodeInviteLink).not.toHaveBeenCalled();
++  });
++
++  it("démontée avant la fin : le résultat tardif est ignoré", async () => {
++    let finir!: (v: unknown) => void;
++    sdk.createNodeInviteLink.mockReturnValue(new Promise((r) => { finir = r; }));
++    activerLaSynchro();
++    const h = monter();
++    await laisserFinir();
++    h.demonter();
++    finir({ token: {}, link: "" });
++    await laisserFinir();
++    expect(h.dernier().url).toBeNull();
++  });
++});
+diff --git a/apps/mobile/__tests__/mocks/harnais-de-hook.ts b/apps/mobile/__tests__/mocks/harnais-de-hook.ts
+new file mode 100644
+index 0000000..7dbc30f
+--- /dev/null
++++ b/apps/mobile/__tests__/mocks/harnais-de-hook.ts
+@@ -0,0 +1,80 @@
++// Mini-exécuteur de hooks (useState / useEffect / useCallback) pour tester un hook sans DOM.
++type Pile = { state: unknown[]; effets: Array<{ deps?: unknown[]; nettoyage?: () => void } | undefined> };
++
++export function creerHarnais<T>(hook: () => T) {
++  const pile: Pile = { state: [], effets: [] };
++  const callbacks: Array<{ deps: unknown[]; fn: unknown } | undefined> = [];
++  let ordre = 0;
++  let sale = false;
++  let enRendu = false;
++  let planifie = false;
++  let dernier!: T;
++  let aExecuter: Array<() => void> = [];
++
++  const memeDeps = (a?: unknown[], b?: unknown[]) =>
++    !!a && !!b && a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
++
++  function rendre() {
++    enRendu = true;
++    try {
++      do {
++        sale = false;
++        ordre = 0;
++        dernier = hook();
++        const effets = aExecuter;
++        aExecuter = [];
++        for (const e of effets) e();
++      } while (sale);
++    } finally {
++      enRendu = false;
++    }
++  }
++
++  function planifier() {
++    if (enRendu || planifie) return;
++    planifie = true;
++    queueMicrotask(() => {
++      planifie = false;
++      rendre();
++    });
++  }
++
++  const hooks = {
++    useState<S>(init: S | (() => S)) {
++      const i = ordre++;
++      if (!(i in pile.state)) pile.state[i] = typeof init === "function" ? (init as () => S)() : init;
++      const set = (v: S | ((p: S) => S)) => {
++        const suivant = typeof v === "function" ? (v as (p: S) => S)(pile.state[i] as S) : v;
++        if (Object.is(suivant, pile.state[i])) return;
++        pile.state[i] = suivant;
++        sale = true;
++        planifier();
++      };
++      return [pile.state[i] as S, set] as const;
++    },
++    useEffect(fn: () => void | (() => void), deps?: unknown[]) {
++      const i = ordre++;
++      const slot = (pile.effets[i] ??= {});
++      if (memeDeps(deps, slot.deps)) return;
++      aExecuter.push(() => {
++        slot.nettoyage?.();
++        slot.deps = deps;
++        slot.nettoyage = fn() ?? undefined;
++      });
++    },
++    useCallback<F>(fn: F, deps: unknown[]) {
++      const i = ordre++;
++      const prec = callbacks[i];
++      if (prec && memeDeps(prec.deps, deps)) return prec.fn as F;
++      callbacks[i] = { deps, fn };
++      return fn;
++    },
++  };
++
++  return {
++    hooks,
++    rendre,
++    dernier: () => dernier,
++    demonter: () => pile.effets.forEach((e) => e?.nettoyage?.()),
++  };
++}
+diff --git a/apps/mobile/__tests__/repli-des-ecrans.test.ts b/apps/mobile/__tests__/repli-des-ecrans.test.ts
+new file mode 100644
+index 0000000..7f6b6c9
+--- /dev/null
++++ b/apps/mobile/__tests__/repli-des-ecrans.test.ts
+@@ -0,0 +1,37 @@
++import { describe, expect, it } from "vitest";
++import { afficheUnRetour, repliDe } from "@/lib/repli-des-ecrans";
++
++describe("repliDe", () => {
++  it("renvoie à la liste de l'onglet par défaut", () => {
++    expect(repliDe("guests", "[id]")).toBe("/(tabs)/guests");
++    expect(repliDe("planning", "[id]")).toBe("/(tabs)/planning");
++    expect(repliDe("vendors", "[type]/[id]")).toBe("/(tabs)/vendors");
++    expect(repliDe("vendors", "new")).toBe("/(tabs)/vendors");
++    expect(repliDe("vendors", "compare")).toBe("/(tabs)/vendors");
++  });
++
++  it("renvoie à l'écran parent quand il y en a un", () => {
++    expect(repliDe("planning", "agenda-event")).toBe("/(tabs)/planning/agenda");
++    expect(repliDe("planning", "day-of-item")).toBe("/(tabs)/planning/day-of");
++    expect(repliDe("planning", "ceremony-item")).toBe("/(tabs)/planning/ceremony");
++    expect(repliDe("planning", "speech")).toBe("/(tabs)/planning/speeches-music");
++    expect(repliDe("guests", "household/[id]")).toBe("/(tabs)/guests/households");
++    expect(repliDe("guests", "tables")).toBe("/(tabs)/guests/table-management");
++  });
++});
++
++describe("afficheUnRetour", () => {
++  it("pas de retour sur les écrans racines des onglets", () => {
++    expect(afficheUnRetour("guests", "index")).toBe(false);
++    expect(afficheUnRetour("vendors", "index")).toBe(false);
++    expect(afficheUnRetour("planning", "index")).toBe(false);
++    expect(afficheUnRetour("planning", "agenda")).toBe(false);
++    expect(afficheUnRetour("planning", "day-of")).toBe(false);
++  });
++
++  it("un retour sur tous les sous-écrans", () => {
++    expect(afficheUnRetour("guests", "groups")).toBe(true);
++    expect(afficheUnRetour("planning", "events")).toBe(true);
++    expect(afficheUnRetour("vendors", "[type]/index")).toBe(true);
++  });
++});
+diff --git a/apps/mobile/__tests__/revenir.test.ts b/apps/mobile/__tests__/revenir.test.ts
+new file mode 100644
+index 0000000..886b5b2
+--- /dev/null
++++ b/apps/mobile/__tests__/revenir.test.ts
+@@ -0,0 +1,90 @@
++import { beforeEach, describe, expect, it, vi } from "vitest";
++
++async function charger() {
++  vi.resetModules();
++  return import("@/lib/revenir");
++}
++
++function routeur(canGoBack: boolean) {
++  return { back: vi.fn(), canGoBack: () => canGoBack, replace: vi.fn() };
++}
++
++describe("deciderDuRetour", () => {
++  it("ne revient que s'il y a une page précédente ET que l'utilisateur a navigué", async () => {
++    const { deciderDuRetour } = await charger();
++    expect(deciderDuRetour({ peutRevenir: true, aNavigue: true })).toBe("retour");
++    expect(deciderDuRetour({ peutRevenir: true, aNavigue: false })).toBe("repli");
++    expect(deciderDuRetour({ peutRevenir: false, aNavigue: true })).toBe("repli");
++    expect(deciderDuRetour({ peutRevenir: false, aNavigue: false })).toBe("repli");
++  });
++});
++
++describe("suivi des routes", () => {
++  let m: Awaited<ReturnType<typeof charger>>;
++  beforeEach(async () => {
++    m = await charger();
++  });
++
++  it("aucune navigation tant que rien n'a été vu", () => {
++    expect(m.aNavigueDepuisLeChargement()).toBe(false);
++  });
++
++  it("la première route est le point de départ, pas une navigation", () => {
++    m.noterLaRoute("/guests/abc");
++    expect(m.aNavigueDepuisLeChargement()).toBe(false);
++  });
++
++  it("la même route notée deux fois ne compte pas", () => {
++    m.noterLaRoute("/guests/abc");
++    m.noterLaRoute("/guests/abc");
++    expect(m.aNavigueDepuisLeChargement()).toBe(false);
++  });
++
++  it("une route différente compte, et le reste ensuite", () => {
++    m.noterLaRoute("/guests/abc");
++    m.noterLaRoute("/guests");
++    expect(m.aNavigueDepuisLeChargement()).toBe(true);
++    m.noterLaRoute("/guests");
++    expect(m.aNavigueDepuisLeChargement()).toBe(true);
++  });
++});
++
++describe("revenir", () => {
++  it("ouvert à froid sur un onglet autre que le premier : le repli, pas l'accueil de l'historique des onglets", async () => {
++    const m = await charger();
++    m.noterLaRoute("/guests/abc");
++    const r = routeur(true);
++    m.revenir(r, "/guests");
++    expect(r.back).not.toHaveBeenCalled();
++    expect(r.replace).toHaveBeenCalledWith("/guests");
++  });
++
++  it("ouvert à froid sans aucune page précédente : le repli", async () => {
++    const m = await charger();
++    m.noterLaRoute("/settings");
++    const r = routeur(false);
++    m.revenir(r, "/home");
++    expect(r.back).not.toHaveBeenCalled();
++    expect(r.replace).toHaveBeenCalledWith("/home");
++  });
++
++  it("après une navigation et avec une page précédente : retour", async () => {
++    const m = await charger();
++    m.noterLaRoute("/guests");
++    m.noterLaRoute("/guests/abc");
++    const r = routeur(true);
++    m.revenir(r, "/guests");
++    expect(r.back).toHaveBeenCalledTimes(1);
++    expect(r.replace).not.toHaveBeenCalled();
++  });
++
++  it("après une navigation mais sans page précédente (repli déjà remplacé) : le repli", async () => {
++    const m = await charger();
++    m.noterLaRoute("/settings/compte");
++    m.noterLaRoute("/settings");
++    const r = routeur(false);
++    m.revenir(r, "/home");
++    expect(r.replace).toHaveBeenCalledWith("/home");
++    expect(r.back).not.toHaveBeenCalled();
++  });
++});
+diff --git a/apps/mobile/app/(tabs)/planning/agenda-event.tsx b/apps/mobile/app/(tabs)/planning/agenda-event.tsx
+index 81fdd6a..d1f6ccb 100644
+--- a/apps/mobile/app/(tabs)/planning/agenda-event.tsx
++++ b/apps/mobile/app/(tabs)/planning/agenda-event.tsx
+@@ -2,6 +2,8 @@ import React, { useState } from "react";
+ import { View, Text, ScrollView, TextInput } from "react-native-css/components";
+ import { Alert } from "react-native";
+ import { useLocalSearchParams, useRouter, Stack } from "expo-router";
++import { revenir } from "@/lib/revenir";
++import { repliDe } from "@/lib/repli-des-ecrans";
+ import { useTranslation } from "react-i18next";
+ import * as Crypto from "expo-crypto";
+ import { usePlanningStore } from "@/store/usePlanningStore";
+@@ -69,13 +71,13 @@ export default function AgendaEventScreen() {
+     } else {
+       updateEvent(id!, data);
+     }
+-    router.back();
++    revenir(router, repliDe("planning", "agenda-event"));
+   };
+ 
+   const handleDelete = () => {
+     removeEvent(id!);
+     setShowDelete(false);
+-    router.back();
++    revenir(router, repliDe("planning", "agenda-event"));
+   };
+ 
+   return (
+diff --git a/apps/mobile/app/ideas/_layout.tsx b/apps/mobile/app/ideas/_layout.tsx
+index 94de690..40cabdc 100644
+--- a/apps/mobile/app/ideas/_layout.tsx
++++ b/apps/mobile/app/ideas/_layout.tsx
+@@ -1,11 +1,10 @@
+ import React from "react";
+-import { Pressable, useColorScheme } from "react-native";
+-import { Stack, useRouter } from "expo-router";
+-import { ChevronLeft } from "lucide-react-native";
++import { useColorScheme } from "react-native";
++import { Stack } from "expo-router";
+ import { useSettingsStore } from "@/store/useSettingsStore";
+ import { DesktopShell } from "@/components/DesktopShell";
++import { BoutonRetour } from "@/components/BoutonRetour";
+ export default function IdeesLayout() {
+-  const router = useRouter();
+   const appColorScheme = useSettingsStore((s) => s.colorScheme);
+   const systemScheme = useColorScheme();
+   const isDark = appColorScheme === "dark" || (appColorScheme === "system" && systemScheme === "dark");
+@@ -17,6 +16,7 @@ export default function IdeesLayout() {
+           headerStyle: { backgroundColor: isDark ? "#111827" : "#FFFFFF" },
+           headerTintColor: tintColor,
+           headerTitleStyle: { fontWeight: "600" },
++          headerLeft: () => <BoutonRetour repli="/ideas" couleur={tintColor} />,
+         }}
+       >
+         <Stack.Screen
+@@ -24,11 +24,7 @@ export default function IdeesLayout() {
+           options={{
+             title: "Idées & Déco",
+             headerShown: true,
+-            headerLeft: () => (
+-              <Pressable onPress={() => router.back()} style={{ padding: 4, marginLeft: -4 }}>
+-                <ChevronLeft size={24} color={tintColor} />
+-              </Pressable>
+-            ),
++            headerLeft: () => <BoutonRetour repli="/home" couleur={tintColor} />,
+           }}
+         />
+         <Stack.Screen name="[id]" options={{ title: "Idée" }} />
+diff --git a/apps/mobile/components/BoutonRetour.tsx b/apps/mobile/components/BoutonRetour.tsx
+new file mode 100644
+index 0000000..6fde162
+--- /dev/null
++++ b/apps/mobile/components/BoutonRetour.tsx
+@@ -0,0 +1,47 @@
++import React from "react";
++import { Platform, Pressable, type ColorValue } from "react-native";
++import { useRouter, type Href } from "expo-router";
++import { useTranslation } from "react-i18next";
++import { ChevronLeft } from "lucide-react-native";
++import { revenir } from "@/lib/revenir";
++import { afficheUnRetour, repliDe, type PileAvecRetour } from "@/lib/repli-des-ecrans";
++
++interface BoutonRetourProps {
++  repli: Href;
++  couleur?: string;
++}
++
++/** Retour d'en-tête : visible même sans historique, cible de 44×44 (hitSlop est inerte sur le web). */
++export function BoutonRetour({ repli, couleur = "#111827" }: BoutonRetourProps) {
++  const router = useRouter();
++  const { t } = useTranslation("common");
++  return (
++    <Pressable
++      onPress={() => revenir(router, repli)}
++      accessibilityRole="button"
++      accessibilityLabel={t("back")}
++      style={({ pressed }) => ({
++        width: 44,
++        height: 44,
++        alignItems: "center",
++        justifyContent: "center",
++        opacity: pressed ? 0.5 : 1,
++      })}
++    >
++      <ChevronLeft size={26} color={couleur} />
++    </Pressable>
++  );
++}
++
++/** Sur le web seulement : le bouton natif des piles garde son rendu sur iOS/Android. */
++export function optionsDeRetour(pile: PileAvecRetour, ecran: string) {
++  if (Platform.OS !== "web" || !afficheUnRetour(pile, ecran)) return {};
++  return {
++    headerLeft: ({ tintColor }: { tintColor?: ColorValue }) => (
++      <BoutonRetour
++        repli={repliDe(pile, ecran)}
++        couleur={typeof tintColor === "string" ? tintColor : undefined}
++      />
++    ),
++  };
++}
+diff --git a/apps/mobile/components/SuiviDeNavigation.tsx b/apps/mobile/components/SuiviDeNavigation.tsx
+new file mode 100644
+index 0000000..8b0c977
+--- /dev/null
++++ b/apps/mobile/components/SuiviDeNavigation.tsx
+@@ -0,0 +1,12 @@
++import { useEffect } from "react";
++import { usePathname } from "expo-router";
++import { noterLaRoute } from "@/lib/revenir";
++
++/** Seul abonné aux changements de route : n'affiche rien et ne fait pas re-rendre l'application. */
++export function SuiviDeNavigation() {
++  const chemin = usePathname();
++  useEffect(() => {
++    noterLaRoute(chemin);
++  }, [chemin]);
++  return null;
++}
+diff --git a/apps/mobile/i18n/locales/en/budget.json b/apps/mobile/i18n/locales/en/budget.json
+index d804177..63024e8 100644
+--- a/apps/mobile/i18n/locales/en/budget.json
++++ b/apps/mobile/i18n/locales/en/budget.json
+@@ -50,6 +50,7 @@
+   "payments": "Payments",
+   "addPayment": "Add a payment",
+   "paymentAmount": "Amount",
++  "paymentAmountRequired": "Enter the payment amount",
+   "paymentDate": "Date",
+   "paymentMethod": "Payment method",
+   "paymentLabel": "Label",
+diff --git a/apps/mobile/i18n/locales/fr/budget.json b/apps/mobile/i18n/locales/fr/budget.json
+index ff68b81..e81cc65 100644
+--- a/apps/mobile/i18n/locales/fr/budget.json
++++ b/apps/mobile/i18n/locales/fr/budget.json
+@@ -50,6 +50,7 @@
+   "payments": "Paiements",
+   "addPayment": "Ajouter un paiement",
+   "paymentAmount": "Montant",
++  "paymentAmountRequired": "Indiquez le montant du paiement",
+   "paymentDate": "Date",
+   "paymentMethod": "Moyen de paiement",
+   "paymentLabel": "Libellé",
+diff --git a/apps/mobile/lib/disponibilite-du-lien-rsvp.ts b/apps/mobile/lib/disponibilite-du-lien-rsvp.ts
+new file mode 100644
+index 0000000..e58e4f5
+--- /dev/null
++++ b/apps/mobile/lib/disponibilite-du-lien-rsvp.ts
+@@ -0,0 +1,31 @@
++export type DisponibiliteDuLien =
++  | "indisponible"
++  | "sync-desactivee"
++  | "attente-de-la-sync"
++  | "pret";
++
++export type EtatDuBoutonRsvp = "pret" | "preparation" | "echec" | "sync-desactivee" | "indisponible";
++
++/** Peut-on fabriquer le lien maintenant ? Sinon, qu'attend-on ? */
++export function disponibiliteDuLien(e: {
++  aUnInvite: boolean;
++  aUneGraine: boolean;
++  synchroDesactivee: boolean;
++  synchroPrete: boolean;
++}): DisponibiliteDuLien {
++  if (!e.aUnInvite || !e.aUneGraine) return "indisponible";
++  if (e.synchroDesactivee) return "sync-desactivee";
++  if (!e.synchroPrete) return "attente-de-la-sync";
++  return "pret";
++}
++
++/** Ce que montre le bouton « Lien RSVP » : jamais un bouton actif qui ne fait rien. */
++export function etatDuBoutonRsvp(e: {
++  url: string | null;
++  disponibilite: DisponibiliteDuLien;
++  echec: boolean;
++}): EtatDuBoutonRsvp {
++  if (e.url) return "pret";
++  if (e.disponibilite === "indisponible" || e.disponibilite === "sync-desactivee") return e.disponibilite;
++  return e.echec ? "echec" : "preparation";
++}
+diff --git a/apps/mobile/lib/repli-des-ecrans.ts b/apps/mobile/lib/repli-des-ecrans.ts
+new file mode 100644
+index 0000000..75a4c2e
+--- /dev/null
++++ b/apps/mobile/lib/repli-des-ecrans.ts
+@@ -0,0 +1,42 @@
++export type PileAvecRetour = "guests" | "planning" | "vendors";
++
++const PILES: Record<
++  PileAvecRetour,
++  { racine: string; sansRetour: readonly string[]; parents: Record<string, string> }
++> = {
++  guests: {
++    racine: "/(tabs)/guests",
++    sansRetour: ["index", "seating"],
++    parents: {
++      "household/[id]": "/(tabs)/guests/households",
++      seating: "/(tabs)/guests/table-management",
++      tables: "/(tabs)/guests/table-management",
++      "communication/[id]": "/(tabs)/guests/communications",
++      "communications/templates": "/(tabs)/guests/communications",
++    },
++  },
++  planning: {
++    racine: "/(tabs)/planning",
++    sansRetour: ["index", "agenda", "day-of"],
++    parents: {
++      "agenda-event": "/(tabs)/planning/agenda",
++      "day-of-item": "/(tabs)/planning/day-of",
++      "ceremony-item": "/(tabs)/planning/ceremony",
++      speech: "/(tabs)/planning/speeches-music",
++    },
++  },
++  vendors: {
++    racine: "/(tabs)/vendors",
++    sansRetour: ["index"],
++    parents: {},
++  },
++};
++
++export function afficheUnRetour(pile: PileAvecRetour, ecran: string): boolean {
++  return !PILES[pile].sansRetour.includes(ecran);
++}
++
++export function repliDe(pile: PileAvecRetour, ecran: string): string {
++  const p = PILES[pile];
++  return p.parents[ecran] ?? p.racine;
++}
+diff --git a/apps/mobile/lib/revenir.ts b/apps/mobile/lib/revenir.ts
+new file mode 100644
+index 0000000..2040d4f
+--- /dev/null
++++ b/apps/mobile/lib/revenir.ts
+@@ -0,0 +1,34 @@
++import type { Href } from "expo-router";
++
++export type RouteurDeRetour = {
++  back: () => void;
++  canGoBack: () => boolean;
++  replace: (href: Href) => void;
++};
++
++let navigations = 0;
++let derniereRoute: string | null = null;
++
++export function noterLaRoute(chemin: string): void {
++  if (derniereRoute !== null && chemin !== derniereRoute) navigations++;
++  derniereRoute = chemin;
++}
++
++export function aNavigueDepuisLeChargement(): boolean {
++  return navigations > 0;
++}
++
++// `canGoBack()` reste vrai sur tout onglet autre que le premier (historique « firstRoute »
++// de la barre d'onglets) : sans navigation observée, `back()` renverrait à l'accueil.
++export function deciderDuRetour(e: { peutRevenir: boolean; aNavigue: boolean }): "retour" | "repli" {
++  return e.peutRevenir && e.aNavigue ? "retour" : "repli";
++}
++
++export function revenir(router: RouteurDeRetour, repli: Href): void {
++  const decision = deciderDuRetour({
++    peutRevenir: router.canGoBack(),
++    aNavigue: aNavigueDepuisLeChargement(),
++  });
++  if (decision === "retour") router.back();
++  else router.replace(repli);
++}
+diff --git a/apps/mobile/i18n/locales/fr/guests.json b/apps/mobile/i18n/locales/fr/guests.json
+index ae021bc..bfa825e 100644
+--- a/apps/mobile/i18n/locales/fr/guests.json
++++ b/apps/mobile/i18n/locales/fr/guests.json
+@@ -168,6 +170,11 @@
+   "exportPdf": "Exporter en PDF",
+   "guestList": "Liste des invités",
+   "rsvpLink": "Lien RSVP",
++  "rsvpLinkPreparing": "Préparation du lien…",
++  "rsvpLinkRetry": "Réessayer le lien",
++  "rsvpLinkError": "Le lien n'a pas pu être préparé. Nouvelle tentative…",
++  "rsvpLinkNeedsSync": "Activez la synchronisation dans les Réglages pour créer le lien.",
++  "rsvpLinkShareError": "Impossible de partager le lien.",
+   "linkCopied": "Lien copié !",
+   "accommodationNameRequired": "Le nom est obligatoire",
+   "guestsScreen": "Invités",
+diff --git a/apps/mobile/i18n/locales/en/guests.json b/apps/mobile/i18n/locales/en/guests.json
+index cf84921..e15dd6a 100644
+--- a/apps/mobile/i18n/locales/en/guests.json
++++ b/apps/mobile/i18n/locales/en/guests.json
+@@ -168,6 +170,11 @@
+   "exportPdf": "Export as PDF",
+   "guestList": "Guest list",
+   "rsvpLink": "RSVP link",
++  "rsvpLinkPreparing": "Preparing the link…",
++  "rsvpLinkRetry": "Retry the link",
++  "rsvpLinkError": "The link couldn't be prepared. Trying again…",
++  "rsvpLinkNeedsSync": "Turn on sync in Settings to create the link.",
++  "rsvpLinkShareError": "Couldn't share the link.",
+   "linkCopied": "Link copied!",
+   "accommodationNameRequired": "Name is required",
+   "guestsScreen": "Guests",

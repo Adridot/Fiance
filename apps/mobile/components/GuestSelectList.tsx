@@ -6,6 +6,7 @@ import { Avatar } from "@/components/Avatar";
 import type { Guest } from "@/db/schema";
 import { formatGuestName, guestNameMatches } from "@fiance/sdk";
 import { theme as GP } from "@/lib/theme";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 
 /** Searchable, checkable guest list — embedded inline inside add/edit forms. */
 export function GuestSelectList({
@@ -44,6 +45,7 @@ export function GuestSelectList({
                   ? "bg-primary-50 dark:bg-primary-950 border-primary-200 dark:border-primary-800"
                   : "border-transparent"
               }`}
+              style={{ minHeight: CIBLE_TACTILE }}
             >
               <View className="flex-row items-center gap-2.5 flex-1">
                 <Avatar ini={`${g.firstName[0] ?? ""}${g.lastName[0] ?? ""}`} size={28} />

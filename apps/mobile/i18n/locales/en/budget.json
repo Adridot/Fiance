@@ -50,6 +50,7 @@
   "payments": "Payments",
   "addPayment": "Add a payment",
   "paymentAmount": "Amount",
+  "paymentAmountRequired": "Enter the payment amount",
   "paymentDate": "Date",
   "paymentMethod": "Payment method",
   "paymentLabel": "Label",

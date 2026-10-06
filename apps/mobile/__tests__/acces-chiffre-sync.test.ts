@@ -209,3 +209,41 @@ describe("hydrateFromSpace — les trois issues d'une lecture ratée", () => {
     expect(useAccesChiffreStore.getState().illisibles).toEqual({});
   });
 });
+
+describe("hydrateFromSpace — collections restées sur une époque ancienne", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    mockArbre = SENTINELLES;
+    mockKeyring = KEYRING_EMMA;
+    mockDechiffrerLeve = () => false;
+  });
+
+  it("relève ce qui est scellé sous une époque antérieure à la courante", async () => {
+    mockEntrees = [
+      { hash: "h", data: { _encrypted: "…", _epoch: 1, items: {}, rev: {}, tombstones: {} } },
+      { hash: "h", data: { _encrypted: "…", _epoch: 2, items: {}, rev: {}, tombstones: {} } },
+      { hash: "", data: null },
+    ];
+    await hydrater();
+    const { collectionsSurUneÉpoqueAncienne } = await import("@/lib/space-sync");
+    expect(collectionsSurUneÉpoqueAncienne()).toEqual(["guest"]);
+  });
+
+  it("keyring illisible : rien n'est relevé", async () => {
+    mockKeyring = null;
+    mockEntrees = [
+      { hash: "h", data: { _encrypted: "…", _epoch: 1, items: {}, rev: {}, tombstones: {} } },
+      { hash: "h", data: { _encrypted: "…", _epoch: 1, items: {}, rev: {}, tombstones: {} } },
+      { hash: "h", data: { _encrypted: "…", _epoch: 1, items: {}, rev: {}, tombstones: {} } },
+    ];
+    await hydrater();
+    const { collectionsSurUneÉpoqueAncienne } = await import("@/lib/space-sync");
+    expect(collectionsSurUneÉpoqueAncienne()).toEqual([]);
+  });
+
+  it("collectionsEnRetardDEpoque : seule une époque connue et antérieure compte", async () => {
+    const { collectionsEnRetardDEpoque } = await import("@/lib/acces-chiffre");
+    expect(collectionsEnRetardDEpoque({ guest: 3, vendor: 4, table: null }, 4)).toEqual(["guest"]);
+    expect(collectionsEnRetardDEpoque({ guest: 3 }, null)).toEqual([]);
+  });
+});

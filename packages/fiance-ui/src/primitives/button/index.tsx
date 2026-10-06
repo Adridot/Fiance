@@ -5,6 +5,7 @@ import { Button as ExpoButton, Text as ExpoText } from '@expo/ui'
 import type { ButtonProps } from '@expo/ui'
 import { frame, foregroundStyle } from '../_host/modifiers'
 import { useHostWrap } from '../_host/ForgeHost'
+import { CIBLE_MIN } from '../../utils/cible-tactile'
 
 // Android (Jetpack Compose) Material buttons already carry an intrinsic
 // min-height; the `paddingVertical` we tune for iOS's chrome-less `.plain`
@@ -69,6 +70,10 @@ function Button({
   // `display:inline-flex` Pressable that otherwise hugs its label width.
   if (fill && Platform.OS === 'web') {
     platformStyle = { width: '100%', ...platformStyle }
+  }
+  // Le bouton web d'@expo/ui fait 40 px de haut, sous la cible tactile minimale.
+  if (Platform.OS === 'web') {
+    platformStyle = { height: CIBLE_MIN, ...platformStyle }
   }
 
   // Android + web: `foregroundStyle` (SwiftUI) has no Compose/web equivalent and the

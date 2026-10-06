@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, ScrollView, Pressable, TextInput, Switch } from "react-native-css/components";
+import { View, Text, ScrollView, TextInput, Switch } from "react-native-css/components";
 import { Alert } from "react-native";
 import { useTranslation } from "react-i18next";
 import { Tag, Trash2, Pencil, Moon } from "lucide-react-native";
@@ -7,10 +7,12 @@ import * as Crypto from "expo-crypto";
 import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
 import { useGuestsStore } from "@/store/useGuestsStore";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { FormActions } from "@/components/FormSection";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { theme as GP } from "@/lib/theme";
 import { analytics } from "@/lib/analytics";
 import type { InvitationTypeEntity } from "@/db/schema";
@@ -129,7 +131,8 @@ export default function InvitationTypesScreen() {
                 {t("newInvitationType")}
               </Text>
               <TextInput
-                className="text-base text-ink border-b border-hair pb-2"
+                className="text-base text-ink border-b border-hair"
+                style={{ minHeight: CIBLE_TACTILE }}
                 placeholder={t("invitationTypeNamePlaceholder")}
                 placeholderTextColor="#D0D0D8"
                 value={newLabel}
@@ -162,7 +165,8 @@ export default function InvitationTypesScreen() {
                 <View key={type.id} className="bg-accent-card rounded-2xl p-4 mb-2.5 border border-primary-200 dark:border-primary-800">
                   <Text className="text-sm text-mute mb-2">{type.label}</Text>
                   <TextInput
-                    className="text-base text-ink border-b border-hair pb-2"
+                    className="text-base text-ink border-b border-hair"
+                    style={{ minHeight: CIBLE_TACTILE }}
                     placeholder={t("invitationTypeName")}
                     placeholderTextColor="#D0D0D8"
                     value={editingLabel}
@@ -212,14 +216,14 @@ export default function InvitationTypesScreen() {
                       </View>
                     )}
                     {canEdit && (
-                      <Pressable onPress={() => handleEdit(type)} className="w-8 h-8 items-center justify-center">
+                      <BoutonIcone libelle={`${t("common:edit")} ${type.label}`} onPress={() => handleEdit(type)}>
                         <Pencil size={15} color="#9CA3AF" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                     {!type.isDefault && canEdit && (
-                      <Pressable onPress={() => setDeleteId(type.id)} className="w-8 h-8 items-center justify-center">
+                      <BoutonIcone libelle={`${t("common:delete")} ${type.label}`} onPress={() => setDeleteId(type.id)}>
                         <Trash2 size={15} color="#EF4444" />
-                      </Pressable>
+                      </BoutonIcone>
                     )}
                   </View>
                 </View>

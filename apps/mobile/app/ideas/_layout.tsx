@@ -1,11 +1,10 @@
 import React from "react";
-import { Pressable, useColorScheme } from "react-native";
-import { Stack, useRouter } from "expo-router";
-import { ChevronLeft } from "lucide-react-native";
+import { useColorScheme } from "react-native";
+import { Stack } from "expo-router";
 import { useSettingsStore } from "@/store/useSettingsStore";
 import { DesktopShell } from "@/components/DesktopShell";
+import { BoutonRetour } from "@/components/BoutonRetour";
 export default function IdeesLayout() {
-  const router = useRouter();
   const appColorScheme = useSettingsStore((s) => s.colorScheme);
   const systemScheme = useColorScheme();
   const isDark = appColorScheme === "dark" || (appColorScheme === "system" && systemScheme === "dark");
@@ -17,6 +16,7 @@ export default function IdeesLayout() {
           headerStyle: { backgroundColor: isDark ? "#111827" : "#FFFFFF" },
           headerTintColor: tintColor,
           headerTitleStyle: { fontWeight: "600" },
+          headerLeft: () => <BoutonRetour repli="/ideas" couleur={tintColor} />,
         }}
       >
         <Stack.Screen
@@ -24,11 +24,7 @@ export default function IdeesLayout() {
           options={{
             title: "Idées & Déco",
             headerShown: true,
-            headerLeft: () => (
-              <Pressable onPress={() => router.back()} style={{ padding: 4, marginLeft: -4 }}>
-                <ChevronLeft size={24} color={tintColor} />
-              </Pressable>
-            ),
+            headerLeft: () => <BoutonRetour repli="/home" couleur={tintColor} />,
           }}
         />
         <Stack.Screen name="[id]" options={{ title: "Idée" }} />

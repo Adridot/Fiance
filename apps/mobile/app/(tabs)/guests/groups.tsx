@@ -16,6 +16,8 @@ import { useGuestsStore } from "@/store/useGuestsStore";
 import { useWeddingStore } from "@/store/useWeddingStore";
 import { useGuestGroupSideLabel } from "@/lib/guest-group-side";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
+import { CIBLE_TACTILE, debordement } from "@/lib/cible-tactile";
 import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { FormActions } from "@/components/FormSection";
@@ -104,7 +106,8 @@ export default function GroupsScreen() {
                 {t("newGroup")}
               </Text>
               <TextInput
-                className="text-base text-ink border-b border-hair pb-2 mb-3"
+                className="text-base text-ink border-b border-hair mb-3"
+                style={{ minHeight: CIBLE_TACTILE }}
                 placeholder={t("groupName")}
                 placeholderTextColor="#D0D0D8"
                 value={newGroupName}
@@ -140,7 +143,7 @@ export default function GroupsScreen() {
                     className="bg-accent-card rounded-2xl p-4 mb-2.5 border border-hair"
                   >
                     {/* Group header */}
-                    <View className="flex-row items-center justify-between">
+                    <View className="flex-row items-center justify-between mb-1.5">
                       <Pressable
                         onPress={
                           canEdit
@@ -152,6 +155,7 @@ export default function GroupsScreen() {
                         }
                         disabled={!canEdit}
                         className="flex-row items-center flex-1"
+                        style={{ minHeight: CIBLE_TACTILE, marginVertical: debordement(32) }}
                       >
                         <View className="w-8 h-8 rounded-lg bg-accent-blush dark:bg-primary-900 items-center justify-center mr-2">
                           <FolderOpen size={16} color={GP.clay} />
@@ -159,6 +163,7 @@ export default function GroupsScreen() {
                         {editingGroupId === group.id ? (
                           <TextInput
                             className="text-base font-semibold text-ink flex-1"
+                            style={{ minHeight: CIBLE_TACTILE }}
                             value={editingName}
                             onChangeText={setEditingName}
                             onBlur={() => {
@@ -190,12 +195,9 @@ export default function GroupsScreen() {
                           </Text>
                         </View>
                         {canEdit && (
-                          <Pressable
-                            onPress={() => setDeleteId(group.id)}
-                            className="w-8 h-8 items-center justify-center"
-                          >
+                          <BoutonIcone libelle={`${t("common:delete")} ${formatGuestGroupName(group.name)}`} onPress={() => setDeleteId(group.id)}>
                             <Trash2 size={16} color="#EF4444" />
-                          </Pressable>
+                          </BoutonIcone>
                         )}
                       </View>
                     </View>
@@ -205,7 +207,8 @@ export default function GroupsScreen() {
                         onPress={openable ? () => openQueue(group.id) : undefined}
                         disabled={!openable}
                         accessibilityRole={openable ? "button" : undefined}
-                        className={`mt-2 ${openable ? "active:opacity-60" : ""}`}
+                        className={openable ? "active:opacity-60" : ""}
+                        style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}
                       >
                         <Text
                           className={`text-xs ${
@@ -220,7 +223,8 @@ export default function GroupsScreen() {
                       <Pressable
                         onPress={() => openHouseholds(group.id)}
                         accessibilityRole="button"
-                        className="mt-2 active:opacity-60"
+                        className="active:opacity-60"
+                        style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}
                       >
                         <Text className="text-xs text-primary-500 font-medium">
                           {t("household.remaining", { count: householdsLeft })}

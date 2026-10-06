@@ -7,6 +7,9 @@ import { useVendorsStore } from "@/store/useVendorsStore";
 import { useGuestsStore, computeCounts } from "@/store/useGuestsStore";
 import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
 import { ToggleRow } from "@/components/FormSection";
+import { BoutonIcone } from "@/components/BoutonIcone";
+import { ZoneTactile } from "@/components/ZoneTactile";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import type { QuotePricing } from "@/db/schema";
 import { formatMoney } from "@/components/MoneyDisplay";
 import { theme as GP } from "@/lib/theme";
@@ -127,9 +130,10 @@ export function GuestPricingSection({ vendorId }: { vendorId: string }) {
                 {subtotal > 0 ? ` · ${formatMoney(subtotal)}` : ""}
               </Text>
             </View>
-            <View className="w-24 bg-accent-paper rounded-lg px-2 py-1 flex-row items-center">
+            <View className="w-24 bg-accent-paper rounded-lg px-2 flex-row items-center" style={{ height: CIBLE_TACTILE }}>
               <TextInput
                 className="flex-1 text-sm text-ink"
+                style={{ height: CIBLE_TACTILE }}
                 textAlign="right"
                 value={line.pricePerPerson != null ? line.pricePerPerson.toString() : ""}
                 onChangeText={(v: string) =>
@@ -141,12 +145,12 @@ export function GuestPricingSection({ vendorId }: { vendorId: string }) {
               />
               <Text className="text-xs text-mute ml-1">{t("perGuestUnit")}</Text>
             </View>
-            <Pressable
+            <BoutonIcone
+              libelle={`${t("common:delete")} ${labelOf(line.pricingKey)}`}
               onPress={() => removeQuotePricing(line.id)}
-              className="w-8 h-8 items-center justify-center ml-1"
             >
               <X size={15} color="#EF4444" />
-            </Pressable>
+            </BoutonIcone>
           </View>
         );
       })}
@@ -157,9 +161,10 @@ export function GuestPricingSection({ vendorId }: { vendorId: string }) {
           <Text className="text-sm font-medium text-ink">{t("fixedFeeLabel")}</Text>
           <Text className="text-xs text-mute mt-0.5">{t("fixedFeeHint")}</Text>
         </View>
-        <View className="w-24 bg-accent-paper rounded-lg px-2 py-1 flex-row items-center">
+        <View className="w-24 bg-accent-paper rounded-lg px-2 flex-row items-center" style={{ height: CIBLE_TACTILE }}>
           <TextInput
             className="flex-1 text-sm text-ink"
+            style={{ height: CIBLE_TACTILE }}
             textAlign="right"
             value={fixedFee != null ? fixedFee.toString() : ""}
             onChangeText={(v: string) =>
@@ -176,21 +181,20 @@ export function GuestPricingSection({ vendorId }: { vendorId: string }) {
       {/* Type picker */}
       {remaining.length > 0 &&
         (showPicker ? (
-          <View className="flex-row flex-wrap gap-2 mt-3">
+          <View className="flex-row flex-wrap mt-3" style={{ columnGap: 8 }}>
             {remaining.map((it) => (
-              <Pressable
-                key={it.id}
-                onPress={() => addLine(it.id)}
-                className="px-3 py-2 bg-accent-paper border border-hair rounded-full active:opacity-80"
-              >
-                <Text className="text-sm text-ink">{it.label}</Text>
-              </Pressable>
+              <ZoneTactile key={it.id} onPress={() => addLine(it.id)}>
+                <View className="px-3 py-2 bg-accent-paper border border-hair rounded-full">
+                  <Text className="text-sm text-ink">{it.label}</Text>
+                </View>
+              </ZoneTactile>
             ))}
           </View>
         ) : (
           <Pressable
             onPress={() => setShowPicker(true)}
-            className="flex-row items-center justify-center gap-1.5 mt-3 py-2.5 rounded-xl border border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-950 active:opacity-80"
+            className="flex-row items-center justify-center gap-1.5 mt-3 rounded-xl border border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-950 active:opacity-80"
+            style={{ minHeight: CIBLE_TACTILE }}
           >
             <Plus size={15} color={GP.clay} />
             <Text className="text-sm font-semibold text-primary-500">{t("addPricingLine")}</Text>

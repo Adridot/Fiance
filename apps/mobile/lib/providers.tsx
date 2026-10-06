@@ -22,7 +22,11 @@ import {
   getActiveWeddingNodeId,
 } from "@/lib/starfish";
 import { registerPull } from "@fiance/sdk";
-import { hydrateFromSpace, scheduleSyncPush, noterModificationLocale, époqueLocale, pushSpaceSnapshot, refreshRsvpInbox, refreshFromSpaceIfIdle, discoverOwnerWeddingRoot, hydrateSawLegacyNodes, resetDirtyPushBaseline, rejouerPousséeEnAttente, viderPousséeEnAttente, premièreHydratationAttendue } from "@/lib/space-sync";
+import { hydrateFromSpace, scheduleSyncPush, noterModificationLocale, époqueLocale, pushSpaceSnapshot, refreshRsvpInbox, refreshFromSpaceIfIdle, discoverOwnerWeddingRoot, hydrateSawLegacyNodes, resetDirtyPushBaseline, rejouerPousséeEnAttente, viderPousséeEnAttente, premièreHydratationAttendue, collectionsSurUneÉpoqueAncienne } from "@/lib/space-sync";
+// MODIFICATION LOCALE — accès réémis par le propriétaire, et contenu ramené à l'époque courante.
+import { adopterUnAccesReemis, reemettreLesAcces } from "@/lib/renouvellement-automatique";
+import { rescellerEspace } from "@/lib/rescellement";
+import { useAccesRefuseStore } from "@/store/useAccesRefuseStore";
 import { restaurerLesAnnexes } from "@/lib/compte-session";
 import { useCompteStore } from "@/store/useCompteStore";
 import { ensureSpaceProvisioned } from "@/lib/space-provision";
@@ -125,6 +129,9 @@ export function activateSync(
         .then(({ caps, pubAccess }) => recoverSpaceAccess(session, { caps, pubAccess }))
         .catch((err) => console.warn("[providers] recoverSpaceAccess failed:", err));
 
+      // Un accès qui expire : celui que les mariés ont réémis, s'il a été déposé.
+      await adopterUnAccesReemis(session, spaceId, normalizeSyncBase(serverUrl), wedding.label);
+
       // Proactive read-only detection: a member's saved link-access entry carries the
       // `write` flag from the invite that minted it. `write === false` is a reliable
       // positive (a Viewer/Planner-role invite, or a stale cap re-provisioned as
@@ -156,6 +163,18 @@ export function activateSync(
   _activating.set(wedding.id, p);
   void p.finally(() => { _activating.delete(wedding.id); });
   return p;
+}
+
+/** Adopte l'accès réémis déposé depuis l'activation, et relance la sync s'il y en a un. */
+async function reprendreUnAccesReemis(wedding: WeddingRegistryEntry): Promise<void> {
+  const session = getActiveSession();
+  const spaceId = getActiveSpaceId();
+  const serverUrl = resolveServerUrl(wedding);
+  if (!session || !spaceId || !serverUrl) return;
+  if (await adopterUnAccesReemis(session, spaceId, normalizeSyncBase(serverUrl), wedding.label)) {
+    clearActivation(wedding.id);
+    useCompteStore.getState().relancer();
+  }
 }
 
 /** Mariage de la dernière activation : une ré-activation du même mariage garde l'arriéré de poussée. */
@@ -286,6 +305,16 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
             console.warn("[providers] migration push failed:", err);
           });
         }
+        // MODIFICATION LOCALE — une collection restée sur une époque ancienne est
+        // illisible pour tout membre invité depuis : on la rescelle, sans attendre.
+        if (!cancelled && wedding.role !== "member" && collectionsSurUneÉpoqueAncienne().length) {
+          void rescellerEspace(session, spaceId)
+            .then((r) => { if (r.restant.length) console.warn("[providers] rescellement incomplet :", r.restant); })
+            .catch((err) => console.warn("[providers] rescellement impossible :", err));
+        }
+        // Les accès des membres, après la lecture : les affectations sont alors celles du serveur.
+        const base = resolveServerUrl(wedding);
+        if (!cancelled && wedding.role !== "member" && base) void reemettreLesAcces(session, spaceId, normalizeSyncBase(base));
       }
 
       // (le branchement de dispatchDocChange('*') a été remonté au-dessus de
@@ -364,6 +393,8 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry }) 
       // même traitement.
       if (state === "background") { viderPousséeEnAttente(); return; }
       if (state !== "active" || !resolvedUserId) return;
+      // MODIFICATION LOCALE — accès refusé : les mariés ont peut-être déposé l'accès réémis depuis.
+      if (wedding.role === "member" && useAccesRefuseStore.getState().refus) void reprendreUnAccesReemis(wedding);
       pullEntitlements(null, resolvedUserId)
         .then((features) => {
           if (features.length > 0) useEntitlementsStore.getState().setFeatures(features);

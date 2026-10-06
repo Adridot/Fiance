@@ -15,6 +15,7 @@ import { usePermissionsStore } from "@/store/usePermissionsStore";
 import { roleCanWrite, FEATURE_SURFACES, type FeatureSurface, type RoleDefinition } from "@fiance/sdk";
 // MODIFICATION LOCALE — réémission depuis la fiche d'un collaborateur.
 import { ouvertureDeLaFeuille } from "@/lib/collaborateurs";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import {
   LARGEUR_MINIMALE_POUR_LE_QR,
   prenomDe,
@@ -516,7 +517,7 @@ export function InviteQRSheet({
 
             <Pressable
               onPress={onClose}
-              style={({ pressed }) => ({ alignItems: "center", paddingVertical: 8, opacity: pressed ? 0.6 : 1 })}
+              style={({ pressed }) => ({ alignItems: "center", justifyContent: "center", minHeight: CIBLE_TACTILE, opacity: pressed ? 0.6 : 1 })}
             >
               <Text style={{ fontSize: 14, color: theme.mute }}>
                 {t("cancel")}

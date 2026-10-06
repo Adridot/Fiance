@@ -284,16 +284,19 @@ index 0000000..8152065
 +});
 diff --git a/apps/mobile/components/FicheCollaborateur.tsx b/apps/mobile/components/FicheCollaborateur.tsx
 new file mode 100644
-index 0000000..a0302c3
+index 0000000..f703ba9
 --- /dev/null
 +++ b/apps/mobile/components/FicheCollaborateur.tsx
-@@ -0,0 +1,182 @@
+@@ -0,0 +1,188 @@
 +import { View, Pressable } from "react-native";
 +import { useTranslation } from "react-i18next";
 +import { RefreshCw, Trash2 } from "lucide-react-native";
 +
 +import { Display } from "@/components/Display";
 +import { Label } from "@/components/Label";
++import { BoutonIcone } from "@/components/BoutonIcone";
++import { ZoneTactile } from "@/components/ZoneTactile";
++import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 +import { theme } from "@/lib/theme";
 +import type { Collaborateur } from "@/lib/collaborateurs";
 +
@@ -371,25 +374,28 @@ index 0000000..a0302c3
 +
 +      {/* Le rôle appartient à la PERSONNE : le changer vaut pour tous ses liens,
 +          sans quoi ses deux appareils divergeraient. */}
-+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
++      <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 6 }}>
 +        {roles.map((r) => {
 +          const actif = r.id === collaborateur.roleId;
 +          return (
-+            <Pressable
++            <ZoneTactile
 +              key={r.id}
 +              onPress={() => { if (!actif) onChangerDeRole(r.id); }}
-+              style={({ pressed }) => ({
-+                paddingHorizontal: 10,
-+                paddingVertical: 6,
-+                borderRadius: 999,
-+                backgroundColor: actif ? theme.clay : theme.paper,
-+                borderWidth: 1,
-+                borderColor: actif ? theme.clay : theme.hair,
-+                opacity: pressed ? 0.7 : 1,
-+              })}
++              accessibilityState={{ selected: actif }}
 +            >
-+              <Label size={11} color={actif ? "#ffffff" : theme.mute}>{r.label}</Label>
-+            </Pressable>
++              <View
++                style={{
++                  paddingHorizontal: 10,
++                  paddingVertical: 6,
++                  borderRadius: 999,
++                  backgroundColor: actif ? theme.clay : theme.paper,
++                  borderWidth: 1,
++                  borderColor: actif ? theme.clay : theme.hair,
++                }}
++              >
++                <Label size={11} color={actif ? "#ffffff" : theme.mute}>{r.label}</Label>
++              </View>
++            </ZoneTactile>
 +          );
 +        })}
 +      </View>
@@ -415,13 +421,13 @@ index 0000000..a0302c3
 +              <Display size={12.5} color={theme.mute} style={{ flex: 1 }} numberOfLines={1}>
 +                {date ? t("lienEmisLe", { date }) : lien.subjectUserId.slice(0, 12)}
 +              </Display>
-+              <Pressable
++              <BoutonIcone
++                libelle={t("revoquerCeLien")}
 +                onPress={() => onRevoquerLien(lien.id, lien.subjectUserId, liens.length === 1)}
-+                hitSlop={8}
-+                accessibilityLabel={t("revoquerCeLien")}
++                empreinte={28}
 +              >
 +                <Trash2 size={15} color={theme.strawberryInk} />
-+              </Pressable>
++              </BoutonIcone>
 +            </View>
 +          );
 +        })}
@@ -437,7 +443,7 @@ index 0000000..a0302c3
 +          borderRadius: 14,
 +          borderWidth: 1,
 +          borderColor: theme.hair,
-+          paddingVertical: 11,
++          minHeight: CIBLE_TACTILE,
 +          opacity: pressed ? 0.7 : 1,
 +        })}
 +      >
@@ -636,7 +642,7 @@ index 0000000..8917a89
 +    .map((l) => ({ ...l, roleId, updatedAt: maintenant }));
 +}
 diff --git a/apps/mobile/app/settings/roles.tsx b/apps/mobile/app/settings/roles.tsx
-index 1355999..5323613 100644
+index 1355999..1084271 100644
 --- a/apps/mobile/app/settings/roles.tsx
 +++ b/apps/mobile/app/settings/roles.tsx
 @@ -1,4 +1,4 @@
@@ -646,13 +652,14 @@ index 1355999..5323613 100644
  import { useTranslation } from "react-i18next";
  import * as Crypto from "expo-crypto";
 diff --git a/apps/mobile/app/settings/roles.tsx b/apps/mobile/app/settings/roles.tsx
-index 1355999..5323613 100644
+index 1355999..1084271 100644
 --- a/apps/mobile/app/settings/roles.tsx
 +++ b/apps/mobile/app/settings/roles.tsx
-@@ -20,6 +20,16 @@ import { Chip } from "@/components/Chip";
+@@ -20,6 +20,17 @@ import { Chip } from "@/components/Chip";
  import { ConfirmSheet } from "@/components/ConfirmSheet";
  import { RenameSheet } from "@/components/RenameSheet";
  import { theme } from "@/lib/theme";
++import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 +// MODIFICATION LOCALE — réémettre un lien depuis la fiche d'un collaborateur.
 +import { FicheCollaborateur } from "@/components/FicheCollaborateur";
 +import { InviteQRSheet } from "@/components/InviteQRSheet";
@@ -667,10 +674,10 @@ index 1355999..5323613 100644
  type Level = "none" | PermissionAction;
  const LEVELS: Level[] = ["none", "view", "edit"];
 diff --git a/apps/mobile/app/settings/roles.tsx b/apps/mobile/app/settings/roles.tsx
-index 1355999..5323613 100644
+index 1355999..1084271 100644
 --- a/apps/mobile/app/settings/roles.tsx
 +++ b/apps/mobile/app/settings/roles.tsx
-@@ -58,7 +68,20 @@ export default function RolesScreen() {
+@@ -58,7 +69,20 @@ export default function RolesScreen() {
    const [editingId, setEditingId] = useState<string | null>(null);
    const [showCreate, setShowCreate] = useState(false);
    const [deleteRoleId, setDeleteRoleId] = useState<string | null>(null);
@@ -693,10 +700,10 @@ index 1355999..5323613 100644
    const roleLabel = useCallback(
      (r: RoleDefinition) => (r.isSystem ? t(r.name) : r.name),
 diff --git a/apps/mobile/app/settings/roles.tsx b/apps/mobile/app/settings/roles.tsx
-index 1355999..5323613 100644
+index 1355999..1084271 100644
 --- a/apps/mobile/app/settings/roles.tsx
 +++ b/apps/mobile/app/settings/roles.tsx
-@@ -70,6 +93,35 @@ export default function RolesScreen() {
+@@ -70,6 +94,35 @@ export default function RolesScreen() {
    );
    const roleTone = (r: RoleDefinition) => (r.isSystem ? theme.olive : theme.clay);
  
@@ -733,10 +740,10 @@ index 1355999..5323613 100644
      (r: RoleDefinition) => {
        const granted = FEATURE_SURFACES.filter((s) => r.matrix[s]);
 diff --git a/apps/mobile/app/settings/roles.tsx b/apps/mobile/app/settings/roles.tsx
-index 1355999..5323613 100644
+index 1355999..1084271 100644
 --- a/apps/mobile/app/settings/roles.tsx
 +++ b/apps/mobile/app/settings/roles.tsx
-@@ -302,7 +354,7 @@ export default function RolesScreen() {
+@@ -302,7 +355,7 @@ export default function RolesScreen() {
  
        <View style={{ height: 28 }} />
        <Label color={theme.clay} style={{ marginBottom: 10 }}>{t("collaboratorsSectionTitle")}</Label>
@@ -746,10 +753,10 @@ index 1355999..5323613 100644
            style={{
              backgroundColor: theme.card,
 diff --git a/apps/mobile/app/settings/roles.tsx b/apps/mobile/app/settings/roles.tsx
-index 1355999..5323613 100644
+index 1355999..1084271 100644
 --- a/apps/mobile/app/settings/roles.tsx
 +++ b/apps/mobile/app/settings/roles.tsx
-@@ -319,37 +371,20 @@ export default function RolesScreen() {
+@@ -319,37 +372,20 @@ export default function RolesScreen() {
          </View>
        ) : (
          <View style={{ gap: 10 }}>
@@ -801,10 +808,10 @@ index 1355999..5323613 100644
            })}
          </View>
 diff --git a/apps/mobile/app/settings/roles.tsx b/apps/mobile/app/settings/roles.tsx
-index 1355999..5323613 100644
+index 1355999..1084271 100644
 --- a/apps/mobile/app/settings/roles.tsx
 +++ b/apps/mobile/app/settings/roles.tsx
-@@ -367,29 +402,60 @@ export default function RolesScreen() {
+@@ -367,29 +403,60 @@ export default function RolesScreen() {
          onCancel={() => setShowCreate(false)}
        />
  
@@ -879,14 +886,15 @@ index 1355999..5323613 100644
      </ScrollView>
    );
 diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
-index 8c90fdb..87dbc02 100644
+index 8c90fdb..25442bb 100644
 --- a/apps/mobile/lib/invite-link.ts
 +++ b/apps/mobile/lib/invite-link.ts
-@@ -1,12 +1,25 @@
+@@ -1,18 +1,52 @@
  import * as Linking from "expo-linking";
  import * as Crypto from "expo-crypto";
- import { createSpaceInviteLink, getSyncNamespace, roleCanWrite, serializeSpaceInviteStore, isWithinFreeLimit } from "@fiance/sdk";
+-import { createSpaceInviteLink, getSyncNamespace, roleCanWrite, serializeSpaceInviteStore, isWithinFreeLimit } from "@fiance/sdk";
 -import { resolveSessionConfig } from "@/lib/server";
++import { createSpaceInviteLink, getSyncNamespace, hydrateSpaceInviteStore, roleCanWrite, serializeSpaceInviteStore, isWithinFreeLimit } from "@fiance/sdk";
 +import { normalizeSyncBase, resolveServerUrl, resolveSessionConfig } from "@/lib/server";
 +// MODIFICATION LOCALE — le lien passe de ~1342 à ~81 caractères : jeton chiffré
 +// déposé derrière un code court, clé dans le fragment. Voir `invitation-courte.ts`.
@@ -908,13 +916,40 @@ index 8c90fdb..87dbc02 100644
 +// MODIFICATION LOCALE — la limite porte sur les personnes, pas sur les liens.
 +import { estUnCollaborateurConnu, nombreDeCollaborateursDistincts } from "@/lib/collaborateurs";
  import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
++// MODIFICATION LOCALE — liens longs, et contenu à l'époque courante avant d'inviter.
++import { DUREE_D_UN_ACCES_SEC } from "@/lib/renouvellement-des-acces";
++import { rescellerEspace } from "@/lib/rescellement";
  
  /** KV key holding the serialized space-invite store (edPub/kemPub/cap handles per invite),
+  *  persisted so `revokeSpaceAccess` can look up the entry after an app restart. */
+ export const SPACE_INVITE_STORE_KEY = "spaceInviteStore";
+ 
++/** Recharge le magasin persisté dans la mémoire (additif) : sans lui, une sérialisation perd les liens des sessions passées. */
++export function hydraterLeMagasinDInvitations(): void {
++  try {
++    const brut = readCollection<string>(SPACE_INVITE_STORE_KEY);
++    if (brut) hydrateSpaceInviteStore(brut);
++  } catch (err) {
++    console.warn("[invite] magasin d'invitations illisible", err);
++  }
++}
++
++/** Persiste le magasin d'invitations, entrées des sessions passées comprises. */
++export function persisterLeMagasinDInvitations(): void {
++  hydraterLeMagasinDInvitations();
++  try { writeCollection(SPACE_INVITE_STORE_KEY, serializeSpaceInviteStore()); } catch (err) {
++    console.warn("[invite] failed to persist space-invite store", err);
++  }
++}
++
+ /**
+  * Generate a space invite link for the given wedding entry, scoped to a role.
+  *
 diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
-index 8c90fdb..87dbc02 100644
+index 8c90fdb..25442bb 100644
 --- a/apps/mobile/lib/invite-link.ts
 +++ b/apps/mobile/lib/invite-link.ts
-@@ -20,11 +33,26 @@ export const SPACE_INVITE_STORE_KEY = "spaceInviteStore";
+@@ -20,11 +54,42 @@ export const SPACE_INVITE_STORE_KEY = "spaceInviteStore";
   * role mints a read-only member cap). The role assignment is recorded against the
   * invite's ephemeral subject id and pushed so the joining member can resolve its
   * per-feature permissions (Phase 1). Throws a human-readable message on failure.
@@ -922,6 +957,22 @@ index 8c90fdb..87dbc02 100644
 + * Rend toujours le lien COURT : si le dépôt échoue, l'erreur remonte, sans repli
 + * sur le format long (illisible une fois partagé, sans nom, non consommable).
   */
++/**
++ * Deux créations de lien concurrentes (« Réessayer » pendant qu'une tentative
++ * est encore en vol) ajoutent chacune un destinataire au keyring : la seconde
++ * reçoit un 409, que le SDK ne rejoue pas. On la relance, sur un keyring relu.
++ */
++export async function reprendreSurConflit<T>(tache: () => Promise<T>, essais = 3): Promise<T> {
++  for (let i = 1; ; i++) {
++    try {
++      return await tache();
++    } catch (err) {
++      const conflit = err instanceof Error && (err.name === "ConflictError" || err.message === "hash_mismatch");
++      if (!conflit || i >= essais) throw err;
++    }
++  }
++}
++
  export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: string, name?: string): Promise<string> {
    // Defensive backstop — the primary gate is the paywall prompt in settings/index.tsx's
    // handleInvite. Free tier allows 1 invited member (the partner); the 2nd+ requires premium.
@@ -943,15 +994,16 @@ index 8c90fdb..87dbc02 100644
    }
  
 diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
-index 07ec918..f5ad5cb 100644
+index 07ec918..c386e80 100644
 --- a/apps/mobile/components/InviteQRSheet.tsx
 +++ b/apps/mobile/components/InviteQRSheet.tsx
-@@ -12,16 +13,48 @@ import { Label } from "@/components/Label";
+@@ -12,16 +13,49 @@ import { Label } from "@/components/Label";
  import { Chip } from "@/components/Chip";
  import { usePermissionsStore } from "@/store/usePermissionsStore";
  import { roleCanWrite, FEATURE_SURFACES, type FeatureSurface, type RoleDefinition } from "@fiance/sdk";
 +// MODIFICATION LOCALE — réémission depuis la fiche d'un collaborateur.
 +import { ouvertureDeLaFeuille } from "@/lib/collaborateurs";
++import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 +import {
 +  LARGEUR_MINIMALE_POUR_LE_QR,
 +  prenomDe,
@@ -997,10 +1049,10 @@ index 07ec918..f5ad5cb 100644
    const { width } = useWindowDimensions();
    const roles = usePermissionsStore((s) => s.roles);
 diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
-index 07ec918..f5ad5cb 100644
+index 07ec918..c386e80 100644
 --- a/apps/mobile/components/InviteQRSheet.tsx
 +++ b/apps/mobile/components/InviteQRSheet.tsx
-@@ -42,51 +77,133 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
+@@ -42,51 +78,133 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
      return granted.map(surfaceLabel).join(" · ");
    };
  

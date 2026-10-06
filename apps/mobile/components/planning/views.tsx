@@ -24,6 +24,9 @@ import { DeadlineChip } from "@/components/DeadlineChip";
 import { PriorityBadge } from "@/components/PriorityBadge";
 import { ProgressBar } from "@/components/ProgressBar";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
+import { ZoneTactile } from "@/components/ZoneTactile";
+import { debordement } from "@/lib/cible-tactile";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { Label } from "@/components/Label";
 import { Display } from "@/components/Display";
@@ -202,13 +205,12 @@ export function PreparationView() {
         <View className="flex-row items-center justify-between mb-3">
           <Text className="text-base font-semibold text-ink">{t("progress")}</Text>
           <View className="flex-row items-center gap-2">
-            <Pressable
-              onPress={handleGenerateTemplate}
-              className="flex-row items-center gap-1 px-2.5 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-900 active:opacity-80"
-            >
-              <Sparkles size={14} color={GP.clay} />
-              <Text className="text-xs font-medium text-primary-500">{t("generate")}</Text>
-            </Pressable>
+            <ZoneTactile onPress={handleGenerateTemplate}>
+              <View className="flex-row items-center gap-1 px-2.5 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-900">
+                <Sparkles size={14} color={GP.clay} />
+                <Text className="text-xs font-medium text-primary-500">{t("generate")}</Text>
+              </View>
+            </ZoneTactile>
             <SegmentedControl
               compact
               segments={[
@@ -551,13 +553,12 @@ export function DayOfView() {
       <View className="px-4 pt-3 pb-3">
         {hasPublicItems && (
           <View className="flex-row items-center justify-end">
-            <Pressable
-              onPress={handleShareTimeline}
-              className="flex-row items-center gap-1 px-2.5 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-900 active:opacity-80"
-            >
-              <Share2 size={14} color={GP.clay} />
-              <Text className="text-xs font-medium text-primary-500">{t("shareTimeline")}</Text>
-            </Pressable>
+            <ZoneTactile onPress={handleShareTimeline} style={{ marginVertical: debordement(28) }}>
+              <View className="flex-row items-center gap-1 px-2.5 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-900">
+                <Share2 size={14} color={GP.clay} />
+                <Text className="text-xs font-medium text-primary-500">{t("shareTimeline")}</Text>
+              </View>
+            </ZoneTactile>
           </View>
         )}
         <Text className="text-sm text-mute">{t("moment", { count: items.length })}</Text>
@@ -710,13 +711,19 @@ function TaskCard({
       style={isOverdue ? { borderLeftWidth: 3, borderLeftColor: "#EF4444" } : {}}
     >
       <View className="flex-row items-start">
-        <Pressable onPress={onToggleDone} className="mt-0.5 mr-3">
+        <BoutonIcone
+          libelle={task.title}
+          coche={isDone}
+          onPress={onToggleDone}
+          empreinte={24}
+          style={{ marginLeft: -11, marginRight: 1, marginTop: -9 }}
+        >
           {isDone ? (
             <CheckCircle2 size={22} color="#10B981" />
           ) : (
             <Circle size={22} color="#D1D5DB" />
           )}
-        </Pressable>
+        </BoutonIcone>
         <View className="flex-1">
           <Text
             className={`text-base ${

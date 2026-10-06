@@ -1,15 +1,46 @@
 import { CompteError } from "@/lib/compte";
-import type { WeddingRegistry } from "@/lib/wedding-registry";
+import { nonceDuCap, sujetDuCap } from "@/lib/renouvellement-des-acces";
+import type { WeddingRegistry, WeddingRegistryEntry } from "@/lib/wedding-registry";
 
-export type EtapeDuParcours = "deja-acceptee" | "confirmer" | "creer-un-compte";
+export type EtapeDuParcours = "deja-acceptee" | "renouveler" | "confirmer" | "creer-un-compte";
+
+/** L'accès que porte le jeton présenté, et celui que l'appareil détient pour cet espace. */
+export interface AccesPresente {
+  capDuJeton: unknown;
+  /** Le cap de l'entrée d'accès enregistrée, quand le magasin d'accès est chargé. */
+  capEnregistre?: unknown;
+}
 
 export function etapeDuParcours(
   registre: Pick<WeddingRegistry, "weddings"> | null | undefined,
   spaceId: string,
+  acces?: AccesPresente,
 ): EtapeDuParcours {
   const mariages = registre?.weddings ?? [];
-  if (mariages.some((w) => w.spaceId === spaceId)) return "deja-acceptee";
+  const existant = mariages.find((w) => w.spaceId === spaceId);
+  if (existant) return acces && accesARenouveler(existant, acces) ? "renouveler" : "deja-acceptee";
   return mariages.length > 0 ? "confirmer" : "creer-un-compte";
+}
+
+/**
+ * MODIFICATION LOCALE — un lien NEUF pour un mariage déjà présent remplace l'accès.
+ *
+ * Sans quoi un appareil au cap expiré n'avait aucune voie de rattrapage. Membres
+ * seulement : le propriétaire n'échange pas son accès contre un lien. Le nonce
+ * départage ; à défaut d'accès chargé, le sujet du dernier lien adopté.
+ */
+export function accesARenouveler(
+  entree: Pick<WeddingRegistryEntry, "role" | "inviteSubjectId">,
+  acces: AccesPresente,
+): boolean {
+  if (entree.role !== "member") return false;
+  const nouveau = nonceDuCap(acces.capDuJeton);
+  if (!nouveau) return false;
+  const actuel = nonceDuCap(acces.capEnregistre);
+  if (actuel) return actuel !== nouveau;
+  const sujet = sujetDuCap(acces.capDuJeton);
+  if (entree.inviteSubjectId && sujet) return entree.inviteSubjectId !== sujet;
+  return true;
 }
 
 export interface ActionsDeLaSequence {
@@ -20,7 +51,7 @@ export interface ActionsDeLaSequence {
   consommer: () => Promise<void>;
 }
 
-/** Appareil déjà connecté : jonction, puis dépôt consommé au mieux. */
+/** Appareil déjà connecté : jonction (ou renouvellement), puis dépôt consommé au mieux. */
 export async function sequenceDeJonction(actions: Pick<ActionsDeLaSequence, "joindre" | "consommer">): Promise<void> {
   await actions.joindre();
   await actions.consommer().catch(() => {});

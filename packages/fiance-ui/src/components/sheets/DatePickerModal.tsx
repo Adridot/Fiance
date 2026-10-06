@@ -23,6 +23,10 @@ import {
 import { enUS, fr } from "date-fns/locale";
 import type { Locale } from "date-fns";
 import { BottomSheet } from "../../primitives/bottom-sheet";
+import { cibleCarree } from "../../utils/cible-tactile";
+
+// Web : chevrons de 36 px (`p-2` autour d'une icône de 20) portés à 44 × 44.
+const chevron = cibleCarree(36, { rembourrages: { haut: 8, bas: 8, gauche: 8, droite: 8 } });
 
 interface DatePickerModalProps {
   visible: boolean;
@@ -151,6 +155,7 @@ export function DatePickerModal({
           <Pressable
             onPress={() => setDisplayMonth(subMonths(displayMonth, 1))}
             className="p-2"
+            style={Platform.OS === "web" ? chevron : undefined}
           >
             <ChevronLeft size={20} className="text-typography-400" />
           </Pressable>
@@ -160,6 +165,7 @@ export function DatePickerModal({
           <Pressable
             onPress={() => setDisplayMonth(addMonths(displayMonth, 1))}
             className="p-2"
+            style={Platform.OS === "web" ? chevron : undefined}
           >
             <ChevronRight size={20} className="text-typography-400" />
           </Pressable>

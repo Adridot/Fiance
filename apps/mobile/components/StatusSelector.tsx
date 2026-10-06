@@ -1,6 +1,7 @@
 import React from "react";
-import { ScrollView, Pressable } from "react-native-css/components";
+import { ScrollView } from "react-native-css/components";
 import { StatusBadge } from "@fiance/ui/components";
+import { ZoneTactile } from "@/components/ZoneTactile";
 
 // Local re-implementation: seahorse's StatusSelector (never vendored into @fiance/ui)
 // passes "rgb(165, 163, 163)" for inactive badges, which when concatenated with "18"
@@ -30,13 +31,13 @@ export function StatusSelector({ options, activeKey, onSelect, className }: Stat
       contentContainerStyle={{ gap: 8 }}
     >
       {options.map((opt) => (
-        <Pressable key={opt.key} onPress={() => onSelect(opt.key)}>
+        <ZoneTactile key={opt.key} onPress={() => onSelect(opt.key)} accessibilityState={{ selected: activeKey === opt.key }}>
           <StatusBadge
             label={opt.label}
             color={activeKey === opt.key ? opt.color : INACTIVE_COLOR}
             size="md"
           />
-        </Pressable>
+        </ZoneTactile>
       ))}
     </ScrollView>
   );

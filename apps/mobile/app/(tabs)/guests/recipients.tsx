@@ -14,6 +14,7 @@ import {
 } from "@fiance/sdk";
 import { useGuestsStore } from "@/store/useGuestsStore";
 import { SearchBar } from "@/components/SearchBar";
+import { ZoneTactile } from "@/components/ZoneTactile";
 import type { Guest } from "@/db/schema";
 
 const NO_CATEGORY = "__none__";
@@ -138,22 +139,26 @@ export default function RecipientsScreen() {
           showsHorizontalScrollIndicator={false}
           className="mb-3"
           style={{ flexGrow: 0 }}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8, gap: 8, alignItems: "center" }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 2, gap: 8, alignItems: "center" }}
         >
           {filters.map((f) => {
             const active = f.key === category;
             return (
-              <Pressable
+              <ZoneTactile
                 key={f.key}
                 onPress={() => setCategory(active ? null : f.key)}
-                className={`px-4 py-2 rounded-full border ${
-                  active ? "border-primary-500 bg-primary-50 dark:bg-primary-900/30" : "bg-accent-card border-hair"
-                }`}
+                accessibilityState={{ selected: active }}
               >
-                <Text className={`text-sm font-medium ${active ? "text-primary-500" : "text-mute"}`}>
-                  {f.label} ({f.count})
-                </Text>
-              </Pressable>
+                <View
+                  className={`px-4 py-2 rounded-full border ${
+                    active ? "border-primary-500 bg-primary-50 dark:bg-primary-900/30" : "bg-accent-card border-hair"
+                  }`}
+                >
+                  <Text className={`text-sm font-medium ${active ? "text-primary-500" : "text-mute"}`}>
+                    {f.label} ({f.count})
+                  </Text>
+                </View>
+              </ZoneTactile>
             );
           })}
         </ScrollView>

@@ -4,6 +4,7 @@ import { useRouter, Stack } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { Church, Lock } from "lucide-react-native";
 import { useHasFeature } from "@/lib/limits";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { useShowPaywall } from "@/components/PaywallProvider";
 import { CEREMONY_ITEM_KIND_LABELS, formatGuestName } from "@fiance/sdk";
 import type { CeremonyItemKind } from "@fiance/sdk";
@@ -97,7 +98,11 @@ export default function CeremonyScreen() {
       <Stack.Screen
         options={{
           headerRight: () => (
-            <Pressable onPress={handleExport} className="mr-2 px-3 py-1.5 rounded-lg active:opacity-60 flex-row items-center gap-1">
+            <Pressable
+              onPress={handleExport}
+              className="mr-2 px-3 rounded-lg active:opacity-60 flex-row items-center gap-1"
+              style={{ minHeight: CIBLE_TACTILE }}
+            >
               {!hasExports && <Lock size={12} color={GP.clay} />}
               <Text className="text-primary-500 text-sm font-semibold">{t("ceremony.exportBooklet")}</Text>
             </Pressable>

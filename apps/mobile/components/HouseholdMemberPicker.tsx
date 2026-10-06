@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Sheet } from "@fiance/ui/components";
 import { formatGuestName, guestNameMatches } from "@fiance/sdk";
 import { useGuestsStore } from "@/store/useGuestsStore";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 
 export function HouseholdMemberPicker({
   visible,
@@ -43,10 +44,11 @@ export function HouseholdMemberPicker({
         <Text className="text-lg font-bold text-ink mb-1">{t("household.addMember")}</Text>
         <Text className="text-sm text-mute mb-3">{t("household.addMemberExplain")}</Text>
 
-        <View className="flex-row items-center bg-accent-paper rounded-xl px-3 py-2 mb-3">
+        <View className="flex-row items-center bg-accent-paper rounded-xl px-3 mb-3">
           <Search size={16} color="#9CA3AF" />
           <TextInput
             className="flex-1 ml-2 text-base text-ink"
+            style={{ minHeight: CIBLE_TACTILE }}
             placeholder={t("household.searchGuest")}
             placeholderTextColor="#9CA3AF"
             value={search}

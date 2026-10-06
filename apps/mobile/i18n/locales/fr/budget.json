@@ -50,6 +50,7 @@
   "payments": "Paiements",
   "addPayment": "Ajouter un paiement",
   "paymentAmount": "Montant",
+  "paymentAmountRequired": "Indiquez le montant du paiement",
   "paymentDate": "Date",
   "paymentMethod": "Moyen de paiement",
   "paymentLabel": "Libellé",

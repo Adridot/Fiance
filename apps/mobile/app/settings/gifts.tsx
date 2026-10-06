@@ -7,6 +7,7 @@ import * as Crypto from "expo-crypto";
 import { useGiftsStore } from "@/store/useGiftsStore";
 import type { Gift as GiftType } from "@/db/schema";
 import { FAB } from "@/components/FAB";
+import { BoutonIcone } from "@/components/BoutonIcone";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
@@ -231,9 +232,9 @@ function GiftRow({
         </View>
         <View className="flex-row items-center gap-2">
           {gift.url ? (
-            <Pressable onPress={() => Linking.openURL(gift.url!)} className="w-8 h-8 items-center justify-center">
+            <BoutonIcone libelle={`${t("giftUrl")} ${gift.title}`} onPress={() => Linking.openURL(gift.url!)}>
               <ExternalLink size={15} color="#9CA3AF" />
-            </Pressable>
+            </BoutonIcone>
           ) : null}
           {gift.claimed ? (
             <CheckCircle2 size={18} color="#10B981" />
@@ -241,9 +242,9 @@ function GiftRow({
             <Circle size={18} color="#D1D5DB" />
           )}
           {canEdit && (
-            <Pressable onPress={onDelete} className="w-8 h-8 items-center justify-center">
+            <BoutonIcone libelle={`${t("delete")} ${gift.title}`} onPress={onDelete}>
               <Trash2 size={15} color="#EF4444" />
-            </Pressable>
+            </BoutonIcone>
           )}
         </View>
       </View>

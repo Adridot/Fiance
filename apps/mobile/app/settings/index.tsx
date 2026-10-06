@@ -40,6 +40,8 @@ import {
 } from "@/lib/notifications";
 import { SectionTitle, ChipSelect } from "@/components/FormSection";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
+import { BoutonIcone } from "@/components/BoutonIcone";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { RenameSheet } from "@/components/RenameSheet";
 import { InviteQRSheet } from "@/components/InviteQRSheet";
 import { ToggleCard } from "@/components/ToggleCard";
@@ -517,6 +519,7 @@ export default function SettingsScreen() {
                   }
                 }}
                 className="flex-row items-center flex-1 active:opacity-80"
+                style={{ minHeight: CIBLE_TACTILE }}
               >
                 <View
                   className="w-10 h-10 rounded-xl items-center justify-center mr-3"
@@ -542,18 +545,12 @@ export default function SettingsScreen() {
                   <CheckCircle2 size={20} color={theme.clay} />
                 )}
               </Pressable>
-              <Pressable
-                onPress={() => setRenameWeddingId(w.id)}
-                className="ml-2 w-8 h-8 items-center justify-center rounded-lg"
-              >
+              <BoutonIcone libelle={`${t("renameWedding")} ${w.label}`} onPress={() => setRenameWeddingId(w.id)}>
                 <Pencil size={16} color="#9CA3AF" />
-              </Pressable>
-              <Pressable
-                onPress={() => setDeleteWeddingId(w.id)}
-                className="ml-1 w-8 h-8 items-center justify-center rounded-lg"
-              >
+              </BoutonIcone>
+              <BoutonIcone libelle={`${t("delete")} ${w.label}`} onPress={() => setDeleteWeddingId(w.id)}>
                 <Trash2 size={16} color="#EF4444" />
-              </Pressable>
+              </BoutonIcone>
             </View>
           );
         })}

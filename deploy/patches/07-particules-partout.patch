@@ -582,11 +582,15 @@ index 6eca529..c5a5707 100644
    });
  });
 diff --git a/apps/mobile/app/(tabs)/planning/ceremony-item.tsx b/apps/mobile/app/(tabs)/planning/ceremony-item.tsx
-index b394712..62e9dae 100644
+index b394712..5095c21 100644
 --- a/apps/mobile/app/(tabs)/planning/ceremony-item.tsx
 +++ b/apps/mobile/app/(tabs)/planning/ceremony-item.tsx
-@@ -3,7 +3,7 @@ import { View, Text, ScrollView, TextInput } from "react-native-css/components";
+@@ -1,9 +1,11 @@
+ import React, { useState } from "react";
+ import { View, Text, ScrollView, TextInput } from "react-native-css/components";
  import { useLocalSearchParams, useRouter, Stack } from "expo-router";
++import { revenir } from "@/lib/revenir";
++import { repliDe } from "@/lib/repli-des-ecrans";
  import { useTranslation } from "react-i18next";
  import * as Crypto from "expo-crypto";
 -import { CEREMONY_ITEM_KIND_LABELS } from "@fiance/sdk";
@@ -594,7 +598,24 @@ index b394712..62e9dae 100644
  import type { CeremonyItemKind } from "@fiance/sdk";
  import { useCeremonyStore } from "@/store/useCeremonyStore";
  import { useWeddingEventsStore } from "@/store/useWeddingEventsStore";
-@@ -156,7 +156,7 @@ export default function CeremonyItemScreen() {
+@@ -80,14 +82,14 @@ export default function CeremonyItemScreen() {
+     } else {
+       updateCeremonyItem(id!, data);
+     }
+-    router.back();
++    revenir(router, repliDe("planning", "ceremony-item"));
+   };
+ 
+   const handleDelete = () => {
+     removeCeremonyItem(id!);
+     analytics.capture("ceremony_item_deleted");
+     setShowDelete(false);
+-    router.back();
++    revenir(router, repliDe("planning", "ceremony-item"));
+   };
+ 
+   return (
+@@ -156,7 +158,7 @@ export default function CeremonyItemScreen() {
              <HorizontalChipSelect
                options={[
                  { key: "", label: t("common:none") },
@@ -604,10 +625,17 @@ index b394712..62e9dae 100644
                activeKey={guestId}
                onSelect={setGuestId}
 diff --git a/apps/mobile/app/(tabs)/planning/speech.tsx b/apps/mobile/app/(tabs)/planning/speech.tsx
-index 9f81f0b..a160747 100644
+index 9f81f0b..93c8458 100644
 --- a/apps/mobile/app/(tabs)/planning/speech.tsx
 +++ b/apps/mobile/app/(tabs)/planning/speech.tsx
-@@ -6,6 +6,7 @@ import * as Crypto from "expo-crypto";
+@@ -1,11 +1,14 @@
+ import React, { useState } from "react";
+ import { View, Text, ScrollView, TextInput } from "react-native-css/components";
+ import { useLocalSearchParams, useRouter, Stack } from "expo-router";
++import { revenir } from "@/lib/revenir";
++import { repliDe } from "@/lib/repli-des-ecrans";
+ import { useTranslation } from "react-i18next";
+ import * as Crypto from "expo-crypto";
  import { useSpeechesMusicStore } from "@/store/useSpeechesMusicStore";
  import { usePlanningStore } from "@/store/usePlanningStore";
  import { useGuestsStore } from "@/store/useGuestsStore";
@@ -615,7 +643,24 @@ index 9f81f0b..a160747 100644
  import { useWeddingPartyStore } from "@/store/useWeddingPartyStore";
  import { analytics } from "@/lib/analytics";
  import { ConfirmSheet } from "@/components/ConfirmSheet";
-@@ -110,7 +111,7 @@ export default function SpeechScreen() {
+@@ -69,14 +72,14 @@ export default function SpeechScreen() {
+     } else {
+       updateSpeech(id!, data);
+     }
+-    router.back();
++    revenir(router, repliDe("planning", "speech"));
+   };
+ 
+   const handleDelete = () => {
+     removeSpeech(id!);
+     analytics.capture("speech_deleted");
+     setShowDelete(false);
+-    router.back();
++    revenir(router, repliDe("planning", "speech"));
+   };
+ 
+   return (
+@@ -110,7 +113,7 @@ export default function SpeechScreen() {
              <HorizontalChipSelect
                options={[
                  { key: "", label: t("common:none") },
@@ -625,7 +670,7 @@ index 9f81f0b..a160747 100644
                activeKey={guestId}
                onSelect={setGuestId}
 diff --git a/apps/mobile/lib/rsvp-sync.ts b/apps/mobile/lib/rsvp-sync.ts
-index cddd4dc..64ba078 100644
+index cddd4dc..0aa8284 100644
 --- a/apps/mobile/lib/rsvp-sync.ts
 +++ b/apps/mobile/lib/rsvp-sync.ts
 @@ -1,18 +1,23 @@
@@ -645,7 +690,8 @@ index cddd4dc..64ba078 100644
 + * one link, one page, one answer per envelope.
   */
  
- import { useEffect, useState } from "react";
+-import { useEffect, useState } from "react";
++import { useCallback, useEffect, useState } from "react";
  import { Platform } from "react-native";
  import { useGuestsStore } from "@/store/useGuestsStore";
 +import { useInvitationTypesStore } from "@/store/useInvitationTypesStore";
@@ -653,7 +699,7 @@ index cddd4dc..64ba078 100644
  import type { WeddingRegistryEntry } from "@/lib/wedding-registry";
  import {
    updateObjectIndex,
-@@ -21,6 +26,12 @@ import {
+@@ -21,111 +26,144 @@ import {
    objInvPull,
    createNodeInviteLink,
    rsvpToNode,
@@ -662,11 +708,22 @@ index cddd4dc..64ba078 100644
 +  rsvpMemberFromGuest,
 +  resolveHousehold,
 +  householdName,
++  onSseStatus,
 +  type HouseholdRsvpDoc,
    type Session,
    type ObjectNode,
  } from "@fiance/sdk";
-@@ -32,23 +43,7 @@ import { encodeGuestLink } from "@/lib/guest-link";
+ import { publicPageNodeId, getPublicPageInviteLink, ensurePublicPageNode } from "@/lib/public-page";
+ import { withIndexLock } from "@/lib/index-lock";
+ import { encodeGuestLink } from "@/lib/guest-link";
++import { getActiveSession, getActiveSpaceId, getActiveWeddingNodeId, isSyncActive } from "@/lib/starfish";
++import {
++  disponibiliteDuLien,
++  etatDuBoutonRsvp,
++  type EtatDuBoutonRsvp,
++} from "@/lib/disponibilite-du-lien-rsvp";
+ 
+ // ---------------------------------------------------------------------------
  // Types
  // ---------------------------------------------------------------------------
  
@@ -691,9 +748,98 @@ index cddd4dc..64ba078 100644
  
  // ---------------------------------------------------------------------------
  // Hooks
-@@ -76,20 +71,22 @@ export function useGuestRsvpUrl(
+ // ---------------------------------------------------------------------------
  
-       if (!session || !spaceId || !weddingNodeId) return;
++const ATTENTE_MAX_DE_LA_SYNC_MS = 20_000;
++
++function laSyncEstPrete(): boolean {
++  return isSyncActive() && !!getActiveSession() && !!getActiveSpaceId() && !!getActiveWeddingNodeId();
++}
++
++export interface LienRsvp {
++  url: string | null;
++  etat: EtatDuBoutonRsvp;
++  reessayer: () => void;
++}
++
+ /**
+- * Returns the combined guest invite link URL for a guest.
+- * Bundles page-read cap + rsvp-write cap into one URL.
+- * Returns null until the link is minted (requires active sync session).
++ * Combined guest invite link for a guest (page-read cap + rsvp-write cap in one URL).
++ * Minted as soon as sync is active — a page opened cold gets its session after the
++ * first render — and exposed with a state so the share button is never silent.
+  */
+-export function useGuestRsvpUrl(
++export function useGuestRsvpLink(
+   guestId: string | undefined,
+   activeEntry: WeddingRegistryEntry | undefined,
+-): string | null {
+-  const [url, setUrl] = useState<string | null>(null);
++): LienRsvp {
++  const [lien, setLien] = useState<{ guestId: string; url: string } | null>(null);
++  const [echecDe, setEchecDe] = useState<string | null>(null);
++  const [essai, setEssai] = useState(0);
++  const [synchroPrete, setSynchroPrete] = useState(laSyncEstPrete);
++  const invitePresent = useGuestsStore((s) => !!guestId && s.guests.some((g) => g.id === guestId));
++
++  const disponibilite = disponibiliteDuLien({
++    aUnInvite: invitePresent,
++    aUneGraine: !!activeEntry?.seedPhrase,
++    synchroDesactivee: activeEntry?.syncDisabled === true,
++    synchroPrete,
++  });
++  const url = lien && lien.guestId === guestId ? lien.url : null;
++  // Un échec ne vaut que pour la tentative et l'état de la sync où il s'est produit.
++  const cle = `${guestId}|${essai}|${synchroPrete}`;
++  const echec = echecDe === cle;
+ 
+   useEffect(() => {
+-    if (!guestId || !activeEntry?.seedPhrase) return;
+-    let cancelled = false;
++    const retirer = onSseStatus(() => setSynchroPrete(laSyncEstPrete()));
++    return () => { retirer(); };
++  }, []);
+ 
+-    import("@/lib/starfish").then(({ getActiveSession, getActiveSpaceId, getActiveWeddingNodeId }) => {
+-      const session = getActiveSession();
+-      const spaceId = getActiveSpaceId();
+-      const weddingNodeId = getActiveWeddingNodeId();
++  useEffect(() => {
++    if (disponibilite !== "attente-de-la-sync") return;
++    const minuteur = setTimeout(() => setEchecDe(cle), ATTENTE_MAX_DE_LA_SYNC_MS);
++    return () => clearTimeout(minuteur);
++  }, [disponibilite, cle]);
+ 
+-      if (!session || !spaceId || !weddingNodeId) return;
++  useEffect(() => {
++    if (disponibilite !== "pret" || !guestId || url) return;
++    const session = getActiveSession();
++    const spaceId = getActiveSpaceId();
++    const weddingNodeId = getActiveWeddingNodeId();
++    if (!session || !spaceId || !weddingNodeId) return;
++    let annule = false;
++
++    (async () => {
++      try {
++        const { guests, households } = useGuestsStore.getState();
++        // Invitation labels are seeded with the members: the public form cannot
++        // resolve an invitation-type id (see RsvpMember.invitationLabel).
++        const invitationLabels = Object.fromEntries(
++          useInvitationTypesStore.getState().invitationTypes.map((it) => [it.id, it.label]),
++        );
++        const { household, members } = resolveHousehold(households, guests, guestId);
++        if (members.length === 0) throw new Error("guest not found");
++        const link = await getHouseholdInviteLink(
++          session, spaceId, weddingNodeId, household?.id ?? guestId, householdName(household, members),
++          household?.id ?? null, members, invitationLabels,
++        );
++        if (!annule) setLien({ guestId, url: link });
++      } catch (err) {
++        console.warn("[rsvp] link not prepared:", err);
++        if (!annule) setEchecDe(cle);
++      }
++    })();
  
 -      const guests = useGuestsStore.getState().guests;
 -      const guest = guests.find((g) => g.id === guestId);
@@ -702,30 +848,34 @@ index cddd4dc..64ba078 100644
 -      const lastName = guest?.lastName ?? null;
 -      const allGuests = useGuestsStore.getState().guests;
 -      const companion = guest?.companionId ? allGuests.find((g) => g.id === guest.companionId) : null;
-+      const { guests, households } = useGuestsStore.getState();
-+      // Invitation labels are seeded with the members: the public form cannot
-+      // resolve an invitation-type id (see RsvpMember.invitationLabel).
-+      const invitationLabels = Object.fromEntries(
-+        useInvitationTypesStore.getState().invitationTypes.map((it) => [it.id, it.label]),
-+      );
-+      const { household, members } = resolveHousehold(households, guests, guestId);
-+      if (members.length === 0) return;
-+      const recipientId = household?.id ?? guestId;
-+      const label = householdName(household, members);
- 
-       (async () => {
-         try {
+-
+-      (async () => {
+-        try {
 -          const link = await getGuestInviteLink(
 -            session, spaceId, weddingNodeId, guestId, guestName,
 -            firstName, lastName,
 -            companion?.id ?? null, companion?.firstName ?? null, companion?.lastName ?? null,
-+          const link = await getHouseholdInviteLink(
-+            session, spaceId, weddingNodeId, recipientId, label,
-+            household?.id ?? null, members, invitationLabels,
-           );
-           if (!cancelled) setUrl(link);
-         } catch {
-@@ -108,24 +105,24 @@ export function useGuestRsvpUrl(
+-          );
+-          if (!cancelled) setUrl(link);
+-        } catch {
+-          // Session not ready — link minting deferred
+-        }
+-      })();
+-    }).catch(() => {});
+-
+-    return () => { cancelled = true; };
+-  }, [guestId, activeEntry?.seedPhrase]);
+-
+-  return url;
++    return () => { annule = true; };
++  }, [disponibilite, guestId, url, cle]);
++
++  const reessayer = useCallback(() => setEssai((n) => n + 1), []);
++
++  return { url, etat: etatDuBoutonRsvp({ url, disponibilite, echec }), reessayer };
+ }
+ 
+ // ---------------------------------------------------------------------------
  // RSVP ObjectNode management (owner-side)
  // ---------------------------------------------------------------------------
  
@@ -757,7 +907,7 @@ index cddd4dc..64ba078 100644
  
    await withIndexLock(spaceId, () => updateObjectIndex(session, spaceId, (nodes, now) => {
      const exists = nodes.some((n) => n.id === nodeId);
-@@ -149,20 +146,21 @@ export async function ensureRsvpNode(
+@@ -149,20 +187,21 @@ export async function ensureRsvpNode(
  }
  
  /**
@@ -788,7 +938,7 @@ index cddd4dc..64ba078 100644
  ): Promise<void> {
    const handle = await getNodeAccess(
      spaceId,
-@@ -171,57 +169,59 @@ export async function seedRsvpNodeContent(
+@@ -171,57 +210,59 @@ export async function seedRsvpNodeContent(
      session,
      null,
    );
@@ -880,7 +1030,7 @@ index cddd4dc..64ba078 100644
  
    // Mint page-read token (read-only).
    const { token: pageToken } = await createNodeInviteLink(
-@@ -239,7 +239,7 @@ export async function getGuestInviteLink(
+@@ -239,7 +280,7 @@ export async function getGuestInviteLink(
      session,
      spaceId,
      nodeId,
@@ -889,7 +1039,7 @@ index cddd4dc..64ba078 100644
      { enc: false },
      true, // write-capable
      origin,
-@@ -249,12 +249,12 @@ export async function getGuestInviteLink(
+@@ -249,12 +290,12 @@ export async function getGuestInviteLink(
  }
  
  // ---------------------------------------------------------------------------
@@ -905,7 +1055,7 @@ index cddd4dc..64ba078 100644
   *
   * Idempotent w.r.t. local edits: a submission is only applied when it is strictly newer
   * than the guest's current `rsvpDate`. Without this guard, this function re-runs on every
-@@ -263,43 +263,20 @@ export async function getGuestInviteLink(
+@@ -263,43 +304,20 @@ export async function getGuestInviteLink(
   * with the (now stale) public-page submission — then re-push the reverted value via
   * updateGuest's notifySync(), clobbering the edit on the server too.
   */

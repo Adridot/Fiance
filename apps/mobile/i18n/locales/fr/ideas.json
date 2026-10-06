@@ -11,6 +11,8 @@
     "OTHER": "Autre inspiration"
   },
   "searchIdea": "Rechercher une idée...",
+  "favoritesOnly": "Favoris uniquement",
+  "favorite": "Favori",
   "all": "Toutes",
   "noIdeas": "Aucune idée",
   "addFirstIdea": "Ajoutez vos premières inspirations",
@@ -22,6 +24,8 @@
   "sourceUrl": "URL source",
   "links": "Liens",
   "addLink": "Ajouter un lien",
+  "openLink": "Ouvrir le lien",
+  "removeLink": "Retirer le lien",
   "linkPlaceholder": "https://...",
   "linkCount_one": "{{count}} lien",
   "linkCount_other": "{{count}} liens",

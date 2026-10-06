@@ -230,10 +230,10 @@ index 0000000..ed837e3
 +});
 diff --git a/apps/mobile/__tests__/acces-chiffre-sync.test.ts b/apps/mobile/__tests__/acces-chiffre-sync.test.ts
 new file mode 100644
-index 0000000..cabc976
+index 0000000..604c886
 --- /dev/null
 +++ b/apps/mobile/__tests__/acces-chiffre-sync.test.ts
-@@ -0,0 +1,211 @@
+@@ -0,0 +1,249 @@
 +/**
 + * L'échec de déchiffrement remonte depuis `hydrateFromSpace` au lieu d'être avalé.
 + *
@@ -443,6 +443,44 @@ index 0000000..cabc976
 +    await hydrateFromSpace(SESSION as never, "sp-1", "node-A");
 +
 +    expect(useAccesChiffreStore.getState().illisibles).toEqual({});
++  });
++});
++
++describe("hydrateFromSpace — collections restées sur une époque ancienne", () => {
++  beforeEach(() => {
++    vi.resetModules();
++    mockArbre = SENTINELLES;
++    mockKeyring = KEYRING_EMMA;
++    mockDechiffrerLeve = () => false;
++  });
++
++  it("relève ce qui est scellé sous une époque antérieure à la courante", async () => {
++    mockEntrees = [
++      { hash: "h", data: { _encrypted: "…", _epoch: 1, items: {}, rev: {}, tombstones: {} } },
++      { hash: "h", data: { _encrypted: "…", _epoch: 2, items: {}, rev: {}, tombstones: {} } },
++      { hash: "", data: null },
++    ];
++    await hydrater();
++    const { collectionsSurUneÉpoqueAncienne } = await import("@/lib/space-sync");
++    expect(collectionsSurUneÉpoqueAncienne()).toEqual(["guest"]);
++  });
++
++  it("keyring illisible : rien n'est relevé", async () => {
++    mockKeyring = null;
++    mockEntrees = [
++      { hash: "h", data: { _encrypted: "…", _epoch: 1, items: {}, rev: {}, tombstones: {} } },
++      { hash: "h", data: { _encrypted: "…", _epoch: 1, items: {}, rev: {}, tombstones: {} } },
++      { hash: "h", data: { _encrypted: "…", _epoch: 1, items: {}, rev: {}, tombstones: {} } },
++    ];
++    await hydrater();
++    const { collectionsSurUneÉpoqueAncienne } = await import("@/lib/space-sync");
++    expect(collectionsSurUneÉpoqueAncienne()).toEqual([]);
++  });
++
++  it("collectionsEnRetardDEpoque : seule une époque connue et antérieure compte", async () => {
++    const { collectionsEnRetardDEpoque } = await import("@/lib/acces-chiffre");
++    expect(collectionsEnRetardDEpoque({ guest: 3, vendor: 4, table: null }, 4)).toEqual(["guest"]);
++    expect(collectionsEnRetardDEpoque({ guest: 3 }, null)).toEqual([]);
 +  });
 +});
 diff --git a/apps/mobile/__tests__/acces-chiffre.test.ts b/apps/mobile/__tests__/acces-chiffre.test.ts
@@ -1117,10 +1155,10 @@ index 0000000..be7405c
 +});
 diff --git a/apps/mobile/__tests__/rescellement.test.ts b/apps/mobile/__tests__/rescellement.test.ts
 new file mode 100644
-index 0000000..3a9346a
+index 0000000..8d80b46
 --- /dev/null
 +++ b/apps/mobile/__tests__/rescellement.test.ts
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,223 @@
 +/**
 + * Le rescellement d'un espace côté application.
 + *
@@ -1142,6 +1180,10 @@ index 0000000..3a9346a
 +const mockPoussees: { nodeId: string; contenu: unknown }[] = [];
 +/** Les nœuds dont la première poussée lève un conflit — le mutateur doit être rappelé. */
 +let mockConflitUneFois: Set<string> = new Set();
++/** Les nœuds dont la première poussée prend le chemin rapide : mutateur à `null`, rien d'écrit. */
++let mockCheminRapideUneFois: Set<string> = new Set();
++/** Les nœuds dont la lecture échoue. */
++let mockLectureEnEchec: Set<string> = new Set();
 +
 +vi.mock("@fiance/sdk", () => ({
 +  readObjectTree: async () => mockArbre,
@@ -1152,6 +1194,7 @@ index 0000000..3a9346a
 +    client: {
 +      pull: async (chemin: string) => {
 +        if (chemin.includes("_keyring")) return { hash: "k", data: mockKeyring };
++        if (mockLectureEnEchec.has(nodeId)) throw new Error("réseau");
 +        return mockDocs[nodeId] ?? { hash: "", data: {} };
 +      },
 +      push: vi.fn(),
@@ -1162,6 +1205,11 @@ index 0000000..3a9346a
 +      mutateur: (cur: Record<string, unknown> | null) => Record<string, unknown> | null,
 +    ) => {
 +      if (mockPoussEnEchec.has(nodeId)) throw new Error("403");
++      if (mockCheminRapideUneFois.has(nodeId)) {
++        mockCheminRapideUneFois.delete(nodeId);
++        mutateur(null);
++        return;
++      }
 +      if (mockConflitUneFois.has(nodeId)) {
 +        // Premier essai au hash périmé : `runCas` relit et rappelle le mutateur.
 +        mockConflitUneFois.delete(nodeId);
@@ -1194,6 +1242,8 @@ index 0000000..3a9346a
 +    mockPoussees.length = 0;
 +    mockPoussEnEchec = new Set();
 +    mockConflitUneFois = new Set();
++    mockCheminRapideUneFois = new Set();
++    mockLectureEnEchec = new Set();
 +    mockKeyring = KEYRING;
 +    mockArbre = [noeud("guest"), noeud("vendor"), noeud("household")];
 +    mockDocs = {
@@ -1280,6 +1330,47 @@ index 0000000..3a9346a
 +    const r = await rescellerEspace(SESSION, "sp-1");
 +
 +    expect([...r.rescellees, ...r.dejaAJour, ...r.restant]).not.toContain("publicPage");
++  });
++
++  it("une écriture sautée par le chemin rapide n'est pas comptée à jour : elle est refaite", async () => {
++    mockCheminRapideUneFois = new Set(["col:guest:node-A"]);
++    const { rescellerEspace, rescellementComplet } = await import("@/lib/rescellement");
++    const r = await rescellerEspace(SESSION, "sp-1");
++
++    expect(r.rescellees.sort()).toEqual(["guest", "vendor"]);
++    expect(r.restant).toEqual([]);
++    expect(rescellementComplet(r)).toBe(true);
++    expect(mockDocs["col:guest:node-A"].data?._epoch).toBe(2);
++  });
++
++  it("deux passes sautées : la collection est nommée comme restante, jamais comme à jour", async () => {
++    mockPoussEnEchec = new Set(["col:guest:node-A"]);
++    const { rescellerEspace, rescellementComplet } = await import("@/lib/rescellement");
++    const r = await rescellerEspace(SESSION, "sp-1");
++
++    expect(r.dejaAJour).not.toContain("guest");
++    expect(r.rescellees).not.toContain("guest");
++    expect(r.restant).toEqual(["guest"]);
++    expect(rescellementComplet(r)).toBe(false);
++  });
++
++  it("neutralise les caches juste avant CHAQUE écriture", async () => {
++    const { neutraliserCachesDePoussée } = await import("@/lib/space-sync");
++    const { rescellerEspace } = await import("@/lib/rescellement");
++    await rescellerEspace(SESSION, "sp-1");
++
++    const appels = (neutraliserCachesDePoussée as unknown as { mock: { calls: unknown[][] } }).mock.calls;
++    expect(appels).toContainEqual(["sp-1", ["col:guest:node-A"]]);
++    expect(appels).toContainEqual(["sp-1", ["col:vendor:node-A"]]);
++  });
++
++  it("un relevé en échec n'écrit rien et nomme la collection", async () => {
++    mockLectureEnEchec = new Set(["col:vendor:node-A"]);
++    const { rescellerEspace } = await import("@/lib/rescellement");
++    const r = await rescellerEspace(SESSION, "sp-1");
++
++    expect(mockPoussees.map((p) => p.nodeId)).toEqual(["col:guest:node-A"]);
++    expect(r.restant).toEqual(["vendor"]);
 +  });
 +
 +  it("rend l'avancement, du premier au dernier", async () => {
@@ -1697,7 +1788,7 @@ index 0000000..10f5fbb
 +  );
 +}
 diff --git a/apps/mobile/i18n/locales/en/common.json b/apps/mobile/i18n/locales/en/common.json
-index 6ee5786..603ff6e 100644
+index 6ee5786..86e0ef1 100644
 --- a/apps/mobile/i18n/locales/en/common.json
 +++ b/apps/mobile/i18n/locales/en/common.json
 @@ -71,7 +71,26 @@
@@ -1728,7 +1819,7 @@ index 6ee5786..603ff6e 100644
    },
    "join": {
      "newWedding": "New wedding",
-@@ -85,7 +104,36 @@
+@@ -85,7 +104,50 @@
      "postit": "codes expire fast — for safety 🌿",
      "inviteEyebrow": "Invitation",
      "joinThisWedding": "Join this wedding?",
@@ -1762,11 +1853,25 @@ index 6ee5786..603ff6e 100644
 +    "boutonRejoindre": "Join the wedding",
 +    "creationEnCours": "Creating your account…",
 +    "jonctionEnCours": "Opening the wedding…",
-+    "reessayer": "Try again"
++    "reessayer": "Try again",
++    "renouvelerTitre": "Renew your access",
++    "renouvelerDetail": "This device already has “{{name}}”. This link replaces its old access; your data stays as it is.",
++    "renouvelerDetailSansNom": "This device already has this wedding. This link replaces its old access; your data stays as it is.",
++    "renouvelerBouton": "Renew my access",
++    "renouvellementEnCours": "Renewing access…",
++    "accesRenouvele": "Access renewed",
++    "accesRenouveleDetail": "“{{name}}” is available on this device again.",
++    "accesRenouveleDetailSansNom": "The wedding is available on this device again."
++  },
++  "accesRefuse": {
++    "titre": "Your access to this wedding has expired.",
++    "detail": "It will be renewed automatically as soon as the couple opens the app; you can also ask them for a new link.",
++    "titreInvalide": "Your access to this wedding is no longer valid.",
++    "detailInvalide": "Ask the couple to send you a new invitation link, then open it on this device."
    },
    "homeEyebrow": "Wedding",
    "homeTagline": "days",
-@@ -101,5 +149,50 @@
+@@ -101,5 +163,50 @@
    "quota": {
      "badge": "{{count}} / {{limit}}",
      "badgeLabel": "{{count}} of {{limit}} used on the free plan"
@@ -1818,7 +1923,7 @@ index 6ee5786..603ff6e 100644
    }
  }
 diff --git a/apps/mobile/i18n/locales/fr/common.json b/apps/mobile/i18n/locales/fr/common.json
-index c4cae3d..d9f6064 100644
+index c4cae3d..c54d0e4 100644
 --- a/apps/mobile/i18n/locales/fr/common.json
 +++ b/apps/mobile/i18n/locales/fr/common.json
 @@ -71,7 +71,26 @@
@@ -1849,7 +1954,7 @@ index c4cae3d..d9f6064 100644
    },
    "join": {
      "newWedding": "Nouveau mariage",
-@@ -85,7 +104,36 @@
+@@ -85,7 +104,50 @@
      "postit": "les codes expirent vite — par sécurité 🌿",
      "inviteEyebrow": "Invitation",
      "joinThisWedding": "Rejoindre ce mariage ?",
@@ -1883,11 +1988,25 @@ index c4cae3d..d9f6064 100644
 +    "boutonRejoindre": "Rejoindre le mariage",
 +    "creationEnCours": "Création de votre compte…",
 +    "jonctionEnCours": "Ouverture du mariage…",
-+    "reessayer": "Réessayer"
++    "reessayer": "Réessayer",
++    "renouvelerTitre": "Renouveler votre accès",
++    "renouvelerDetail": "Cet appareil a déjà « {{name}} ». Ce lien remplace son ancien accès ; vos données ne changent pas.",
++    "renouvelerDetailSansNom": "Cet appareil a déjà ce mariage. Ce lien remplace son ancien accès ; vos données ne changent pas.",
++    "renouvelerBouton": "Renouveler mon accès",
++    "renouvellementEnCours": "Renouvellement de l'accès…",
++    "accesRenouvele": "Accès renouvelé",
++    "accesRenouveleDetail": "« {{name}} » est de nouveau accessible sur cet appareil.",
++    "accesRenouveleDetailSansNom": "Le mariage est de nouveau accessible sur cet appareil."
++  },
++  "accesRefuse": {
++    "titre": "Votre accès à ce mariage a expiré.",
++    "detail": "Il sera renouvelé automatiquement dès que les mariés ouvriront l'application ; vous pouvez aussi leur demander un nouveau lien.",
++    "titreInvalide": "Votre accès à ce mariage n'est plus valide.",
++    "detailInvalide": "Demandez aux mariés de vous renvoyer un lien d'invitation, puis ouvrez-le sur cet appareil."
    },
    "homeEyebrow": "Mariage",
    "homeTagline": "jours",
-@@ -101,5 +149,50 @@
+@@ -101,5 +163,50 @@
    "quota": {
      "badge": "{{count}} / {{limit}}",
      "badgeLabel": "{{count}} sur {{limit}} utilisés dans l'offre gratuite"
@@ -1940,10 +2059,10 @@ index c4cae3d..d9f6064 100644
  }
 diff --git a/apps/mobile/lib/acces-chiffre.ts b/apps/mobile/lib/acces-chiffre.ts
 new file mode 100644
-index 0000000..518da19
+index 0000000..2431bc7
 --- /dev/null
 +++ b/apps/mobile/lib/acces-chiffre.ts
-@@ -0,0 +1,199 @@
+@@ -0,0 +1,220 @@
 +/**
 + * Ce qu'un appareil peut déchiffrer, et pourquoi une lecture a échoué.
 + *
@@ -2083,17 +2202,38 @@ index 0000000..518da19
 +  client: ClientDePull,
 +  entreeDAcces?: { kind?: string; kemPub?: string } | null,
 +): Promise<Set<number> | null> {
++  return (await lireLeKeyringDeLEspace(session, spaceId, client, entreeDAcces)).detenues;
++}
++
++/** MODIFICATION LOCALE — les époques détenues ET l'époque courante, d'une seule lecture. */
++export async function lireLeKeyringDeLEspace(
++  session: SessionMinimale,
++  spaceId: string,
++  client: ClientDePull,
++  entreeDAcces?: { kind?: string; kemPub?: string } | null,
++): Promise<{ detenues: Set<number> | null; courante: number | null }> {
 +  try {
 +    const kemPub =
 +      entreeDAcces?.kind === "link" && entreeDAcces.kemPub ? entreeDAcces.kemPub : session.keys.kemPub;
 +    const res = await client.pull(session.layout.keyringPull(spaceId));
 +    const keyring = res?.data;
-+    if (!keyring) return null;
++    if (!keyring) return { detenues: null, courante: null };
 +    const detenues = epoquesDetenues(keyring, kemPub);
-+    return detenues.size ? detenues : null;
++    return { detenues: detenues.size ? detenues : null, courante: epoqueCourante(keyring) };
 +  } catch {
-+    return null;
++    return { detenues: null, courante: null };
 +  }
++}
++
++/** Les collections scellées sous une époque antérieure à la courante : à resceller. */
++export function collectionsEnRetardDEpoque(
++  epoquesLues: Readonly<Record<string, number | null>>,
++  courante: number | null,
++): string[] {
++  if (courante === null) return [];
++  return Object.entries(epoquesLues)
++    .filter(([, epoque]) => epoque !== null && epoque < courante)
++    .map(([collection]) => collection);
 +}
 +
 +/**
@@ -2145,10 +2285,10 @@ index 0000000..518da19
 +}
 diff --git a/apps/mobile/lib/invitation-courte.ts b/apps/mobile/lib/invitation-courte.ts
 new file mode 100644
-index 0000000..876a038
+index 0000000..1d81f20
 --- /dev/null
 +++ b/apps/mobile/lib/invitation-courte.ts
-@@ -0,0 +1,309 @@
+@@ -0,0 +1,325 @@
 +/**
 + * Le lien d'invitation court : dépôt chiffré, clé dans le fragment.
 + *
@@ -2291,6 +2431,17 @@ index 0000000..876a038
 +  };
 +}
 +
++/** Chiffre un clair sous une clé déjà connue (base64url, 32 octets). */
++export async function chiffrerSousLaCle(clair: string, cleBase64Url: string): Promise<DepotChiffre> {
++  const c = crypto();
++  const brute = decoderBase64Url(cleBase64Url);
++  if (brute.length !== OCTETS_DE_CLE) throw new Error("clé de longueur inattendue");
++  const iv = c.getRandomValues(new Uint8Array(OCTETS_D_IV));
++  const cle = await c.subtle.importKey("raw", brute, "AES-GCM", false, ["encrypt"]);
++  const chiffré = await c.subtle.encrypt({ name: "AES-GCM", iv }, cle, new TextEncoder().encode(clair));
++  return { iv: encoderBase64Url(iv), ct: encoderBase64Url(new Uint8Array(chiffré)) };
++}
++
 +/**
 + * Déchiffre un dépôt sous la clé du fragment.
 + *
@@ -2402,6 +2553,11 @@ index 0000000..876a038
 +  if (!rép.ok) throw new InvitationCourteError("reseau", `${action} refusé — HTTP ${rép.status}`);
 +}
 +
++/** Dépose en remplaçant un dépôt déjà présent au même code, même expiré. */
++export async function deposerEnCAS(syncBase: string, code: string, depot: DepotChiffre): Promise<void> {
++  await ecrireEnCAS(syncBase, code, depot, "dépôt");
++}
++
 +/** Retire un dépôt avant son terme. Un dépôt vidé se lit comme un dépôt absent. */
 +export async function retirer(syncBase: string, code: string): Promise<void> {
 +  await ecrireEnCAS(syncBase, code, {}, "retrait");
@@ -2459,10 +2615,10 @@ index 0000000..876a038
 +  }
 +}
 diff --git a/apps/mobile/lib/permissions/revoke.ts b/apps/mobile/lib/permissions/revoke.ts
-index 7a15f84..a474b63 100644
+index 7a15f84..626cd0b 100644
 --- a/apps/mobile/lib/permissions/revoke.ts
 +++ b/apps/mobile/lib/permissions/revoke.ts
-@@ -1,14 +1,29 @@
+@@ -1,14 +1,21 @@
  /**
 - * Collaborator revocation (owner side).
 + * Révocation d'un collaborateur (côté propriétaire).
@@ -2470,24 +2626,16 @@ index 7a15f84..a474b63 100644
 - * True eviction = keyring rotation (evicted member can no longer decrypt new content) +
 - * roster removal (server denies `space:member`, so every collection 403s for future reads/
 - * writes). Revoking one subject evicts ONLY that subject — other links/members keep access.
-+ * MODIFICATION LOCALE — l'en-tête d'amont affirmait que le retrait du registre
-+ * coupe l'accès serveur, « every object collection requires the roster
-+ * `space:member` role ». C'est FAUX sur ce déploiement : `spaceDoc` de
-+ * `fiance-sync/src/collections.mjs` déclare
-+ * `readRoles: ["space:member", "cap:read:objdoc"]`, donc un porteur de cap lit
-+ * sans figurer dans `_access` — c'est exactement ainsi que le robot `fiance-db`
-+ * travaille. Et `createInMemoryRevocationStore` perd sa liste à chaque
-+ * redémarrage du conteneur, tandis que `submitRevocation` n'écrit que dans le
-+ * registre local.
++ * MODIFICATION LOCALE — un cap de lien ne porte que `collections: ["content"]`, jamais `cap:read:objdoc` :
++ * sa lecture passe par `space:member`, donc le retrait de `_access` coupe bien l'accès serveur.
++ * La `RevocationList`, elle, n'atteint pas le serveur (`submitRevocation` n'écrit que dans le registre
++ * local). Rotation et rescellement sont la défense en profondeur : ce qui serait lu hors de `_access`
++ * ne s'ouvre plus avec les clés du lien évincé. D'où l'ordre ci-dessous :
   *
 - * `submitRevocation` is local: the dk server has no RevocationList endpoint, and it isn't
 - * needed here — every object collection requires the roster `space:member` role, which the
 - * roster drop removes. We still persist the RevocationList (generation + cumulative entries)
 - * so a future server endpoint can consume it.
-+ * La rotation du keyring est donc le SEUL levier réel — et une rotation qui ne
-+ * rescelle rien ne révoque rien : le lien évincé continue d'ouvrir tout le
-+ * contenu déjà écrit. D'où l'ordre ci-dessous, dont l'étape 4 est nouvelle :
-+ *
 + *   1. retirer l'assignation + pousser  ← le révoqué, encore dans l'époque
 + *                                         courante, déchiffre son propre retrait
 + *   2. faire tourner le keyring         ← il perd l'époque suivante
@@ -2500,7 +2648,7 @@ index 7a15f84..a474b63 100644
   */
  
  import {
-@@ -18,19 +33,53 @@ import {
+@@ -18,19 +25,53 @@ import {
  } from "@fiance/sdk";
  import { getActiveSession, getActiveSpaceId } from "@/lib/starfish";
  import { pushSpaceSnapshot } from "@/lib/space-sync";
@@ -2555,7 +2703,7 @@ index 7a15f84..a474b63 100644
  ): Promise<RevokeResult> {
    const permStore = usePermissionsStore.getState();
    const regStore = useWeddingRegistryStore.getState();
-@@ -79,10 +128,10 @@ export async function revokeCollaborator(
+@@ -79,10 +120,10 @@ export async function revokeCollaborator(
          });
        },
      });
@@ -2564,12 +2712,12 @@ index 7a15f84..a474b63 100644
 -    // No stored invite entry (link minted on another device) — roster drop still cuts server
 -    // access, since every object collection requires the roster space:member role.
 +    // Aucune entrée d'invitation en magasin (lien minté sur un autre appareil).
-+    // Le retrait du registre est alors tout ce qui reste — et il ne coupe PAS
-+    // l'accès serveur ici (voir l'en-tête). L'éviction n'est donc pas accomplie.
++    // Le retrait du registre coupe l'accès serveur, mais sans rotation ni
++    // rescellement l'éviction n'est pas accomplie (voir l'en-tête).
      console.warn("[revoke] revokeSpaceAccess failed; falling back to removeSpaceMember", err);
      try {
        await removeSpaceMember(session.accountClient, spaceId, subjectUserId, session);
-@@ -91,4 +140,17 @@ export async function revokeCollaborator(
+@@ -91,4 +132,17 @@ export async function revokeCollaborator(
      }
      return { evicted: false };
    }
@@ -2630,10 +2778,10 @@ index 01606b5..7ff990a 100644
  
 diff --git a/apps/mobile/lib/rescellement.ts b/apps/mobile/lib/rescellement.ts
 new file mode 100644
-index 0000000..afc1707
+index 0000000..923d74f
 --- /dev/null
 +++ b/apps/mobile/lib/rescellement.ts
-@@ -0,0 +1,151 @@
+@@ -0,0 +1,185 @@
 +/**
 + * Resceller le contenu d'un espace sous l'époque courante du keyring.
 + *
@@ -2709,11 +2857,57 @@ index 0000000..afc1707
 +  }
 +}
 +
++/** Écrire, vérifier, recommencer une fois : une écriture concurrente peut faire sauter la première. */
++const PASSES_D_ECRITURE = 2;
++
++interface Releve {
++  aJour: ObjectNode[];
++  enRetard: ObjectNode[];
++  /** Lecture en échec : rien n'est prouvé, donc rien n'est fait. */
++  enEchec: ObjectNode[];
++}
++
++/** L'époque de chaque document, lue sur le serveur. Un document absent n'a rien à resceller. */
++async function relever(
++  session: Session,
++  spaceId: string,
++  noeuds: ObjectNode[],
++  epoque: number,
++): Promise<Releve> {
++  const etats = await Promise.all(
++    noeuds.map(async (noeud) => {
++      try {
++        const handle = await getNodeAccess(spaceId, noeud.id, noeud, session, null);
++        const res = (await handle.client.pull(objDocPull(spaceId, noeud.id))) as
++          | { hash?: string; data?: Record<string, unknown> | null }
++          | null;
++        // Un document absent se lit `{hash:"",data:{}}`, jamais un 404.
++        const vide = !res?.hash || !res.data || Object.keys(res.data).length === 0;
++        if (vide) return "absent" as const;
++        return epoqueDeLEnveloppe(res.data) === epoque ? ("a-jour" as const) : ("en-retard" as const);
++      } catch {
++        return "en-echec" as const;
++      }
++    }),
++  );
++  const releve: Releve = { aJour: [], enRetard: [], enEchec: [] };
++  etats.forEach((etat, i) => {
++    if (etat === "a-jour") releve.aJour.push(noeuds[i]);
++    else if (etat === "en-retard") releve.enRetard.push(noeuds[i]);
++    else if (etat === "en-echec") releve.enEchec.push(noeuds[i]);
++  });
++  return releve;
++}
++
 +/**
 + * Rescelle tout le contenu chiffré de l'espace sous l'époque courante.
 + *
 + * Ce qui est déjà à l'époque courante est sauté sans aucune écriture :
 + * l'opération est rejouable, et la relancer sur un espace à jour est sans effet.
++ *
++ * MODIFICATION LOCALE — le résultat dit ce que le SERVEUR détient, relu après
++ * écriture. Le chemin rapide de `handle.push` rend `cur = null` dès qu'un cache
++ * connaît le hash : rien n'était écrit, et c'était compté « déjà à jour ».
 + */
 +export async function rescellerEspace(
 +  session: Session,
@@ -2735,53 +2929,41 @@ index 0000000..afc1707
 +
 +  // Relevé d'abord, écritures ensuite : on ne pousse rien tant qu'on ne sait pas
 +  // ce qu'il y a à pousser, et l'avancement affiché porte sur un total connu.
-+  const enRetard: ObjectNode[] = [];
-+  for (const noeud of chiffres) {
-+    try {
-+      const handle = await getNodeAccess(spaceId, noeud.id, noeud, session, null);
-+      const res = (await handle.client.pull(objDocPull(spaceId, noeud.id))) as
-+        | { hash?: string; data?: Record<string, unknown> | null }
-+        | null;
-+      // Un document absent se lit `{hash:"",data:{}}`, jamais un 404.
-+      const vide = !res?.hash || !res.data || Object.keys(res.data).length === 0;
-+      if (vide) continue;
-+      if (epoqueDeLEnveloppe(res.data) === epoque) { resultat.dejaAJour.push(noeud.type); continue; }
-+      enRetard.push(noeud);
-+    } catch {
-+      resultat.restant.push(noeud.type);
-+    }
-+  }
++  const releve = await relever(session, spaceId, chiffres, epoque);
++  resultat.dejaAJour.push(...releve.aJour.map((n) => n.type));
++  resultat.restant.push(...releve.enEchec.map((n) => n.type));
 +
-+  if (!enRetard.length) return resultat;
-+
-+  // Sans ce vidage, `handle.push` prend son chemin cache-chaud, appelle le
-+  // mutateur avec `cur = null`, qui rend `null` — et le rescellement devient un
-+  // non-événement silencieux.
-+  neutraliserCachesDePoussée(spaceId, enRetard.map((n) => n.id));
-+
++  let aEcrire = releve.enRetard;
++  const total = aEcrire.length;
 +  let fait = 0;
-+  for (const noeud of enRetard) {
-+    options.onAvancement?.({ collection: noeud.type, fait, total: enRetard.length });
-+    try {
-+      const handle = await getNodeAccess(spaceId, noeud.id, noeud, session, null);
-+      let ecrit = false;
-+      await handle.push(
-+        objDocPull(spaceId, noeud.id),
-+        objDocPush(spaceId, noeud.id),
-+        // Le contenu repart tel quel ; seule l'enveloppe change d'époque. En cas
-+        // de conflit, `runCas` relit avant de rappeler ce mutateur — sans quoi
-+        // on réémettrait une version périmée sous une époque neuve.
-+        (cur) => { ecrit = cur !== null; return cur; },
-+      );
-+      if (ecrit) resultat.rescellees.push(noeud.type);
-+      else resultat.dejaAJour.push(noeud.type);
-+    } catch (err) {
-+      console.warn(`[rescellement] ${noeud.type} :`, err instanceof Error ? err.message : String(err));
-+      resultat.restant.push(noeud.type);
++  for (let passe = 0; passe < PASSES_D_ECRITURE && aEcrire.length; passe++) {
++    for (const noeud of aEcrire) {
++      if (passe === 0) options.onAvancement?.({ collection: noeud.type, fait, total });
++      // Juste avant CHAQUE écriture : sans ce vidage, le chemin rapide saute l'écriture.
++      neutraliserCachesDePoussée(spaceId, [noeud.id]);
++      try {
++        const handle = await getNodeAccess(spaceId, noeud.id, noeud, session, null);
++        await handle.push(
++          objDocPull(spaceId, noeud.id),
++          objDocPush(spaceId, noeud.id),
++          // Le contenu repart tel quel ; seule l'enveloppe change d'époque. En cas
++          // de conflit, `runCas` relit avant de rappeler ce mutateur — sans quoi
++          // on réémettrait une version périmée sous une époque neuve.
++          (cur) => cur,
++        );
++      } catch (err) {
++        console.warn(`[rescellement] ${noeud.type} :`, err instanceof Error ? err.message : String(err));
++      }
++      if (passe === 0) {
++        fait += 1;
++        options.onAvancement?.({ collection: noeud.type, fait, total });
++      }
 +    }
-+    fait += 1;
-+    options.onAvancement?.({ collection: noeud.type, fait, total: enRetard.length });
++    const verification = await relever(session, spaceId, aEcrire, epoque);
++    resultat.rescellees.push(...verification.aJour.map((n) => n.type));
++    aEcrire = [...verification.enRetard, ...verification.enEchec];
 +  }
++  resultat.restant.push(...aEcrire.map((n) => n.type));
 +
 +  return resultat;
 +}
@@ -2976,10 +3158,10 @@ index 0000000..faa77e1
 +  return Object.keys(useAccesChiffreStore.getState().illisibles).length > 0;
 +}
 diff --git a/apps/mobile/i18n/locales/fr/settings.json b/apps/mobile/i18n/locales/fr/settings.json
-index 6ff40e4..33dae6b 100644
+index 6ff40e4..7708700 100644
 --- a/apps/mobile/i18n/locales/fr/settings.json
 +++ b/apps/mobile/i18n/locales/fr/settings.json
-@@ -307,7 +310,7 @@
+@@ -307,7 +311,7 @@
    "noCollaborators": "Aucun collaborateur invité pour l'instant.",
    "unknownRole": "Rôle inconnu",
    "removeCollaboratorTitle": "Retirer le collaborateur",
@@ -2989,10 +3171,10 @@ index 6ff40e4..33dae6b 100644
    "collaboratorRemoveError": "Le retrait a échoué. Régénérez le lien d'invitation pour couper l'accès.",
    "rolePickerEyebrow": "Invitation",
 diff --git a/apps/mobile/i18n/locales/fr/settings.json b/apps/mobile/i18n/locales/fr/settings.json
-index 6ff40e4..33dae6b 100644
+index 6ff40e4..7708700 100644
 --- a/apps/mobile/i18n/locales/fr/settings.json
 +++ b/apps/mobile/i18n/locales/fr/settings.json
-@@ -317,5 +320,64 @@
+@@ -317,5 +321,64 @@
    "inviteNamePlaceholder": "ex. Maman, Julie, wedding planner",
    "inviteNameRequired": "Indiquez un nom pour générer le lien",
    "roleFullAccess": "Accès complet",
@@ -3059,10 +3241,10 @@ index 6ff40e4..33dae6b 100644
 +  }
  }
 diff --git a/apps/mobile/i18n/locales/en/settings.json b/apps/mobile/i18n/locales/en/settings.json
-index 9d1e35f..615bd18 100644
+index 9d1e35f..8a7279f 100644
 --- a/apps/mobile/i18n/locales/en/settings.json
 +++ b/apps/mobile/i18n/locales/en/settings.json
-@@ -307,7 +310,7 @@
+@@ -307,7 +311,7 @@
    "noCollaborators": "No collaborators invited yet.",
    "unknownRole": "Unknown role",
    "removeCollaboratorTitle": "Remove collaborator",
@@ -3072,10 +3254,10 @@ index 9d1e35f..615bd18 100644
    "collaboratorRemoveError": "Removal failed. Regenerate the invite link to cut off access.",
    "rolePickerEyebrow": "Invitation",
 diff --git a/apps/mobile/i18n/locales/en/settings.json b/apps/mobile/i18n/locales/en/settings.json
-index 9d1e35f..615bd18 100644
+index 9d1e35f..8a7279f 100644
 --- a/apps/mobile/i18n/locales/en/settings.json
 +++ b/apps/mobile/i18n/locales/en/settings.json
-@@ -317,5 +320,64 @@
+@@ -317,5 +321,64 @@
    "inviteNamePlaceholder": "e.g. Mum, Julie, wedding planner",
    "inviteNameRequired": "Enter a name to generate the link",
    "roleFullAccess": "Full access",
@@ -3142,13 +3324,20 @@ index 9d1e35f..615bd18 100644
 +  }
  }
 diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
-index 8c90fdb..87dbc02 100644
+index 8c90fdb..25442bb 100644
 --- a/apps/mobile/lib/invite-link.ts
 +++ b/apps/mobile/lib/invite-link.ts
-@@ -47,6 +75,25 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
+@@ -45,13 +118,34 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
+   // Name the invite after the collaborator when provided, so it's identifiable in the
+   // invite store / roster; fall back to the wedding label.
    const collaboratorName = name?.trim() || undefined;
-   const { token, link, inviteUserId } = await createSpaceInviteLink(cfg.session, spaceId, collaboratorName ?? entry.label, canWrite, origin);
- 
+-  const { token, link, inviteUserId } = await createSpaceInviteLink(cfg.session, spaceId, collaboratorName ?? entry.label, canWrite, origin);
++  const { token, link, inviteUserId } = await reprendreSurConflit(() =>
++    createSpaceInviteLink(
++      cfg.session, spaceId, collaboratorName ?? entry.label, canWrite, origin, { ttlSec: DUREE_D_UN_ACCES_SEC },
++    ),
++  );
++
 +  // Le dépôt AVANT l'affectation et la poussée : s'il échoue, aucune affectation
 +  // orpheline n'est laissée par la tentative.
 +  const fragment = link.includes("#") ? link.slice(link.indexOf("#") + 1) : link;
@@ -3167,15 +3356,21 @@ index 8c90fdb..87dbc02 100644
 +      `Le lien n'a pas pu être déposé sur le serveur (${err instanceof Error ? err.message : String(err)}).`,
 +    );
 +  }
-+
+ 
    // Persist the (in-memory) invite store so this link's revocation handle survives an app
    // restart — revokeSpaceAccess needs getSpaceInviteEntry(spaceId, inviteUserId) to resolve.
-   try { writeCollection(SPACE_INVITE_STORE_KEY, serializeSpaceInviteStore()); } catch (err) {
+-  try { writeCollection(SPACE_INVITE_STORE_KEY, serializeSpaceInviteStore()); } catch (err) {
+-    console.warn("[invite] failed to persist space-invite store", err);
+-  }
++  persisterLeMagasinDInvitations();
+ 
+   if (role) {
+     const subjectUserId = inviteUserId ?? (token.cap as { subUserId?: string }).subUserId;
 diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
-index 8c90fdb..87dbc02 100644
+index 8c90fdb..25442bb 100644
 --- a/apps/mobile/lib/invite-link.ts
 +++ b/apps/mobile/lib/invite-link.ts
-@@ -96,5 +144,46 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
+@@ -96,5 +191,46 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
      console.warn("[invite] roster diagnostics failed", err);
    }
  
@@ -3224,10 +3419,10 @@ index 8c90fdb..87dbc02 100644
 +  } catch { /* la mémoire des codes est un confort, pas une garantie */ }
  }
 diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
-index 07ec918..f5ad5cb 100644
+index 07ec918..c386e80 100644
 --- a/apps/mobile/components/InviteQRSheet.tsx
 +++ b/apps/mobile/components/InviteQRSheet.tsx
-@@ -29,6 +62,8 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
+@@ -29,6 +63,8 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
    const [url, setUrl] = useState("");
    const [detail, setDetail] = useState("");
    const [name, setName] = useState("");
@@ -3237,10 +3432,10 @@ index 07ec918..f5ad5cb 100644
    const roleLabel = (r: RoleDefinition) => (r.isSystem ? t(r.name) : r.name);
    const surfaceLabel = (s: FeatureSurface) =>
 diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
-index 07ec918..f5ad5cb 100644
+index 07ec918..c386e80 100644
 --- a/apps/mobile/components/InviteQRSheet.tsx
 +++ b/apps/mobile/components/InviteQRSheet.tsx
-@@ -203,44 +320,141 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
+@@ -203,44 +321,141 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
  
          {state === "ready" && (
            <>
@@ -3413,10 +3608,10 @@ index 07ec918..f5ad5cb 100644
          )}
  
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..1a6bd26 100644
+index 0c9b4af..f094633 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -87,8 +94,52 @@ import { useCeremonyStore } from '@/store/useCeremonyStore';
+@@ -87,8 +96,61 @@ import { useCeremonyStore } from '@/store/useCeremonyStore';
  import { useSpeechesMusicStore } from '@/store/useSpeechesMusicStore';
  import { usePermissionsStore } from '@/store/usePermissionsStore';
  import { getActiveSession, getActiveSpaceId, getActiveWeddingNodeId } from '@/lib/starfish';
@@ -3465,16 +3660,25 @@ index 0c9b4af..1a6bd26 100644
 +  persistPermissionAssignments,
 +} from '@/lib/persistence';
 +// MODIFICATION LOCALE — un échec de déchiffrement cesse d'être un console.warn.
-+import { epoquesDetenuesDeLEspace, signalerLecture } from '@/lib/acces-chiffre';
++import {
++  collectionsEnRetardDEpoque,
++  epoqueDeLEnveloppe,
++  epoquesDetenuesDeLEspace,
++  lireLeKeyringDeLEspace,
++  signalerLecture,
++} from '@/lib/acces-chiffre';
 +import { collectionIllisible } from '@/store/useAccesChiffreStore';
++// MODIFICATION LOCALE — un refus du serveur n'est pas un espace vide.
++import { refusASignaler } from '@/lib/acces-refuse';
++import { useAccesRefuseStore } from '@/store/useAccesRefuseStore';
  
  // ---------------------------------------------------------------------------
  // Debounced push scheduler
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..1a6bd26 100644
+index 0c9b4af..f094633 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -393,6 +879,13 @@ async function pushCollectionDoc(
+@@ -393,6 +890,13 @@ async function pushCollectionDoc(
    merge: (cur: unknown, doc: CollectionDoc, now: number) => CollectionDoc = (cur, doc, now) =>
      mergeCollectionDoc(cur, doc, { now }),
  ): Promise<boolean> {
@@ -3489,10 +3693,10 @@ index 0c9b4af..1a6bd26 100644
      const handle = await getNodeAccess(spaceId, node.id, node, session, null);
      await handle.push(
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..1a6bd26 100644
+index 0c9b4af..f094633 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -510,14 +1084,22 @@ async function pullNodeContent(
+@@ -510,19 +1095,35 @@ async function pullNodeContent(
    spaceId: string,
    node: ObjectNode,
  ): Promise<Record<string, unknown> | null> {
@@ -3520,13 +3724,28 @@ index 0c9b4af..1a6bd26 100644
      console.warn(`[space-sync] pullNodeContent ${node.type}:${node.id} failed:`, err instanceof Error ? err.message : String(err));
      return null;
    }
+ }
+ 
++/** MODIFICATION LOCALE — collections lues sous une époque antérieure à la courante, à la dernière lecture. */
++let _collectionsSurUneÉpoqueAncienne: string[] = [];
++
++/** Les collections que la dernière hydratation a trouvées sur une époque ancienne du keyring. */
++export function collectionsSurUneÉpoqueAncienne(): string[] {
++  return _collectionsSurUneÉpoqueAncienne;
++}
++
+ /** Batch-pull the per-collection docs (one /batch/pull over the sentinel ids) and decrypt each,
+  *  keyed by entity type. All sentinels are access:'space', so the single batch fast-path applies. */
+ async function pullCollectionDocs(
 diff --git a/apps/mobile/lib/space-sync.ts b/apps/mobile/lib/space-sync.ts
-index 0c9b4af..1a6bd26 100644
+index 0c9b4af..f094633 100644
 --- a/apps/mobile/lib/space-sync.ts
 +++ b/apps/mobile/lib/space-sync.ts
-@@ -532,27 +1114,73 @@ async function pullCollectionDocs(
+@@ -531,28 +1132,79 @@ async function pullCollectionDocs(
+   sentinels: ObjectNode[],
  ): Promise<Map<string, CollectionDoc>> {
    const out = new Map<string, CollectionDoc>();
++  _collectionsSurUneÉpoqueAncienne = [];
    if (!sentinels.length) return out;
 +  // MODIFICATION LOCALE — signaler est un commentaire sur la lecture, jamais
 +  // une condition de celle-ci : son échec ne doit pas remonter.
@@ -3549,11 +3768,13 @@ index 0c9b4af..1a6bd26 100644
 +    // 24 août 2026 : plus aucun `batch/pull`, et la liste des collaborateurs,
 +    // qui ne vit que dans les documents de collection, disparue de l'écran.
 +    let detenues: Set<number> | null = null;
++    let courante: number | null = null;
 +    try {
-+      detenues = await epoquesDetenuesDeLEspace(session, spaceId, handle.client, getSpaceAccessEntry(spaceId));
++      ({ detenues, courante } = await lireLeKeyringDeLEspace(session, spaceId, handle.client, getSpaceAccessEntry(spaceId)));
 +    } catch (err) {
 +      console.warn('[space-sync] époques détenues illisibles — rien ne sera avéré :', err);
 +    }
++    const époquesLues: Record<string, number | null> = {};
 +    await Promise.all(entries.map(async (entry: { error?: unknown; data?: unknown; hash?: string }, i: number) => {
 +      const type = sentinels[i].type;
        if (entry.error || !entry.data) {
@@ -3565,6 +3786,7 @@ index 0c9b4af..1a6bd26 100644
        const data = entry.data as Record<string, unknown>;
 -      const decrypted = handle.encryptor ? await handle.encryptor.decrypt(data) : data;
 -      out.set(sentinels[i].type, asCollectionDoc(decrypted));
++      époquesLues[type] = epoqueDeLEnveloppe(data);
 +      try {
 +        const decrypted = handle.encryptor ? await handle.encryptor.decrypt(data) : data;
 +        out.set(type, asCollectionDoc(decrypted));
@@ -3574,6 +3796,7 @@ index 0c9b4af..1a6bd26 100644
 +        console.warn(`[space-sync] pullCollectionDocs ${type} illisible:`, err instanceof Error ? err.message : String(err));
 +      }
      }));
++    _collectionsSurUneÉpoqueAncienne = collectionsEnRetardDEpoque(époquesLues, courante);
    } catch (err) {
 +    // Un échec du lot entier ne prouve rien sur les clés : réseau, jamais avéré.
 +    for (const n of sentinels) classer(n.type, { erreur: err });

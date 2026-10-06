@@ -133,7 +133,21 @@
     "boutonRejoindre": "Join the wedding",
     "creationEnCours": "Creating your account…",
     "jonctionEnCours": "Opening the wedding…",
-    "reessayer": "Try again"
+    "reessayer": "Try again",
+    "renouvelerTitre": "Renew your access",
+    "renouvelerDetail": "This device already has “{{name}}”. This link replaces its old access; your data stays as it is.",
+    "renouvelerDetailSansNom": "This device already has this wedding. This link replaces its old access; your data stays as it is.",
+    "renouvelerBouton": "Renew my access",
+    "renouvellementEnCours": "Renewing access…",
+    "accesRenouvele": "Access renewed",
+    "accesRenouveleDetail": "“{{name}}” is available on this device again.",
+    "accesRenouveleDetailSansNom": "The wedding is available on this device again."
+  },
+  "accesRefuse": {
+    "titre": "Your access to this wedding has expired.",
+    "detail": "It will be renewed automatically as soon as the couple opens the app; you can also ask them for a new link.",
+    "titreInvalide": "Your access to this wedding is no longer valid.",
+    "detailInvalide": "Ask the couple to send you a new invitation link, then open it on this device."
   },
   "homeEyebrow": "Wedding",
   "homeTagline": "days",

@@ -30,7 +30,7 @@ export default function Root({ children }: PropsWithChildren) {
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
         <meta
           name="viewport"
-          content="width=device-width, initial-scale=1, shrink-to-fit=no"
+          content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"
         />
         <meta name="theme-color" content="#00916e" />
 
@@ -59,6 +59,7 @@ export default function Root({ children }: PropsWithChildren) {
         <meta name="application-name" content="Fiancé" />
         <meta name="apple-mobile-web-app-title" content="Fiancé" />
         <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 
         {/* JSON-LD Structured Data — global @graph (SoftwareApplication + WebSite + Organization) */}
@@ -179,6 +180,21 @@ html[data-app-montee] #chargement{display:none}
 @keyframes chargement-tourne{to{transform:rotate(360deg)}}
 @media (prefers-color-scheme:dark){#chargement{background:#0d1714;color:#eaf5f0}}
 @media (prefers-reduced-motion:reduce){#chargement .anneau{animation:chargement-apparait .25s ease-out .35s forwards}}
+`,
+          }}
+        />
+        {/*
+          MODIFICATION LOCALE — `viewport-fit=cover` étend la page sous l'encoche et
+          l'indicateur d'accueil. Les en-têtes et la barre d'onglets lisent les marges
+          de SafeAreaProvider (env()) ; ici les marges latérales du paysage, et un
+          bandeau sous la barre d'état de l'app installée : `black-translucent` y écrit
+          en blanc, illisible sur les en-têtes clairs.
+        */}
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
+#root{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+@media (display-mode:standalone){html:not(.dark) body::before{content:"";position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top);background:#00916e;z-index:2147483000;pointer-events:none}}
 `,
           }}
         />

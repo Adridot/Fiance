@@ -5,6 +5,8 @@ import { Trash2, Mail, CalendarCheck, X } from "lucide-react-native";
 import { SheetScaffold } from "@fiance/ui/components";
 import { InlineSelectMenu, type InlineSelectAnchor } from "@/components/InlineSelectMenu";
 import { theme as GP } from "@/lib/theme";
+import { ZoneTactile } from "@/components/ZoneTactile";
+import { debordement } from "@/lib/cible-tactile";
 import { RSVP_STATUS_LABELS, RSVP_STATUS_COLORS } from "@/db/types";
 import type { RsvpStatus } from "@/db/types";
 
@@ -203,14 +205,12 @@ export function GuestBulkBar({
               ) : (
                 <View className="flex-1" />
               )}
-              <Pressable
-                onPress={onClear}
-                className="flex-row items-center gap-1 px-2 py-1 rounded-full active:opacity-60"
-                hitSlop={12}
-              >
-                <X size={14} color={GP.mute} />
-                <Text className="text-xs font-medium text-mute">{t("bulkClearSelection")}</Text>
-              </Pressable>
+              <ZoneTactile onPress={onClear} style={{ marginVertical: debordement(36) }}>
+                <View className="flex-row items-center gap-1 px-2 py-1 rounded-full">
+                  <X size={14} color={GP.mute} />
+                  <Text className="text-xs font-medium text-mute">{t("bulkClearSelection")}</Text>
+                </View>
+              </ZoneTactile>
             </View>
 
             <ScrollView

@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from "react";
 import { View, Text, ScrollView, Pressable } from "react-native-css/components";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { revenir } from "@/lib/revenir";
+import { repliDe } from "@/lib/repli-des-ecrans";
 import { useTranslation } from "react-i18next";
 import { UserPlus, XCircle, ChevronRight, Scissors, Check } from "lucide-react-native";
 import {
@@ -16,6 +18,8 @@ import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { DeleteButton } from "@/components/DeleteButton";
 import { SectionTitle } from "@/components/FormSection";
 import { theme as GP } from "@/lib/theme";
+import { BoutonIcone } from "@/components/BoutonIcone";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 
 export default function HouseholdScreen() {
   const { t } = useTranslation("guests");
@@ -78,25 +82,31 @@ export default function HouseholdScreen() {
         </View>
 
         {members.map((m) => (
-          <View key={m.id} className="flex-row items-center gap-2 py-3 border-b border-hair">
+          <View key={m.id} className="flex-row items-center border-b border-hair">
             {splitting && canEdit && (
               <Pressable
                 onPress={() => toggle(m.id)}
-                hitSlop={11}
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: toSplit.has(m.id) }}
-                className="w-[22px] h-[22px] rounded-full items-center justify-center active:opacity-60"
-                style={{
-                  backgroundColor: toSplit.has(m.id) ? GP.clay : "transparent",
-                  borderWidth: toSplit.has(m.id) ? 0 : 1.5,
-                  borderColor: "#D0D0D8",
-                }}
+                accessibilityLabel={formatGuestName(m)}
+                className="items-center justify-center active:opacity-60"
+                style={{ width: CIBLE_TACTILE, height: CIBLE_TACTILE, marginLeft: -11, marginRight: -3 }}
               >
-                {toSplit.has(m.id) ? <Check size={13} color="#FFFFFF" strokeWidth={3} /> : null}
+                <View
+                  className="w-[22px] h-[22px] rounded-full items-center justify-center"
+                  style={{
+                    backgroundColor: toSplit.has(m.id) ? GP.clay : "transparent",
+                    borderWidth: toSplit.has(m.id) ? 0 : 1.5,
+                    borderColor: "#D0D0D8",
+                  }}
+                >
+                  {toSplit.has(m.id) ? <Check size={13} color="#FFFFFF" strokeWidth={3} /> : null}
+                </View>
               </Pressable>
             )}
             <Pressable
               className="flex-1 flex-row items-center justify-between active:opacity-60"
+              style={{ minHeight: CIBLE_TACTILE }}
               onPress={() => router.push({ pathname: "/(tabs)/guests/[id]", params: { id: m.id } })}
             >
               <Text className="text-sm text-ink" numberOfLines={1}>
@@ -105,9 +115,13 @@ export default function HouseholdScreen() {
               <ChevronRight size={16} color="#9CA3AF" />
             </Pressable>
             {canEdit && !splitting && (
-              <Pressable onPress={() => detachFromHousehold([m.id])} hitSlop={11}>
+              <BoutonIcone
+                libelle={`${t("household.detach")} ${formatGuestName(m)}`}
+                onPress={() => detachFromHousehold([m.id])}
+                empreinte={CIBLE_TACTILE}
+              >
                 <XCircle size={16} color="#9CA3AF" />
-              </Pressable>
+              </BoutonIcone>
             )}
           </View>
         ))}
@@ -116,7 +130,8 @@ export default function HouseholdScreen() {
           <>
             <Pressable
               onPress={() => setShowPicker(true)}
-              className="flex-row items-center gap-2 py-3 mt-1"
+              className="flex-row items-center gap-2"
+              style={{ minHeight: CIBLE_TACTILE }}
             >
               <UserPlus size={16} color={GP.clay} />
               <Text className="text-sm font-semibold text-primary-500">{t("household.addMember")}</Text>
@@ -128,7 +143,8 @@ export default function HouseholdScreen() {
                   setSplitting(!splitting);
                   setToSplit(new Set());
                 }}
-                className="flex-row items-center gap-2 py-3"
+                className="flex-row items-center gap-2"
+                style={{ minHeight: CIBLE_TACTILE }}
               >
                 <Scissors size={16} color={GP.clay} />
                 <Text className="text-sm font-semibold text-primary-500">
@@ -141,9 +157,10 @@ export default function HouseholdScreen() {
               <Pressable
                 onPress={split}
                 disabled={toSplit.size === 0}
-                className={`py-2.5 rounded-xl items-center mb-2 ${
+                className={`rounded-xl items-center mb-2 ${
                   toSplit.size === 0 ? "bg-accent-paper border border-hair" : "bg-primary-500"
                 }`}
+                style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}
               >
                 <Text className={`text-sm font-semibold ${toSplit.size === 0 ? "text-mute" : "text-white"}`}>
                   {t("household.splitSelected", { count: toSplit.size })}
@@ -175,7 +192,7 @@ export default function HouseholdScreen() {
         onConfirm={() => {
           setShowRemoveConfirm(false);
           removeHousehold(id!);
-          router.back();
+          revenir(router, repliDe("guests", "household/[id]"));
         }}
         onCancel={() => setShowRemoveConfirm(false)}
       />

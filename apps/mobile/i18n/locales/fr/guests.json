@@ -143,6 +143,7 @@
   "thankYouPending": "Merci à envoyer",
   "companionLabel": "Accompagnant / +1",
   "selectCompanion": "Choisir un accompagnant...",
+  "removeCompanion": "Retirer l'accompagnant",
   "searchCompanion": "Rechercher un invité...",
   "withCompanion": "avec {{name}}",
   "duplicateWarningTitle": "Doublons possibles",
@@ -169,6 +170,11 @@
   "exportPdf": "Exporter en PDF",
   "guestList": "Liste des invités",
   "rsvpLink": "Lien RSVP",
+  "rsvpLinkPreparing": "Préparation du lien…",
+  "rsvpLinkRetry": "Réessayer le lien",
+  "rsvpLinkError": "Le lien n'a pas pu être préparé. Nouvelle tentative…",
+  "rsvpLinkNeedsSync": "Activez la synchronisation dans les Réglages pour créer le lien.",
+  "rsvpLinkShareError": "Impossible de partager le lien.",
   "linkCopied": "Lien copié !",
   "accommodationNameRequired": "Le nom est obligatoire",
   "guestsScreen": "Invités",
@@ -246,7 +252,8 @@
     "deleteRole": "Supprimer ce rôle ?",
     "deleteRoleMsg": "Cette action est irréversible. Les invités portant ce rôle ne le porteront plus.",
     "noRolesYet": "Aucun rôle n'a encore été créé.",
-    "manageRoles": "Gérer les rôles"
+    "manageRoles": "Gérer les rôles",
+    "unassignRole": "Retirer le rôle"
   },
   "seatingConstraints": {
     "title": "Contraintes de placement",
@@ -339,6 +346,7 @@
     "splitSelected_one": "Faire passer {{count}} membre dans un foyer à part",
     "splitSelected_other": "Faire passer {{count}} membres dans un foyer à part",
     "remove": "Supprimer ce foyer",
+    "detach": "Retirer du foyer",
     "removeExplain": "Ses membres restent dans la liste d'invités, sans foyer. L'adresse et l'intitulé du foyer disparaissent.",
     "gone": "Ce foyer n'existe plus."
   },

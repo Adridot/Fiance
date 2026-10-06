@@ -79,6 +79,13 @@
       "import": "./dist/utils/pwa-install.js",
       "types": "./dist/utils/pwa-install.d.ts"
     },
+    "./utils/cible-tactile": {
+      "source": "./src/utils/cible-tactile.ts",
+      "react-native": "./src/utils/cible-tactile.ts",
+      "require": "./src/utils/cible-tactile.ts",
+      "import": "./dist/utils/cible-tactile.js",
+      "types": "./dist/utils/cible-tactile.d.ts"
+    },
     "./utils/toast": {
       "source": "./src/utils/toast/sonner.ts",
       "react-native": "./src/utils/toast/sonner.ts",

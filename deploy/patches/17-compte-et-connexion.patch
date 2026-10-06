@@ -1540,16 +1540,17 @@ index 0000000..ce840f1
 +});
 diff --git a/apps/mobile/__tests__/parcours-d-invitation.test.ts b/apps/mobile/__tests__/parcours-d-invitation.test.ts
 new file mode 100644
-index 0000000..746a7fc
+index 0000000..8d48d27
 --- /dev/null
 +++ b/apps/mobile/__tests__/parcours-d-invitation.test.ts
-@@ -0,0 +1,115 @@
+@@ -0,0 +1,169 @@
 +import { describe, expect, it, vi } from "vitest";
 +
 +vi.mock("@fiance/sdk", () => ({ getSyncNamespace: () => "dk" }));
 +
 +import { CompteError } from "@/lib/compte";
 +import {
++  accesARenouveler,
 +  etapeDuParcours,
 +  sequenceDeCreationDeCompte,
 +  sequenceDeJonction,
@@ -1577,6 +1578,59 @@ index 0000000..746a7fc
 +  it("après une connexion, le registre rempli oriente vers l'une des deux premières branches", () => {
 +    expect(etapeDuParcours({ weddings: [entree("sp-b")] }, "sp-b")).toBe("deja-acceptee");
 +    expect(etapeDuParcours({ weddings: [entree("sp-a")] }, "sp-b")).toBe("confirmer");
++  });
++});
++
++describe("un lien neuf pour un mariage déjà présent", () => {
++  const membre = (inviteSubjectId?: string) => ({ ...entree("sp-b"), role: "member" as const, inviteSubjectId });
++  const cap = (nonce: string, subUserId = "sujet-1") => ({ kind: "member", nonce, subUserId, exp: 1 });
++
++  it("cap au nonce différent de l'accès enregistré : renouveler", () => {
++    expect(
++      etapeDuParcours({ weddings: [membre("sujet-1")] }, "sp-b", { capDuJeton: cap("N2", "sujet-2"), capEnregistre: cap("N1") }),
++    ).toBe("renouveler");
++  });
++
++  it("même cap : déjà membre, rien ne change", () => {
++    expect(
++      etapeDuParcours({ weddings: [membre("sujet-1")] }, "sp-b", { capDuJeton: cap("N1"), capEnregistre: cap("N1") }),
++    ).toBe("deja-acceptee");
++  });
++
++  it("le nonce départage même quand le sujet coïncide", () => {
++    expect(accesARenouveler(membre("sujet-1"), { capDuJeton: cap("N2"), capEnregistre: cap("N1") })).toBe(true);
++  });
++
++  it("une entrée d'accès `member` stocke son cap en JSON : il se lit aussi", () => {
++    const enregistre = JSON.stringify(cap("N1"));
++    expect(accesARenouveler(membre(), { capDuJeton: cap("N1"), capEnregistre: enregistre })).toBe(false);
++    expect(accesARenouveler(membre(), { capDuJeton: cap("N2"), capEnregistre: enregistre })).toBe(true);
++  });
++
++  it("accès non chargé : le sujet du dernier lien adopté départage", () => {
++    expect(accesARenouveler(membre("sujet-1"), { capDuJeton: cap("N2", "sujet-2") })).toBe(true);
++    expect(accesARenouveler(membre("sujet-1"), { capDuJeton: cap("N1", "sujet-1") })).toBe(false);
++  });
++
++  it("rien de connu sur l'accès de l'appareil : on adopte le lien", () => {
++    expect(accesARenouveler(membre(), { capDuJeton: cap("N2") })).toBe(true);
++  });
++
++  it("le propriétaire n'échange jamais son accès contre un lien", () => {
++    const proprietaire = { ...entree("sp-b"), role: "owner" as const };
++    expect(etapeDuParcours({ weddings: [proprietaire] }, "sp-b", { capDuJeton: cap("N2"), capEnregistre: cap("N1") })).toBe(
++      "deja-acceptee",
++    );
++    expect(accesARenouveler({ role: undefined }, { capDuJeton: cap("N2") })).toBe(false);
++  });
++
++  it("un jeton sans nonce ne remplace rien", () => {
++    expect(accesARenouveler(membre("sujet-1"), { capDuJeton: { kind: "member" }, capEnregistre: cap("N1") })).toBe(false);
++  });
++
++  it("les autres branches ne bougent pas", () => {
++    expect(etapeDuParcours({ weddings: [membre()] }, "sp-z", { capDuJeton: cap("N2") })).toBe("confirmer");
++    expect(etapeDuParcours({ weddings: [] }, "sp-z", { capDuJeton: cap("N2") })).toBe("creer-un-compte");
 +  });
 +});
 +
@@ -2020,17 +2074,73 @@ index 0000000..14239ae
 +  });
 +});
 diff --git a/apps/mobile/app/settings/_layout.tsx b/apps/mobile/app/settings/_layout.tsx
-index f9758e4..a855a0e 100644
+index f9758e4..2953b9a 100644
 --- a/apps/mobile/app/settings/_layout.tsx
 +++ b/apps/mobile/app/settings/_layout.tsx
-@@ -35,6 +35,7 @@ export default function SettingsLayout() {
-             ),
+@@ -1,14 +1,13 @@
+ import React from "react";
+-import { Pressable, useColorScheme } from "react-native";
+-import { Stack, useRouter } from "expo-router";
++import { useColorScheme } from "react-native";
++import { Stack } from "expo-router";
+ import { useTranslation } from "react-i18next";
+-import { ChevronLeft } from "lucide-react-native";
+ import { useSettingsStore } from "@/store/useSettingsStore";
+ import { DesktopShell } from "@/components/DesktopShell";
++import { BoutonRetour } from "@/components/BoutonRetour";
+ import { useIsWideScreen } from "@/lib/useIsWideScreen";
+ export default function SettingsLayout() {
+   const { t } = useTranslation("settings");
+-  const router = useRouter();
+   const appColorScheme = useSettingsStore((s) => s.colorScheme);
+   const systemScheme = useColorScheme();
+   const isDark = appColorScheme === "dark" || (appColorScheme === "system" && systemScheme === "dark");
+@@ -21,6 +20,7 @@ export default function SettingsLayout() {
+           headerStyle: { backgroundColor: isDark ? "#111827" : "#FFFFFF" },
+           headerTintColor: tintColor,
+           headerTitleStyle: { fontWeight: "600" },
++          headerLeft: () => <BoutonRetour repli="/settings" couleur={tintColor} />,
+         }}
+       >
+         <Stack.Screen
+@@ -28,13 +28,10 @@ export default function SettingsLayout() {
+           options={{
+             title: t("settingsTitle"),
+             headerShown: !isWide,
+-            headerLeft: () => (
+-              <Pressable onPress={() => router.back()} style={{ padding: 4, marginLeft: -4 }}>
+-                <ChevronLeft size={24} color={tintColor} />
+-              </Pressable>
+-            ),
++            headerLeft: () => <BoutonRetour repli="/home" couleur={tintColor} />,
            }}
          />
 +        <Stack.Screen name="compte" options={{ title: t("compte.titre") }} />
          <Stack.Screen name="public-page" options={{ title: t("publicPageTitle") }} />
          <Stack.Screen name="roles" options={{ title: t("rolesTitle") }} />
          <Stack.Screen name="event-photos" options={{ title: t("eventPhotosTitle") }} />
+@@ -42,20 +39,7 @@ export default function SettingsLayout() {
+         <Stack.Screen name="gifts" options={{ title: t("giftRegistry") }} />
+         <Stack.Screen name="documents" options={{ title: t("documentsTitle") }} />
+         <Stack.Screen name="export-import" options={{ title: t("exportImportTitle") }} />
+-        <Stack.Screen
+-          name="import-external"
+-          options={{
+-            title: t("importExternalTitle"),
+-            headerLeft: () => (
+-              <Pressable
+-                onPress={() => (router.canGoBack() ? router.back() : router.replace("/settings"))}
+-                style={{ padding: 4, marginLeft: -4 }}
+-              >
+-                <ChevronLeft size={24} color={tintColor} />
+-              </Pressable>
+-            ),
+-          }}
+-        />
++        <Stack.Screen name="import-external" options={{ title: t("importExternalTitle") }} />
+         <Stack.Screen name="import-file" options={{ title: t("importFileTitle") }} />
+         <Stack.Screen name="premium" options={{ title: t("premiumTitle") }} />
+       </Stack>
 diff --git a/apps/mobile/app/settings/compte.tsx b/apps/mobile/app/settings/compte.tsx
 new file mode 100644
 index 0000000..1b0743c
@@ -2164,10 +2274,10 @@ index 0000000..1b0743c
 +}
 diff --git a/apps/mobile/components/RecuperationDesDonnees.tsx b/apps/mobile/components/RecuperationDesDonnees.tsx
 new file mode 100644
-index 0000000..4befdf2
+index 0000000..32da84c
 --- /dev/null
 +++ b/apps/mobile/components/RecuperationDesDonnees.tsx
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,100 @@
 +import React, { useCallback, useEffect, useState } from "react";
 +import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View, useColorScheme } from "react-native";
 +import { useTranslation } from "react-i18next";
@@ -2177,6 +2287,8 @@ index 0000000..4befdf2
 +import { theme as GP } from "@/lib/theme";
 +import { useCompteStore } from "@/store/useCompteStore";
 +import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
++import { useAccesRefuseStore } from "@/store/useAccesRefuseStore";
++import { useParcoursDAccueilStore } from "@/store/useParcoursDAccueilStore";
 +
 +const DELAI_AVANT_ECHEC_MS = 20_000;
 +
@@ -2189,6 +2301,15 @@ index 0000000..4befdf2
 +    return r?.weddings.find((w) => w.id === r.activeWeddingId)?.premiereHydratationAttendue === true;
 +  });
 +  const compte = useCompteStore((s) => s.compte);
++  // MODIFICATION LOCALE — un refus du serveur ne se résout pas en attendant : le voile
++  // cède au bandeau qui le dit. Une invitation présentée doit aussi rester lisible.
++  const refus = useAccesRefuseStore((s) => s.refus);
++  const espaceActif = useWeddingRegistryStore((s) => {
++    const r = s.registry;
++    return r?.weddings.find((w) => w.id === r.activeWeddingId)?.spaceId;
++  });
++  const refuse = !!refus && refus.spaceId === espaceActif;
++  const parcoursEnCours = useParcoursDAccueilStore((s) => s.enCours);
 +  const [tentative, setTentative] = useState(0);
 +  const [tropLong, setTropLong] = useState(false);
 +  const [enCours, setEnCours] = useState(false);
@@ -2215,7 +2336,7 @@ index 0000000..4befdf2
 +  // Rien n'est encore lu : il n'y a rien à perdre, on ne demande donc pas de confirmation.
 +  const deconnecter = useCallback(() => { void seDeconnecter({ forcer: true }); }, []);
 +
-+  if (!attendue) return null;
++  if (!attendue || refuse || parcoursEnCours) return null;
 +
 +  const encre = sombre ? GP.inkDark : GP.ink;
 +  return (
@@ -2311,27 +2432,35 @@ index 0000000..797a830
 +}
 diff --git a/apps/mobile/components/compte/CadreDEcran.tsx b/apps/mobile/components/compte/CadreDEcran.tsx
 new file mode 100644
-index 0000000..e296e1d
+index 0000000..7b1428f
 --- /dev/null
 +++ b/apps/mobile/components/compte/CadreDEcran.tsx
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,42 @@
 +import React from "react";
 +import { Platform } from "react-native";
 +import { View, ScrollView, Pressable, KeyboardAvoidingView } from "react-native-css/components";
 +import { ArrowLeft } from "lucide-react-native";
 +import { useTranslation } from "react-i18next";
++import { useSafeAreaInsets } from "react-native-safe-area-context";
 +import { Seo } from "@/components/Seo";
 +
 +/** Le gabarit des sous-écrans d'accueil : retour en haut, colonne de 480 px. */
 +export function CadreDEcran({ onRetour, children }: { onRetour: () => void; children: React.ReactNode }) {
 +  const { t } = useTranslation("common");
++  const insets = useSafeAreaInsets();
 +  return (
 +    <KeyboardAvoidingView className="flex-1 bg-accent-paper" behavior={Platform.OS === "ios" ? "padding" : undefined}>
 +      <Seo title="Fiancé" description="" noindex />
 +      <ScrollView
 +        className="flex-1"
 +        keyboardShouldPersistTaps="handled"
-+        contentContainerStyle={{ justifyContent: "center", flexGrow: 1, alignItems: "center", paddingVertical: 24 }}
++        contentContainerStyle={{
++          justifyContent: "center",
++          flexGrow: 1,
++          alignItems: "center",
++          paddingTop: 24 + insets.top,
++          paddingBottom: 24 + insets.bottom,
++        }}
 +      >
 +        <View style={{ width: "100%", maxWidth: 480, paddingHorizontal: 24 }}>
 +          <Pressable
@@ -2752,19 +2881,21 @@ index 0000000..902911d
 +}
 diff --git a/apps/mobile/components/invitation/ParcoursDInvitation.tsx b/apps/mobile/components/invitation/ParcoursDInvitation.tsx
 new file mode 100644
-index 0000000..f53490b
+index 0000000..756f109
 --- /dev/null
 +++ b/apps/mobile/components/invitation/ParcoursDInvitation.tsx
-@@ -0,0 +1,250 @@
+@@ -0,0 +1,336 @@
 +import React, { useCallback, useEffect, useRef, useState } from "react";
 +import { ActivityIndicator } from "react-native";
 +import { View, Text, Pressable } from "react-native-css/components";
 +import { useRouter } from "expo-router";
 +import { useTranslation } from "react-i18next";
-+import { AlertCircle, ArrowLeft, Heart, PlusCircle } from "lucide-react-native";
++import { AlertCircle, ArrowLeft, Heart, KeyRound, PlusCircle, RefreshCw } from "lucide-react-native";
++import { getSpaceAccessEntry } from "@fiance/sdk";
 +import { Seo } from "@/components/Seo";
 +import { PageHeader } from "@/components/PageHeader";
 +import { InvitationDejaAcceptee } from "@/components/InvitationDejaAcceptee";
++import { AccesRenouvele } from "@/components/invitation/AccesRenouvele";
 +import { Bouton } from "@/components/compte/Bouton";
 +import { CadreDEcran } from "@/components/compte/CadreDEcran";
 +import { FormulaireDeConnexion } from "@/components/compte/FormulaireDeConnexion";
@@ -2773,7 +2904,7 @@ index 0000000..f53490b
 +import { baseDeSync } from "@/lib/base-de-sync";
 +import { creerMonCompte, ouvrirUneSession } from "@/lib/compte-session";
 +import { consommer as consommerLeDepot } from "@/lib/invitation-courte";
-+import { joinWeddingByToken } from "@/lib/join-space";
++import { joinWeddingByToken, renouvelerLAccesParLien } from "@/lib/join-space";
 +import { etapeDuParcours, sequenceDeCreationDeCompte, sequenceDeJonction } from "@/lib/parcours-d-invitation";
 +import type { ResolutionDInvitation } from "@/lib/resolution-d-invitation";
 +import { theme as GP } from "@/lib/theme";
@@ -2804,8 +2935,9 @@ index 0000000..f53490b
 +
 +  const [etat, setEtat] = useState<Etat>({ type: "repos" });
 +  const [onglet, setOnglet] = useState<Onglet>("creer");
++  const [renouvele, setRenouvele] = useState(false);
 +  const [identifiant, setIdentifiant] = useState(nomDeLaPersonne ?? "");
-+  const derniere = useRef<{ texte: string; tache: () => Promise<void> } | null>(null);
++  const derniere = useRef<{ texte: string; tache: () => Promise<void>; ensuite?: () => void } | null>(null);
 +
 +  useEffect(() => {
 +    useParcoursDAccueilStore.getState().poser(true);
@@ -2813,12 +2945,17 @@ index 0000000..f53490b
 +  }, []);
 +
 +  const lancer = useCallback(
-+    async (texte: string, tache: () => Promise<void>) => {
-+      derniere.current = { texte, tache };
++    async (texte: string, tache: () => Promise<void>, ensuite?: () => void) => {
++      derniere.current = { texte, tache, ensuite };
 +      setEtat({ type: "en-cours", texte });
 +      try {
 +        await tache();
-+        router.replace("/home" as any);
++        if (ensuite) {
++          ensuite();
++          setEtat({ type: "repos" });
++        } else {
++          router.replace("/home" as any);
++        }
 +      } catch (err) {
 +        setEtat({ type: "erreur", message: err instanceof Error ? err.message : String(err) });
 +      }
@@ -2832,6 +2969,35 @@ index 0000000..f53490b
 +  const consommer = async () => {
 +    if (code) await consommerLeDepot(baseDeSync(), code);
 +  };
++
++  const etape = etapeDuParcours(registre, jeton.spaceId, {
++    capDuJeton: jeton.cap,
++    capEnregistre: getSpaceAccessEntry(jeton.spaceId)?.cap,
++  });
++
++  // Un lien neuf pour un mariage déjà là : l'ouvrir suffit. Une tentative
++  // automatique ; après un échec, l'écran propose de recommencer.
++  const [etapeInitiale] = useState(etape);
++  const [renouvellementManuel, setRenouvellementManuel] = useState(false);
++  const renouveler = () =>
++    void lancer(
++      t("join.renouvellementEnCours"),
++      async () => {
++        try {
++          await sequenceDeJonction({ joindre: () => renouvelerLAccesParLien(jeton), consommer });
++        } catch (err) {
++          setRenouvellementManuel(true);
++          throw err;
++        }
++      },
++      () => setRenouvele(true),
++    );
++  useEffect(() => {
++    if (etapeInitiale !== "renouveler") return;
++    const minuteur = setTimeout(renouveler, 0);
++    return () => clearTimeout(minuteur);
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, []);
 +
 +  if (etat.type !== "repos") {
 +    if (illisible) {
@@ -2867,7 +3033,9 @@ index 0000000..f53490b
 +            <View style={{ gap: 12 }}>
 +              <Bouton
 +                libelle={t("join.reessayer")}
-+                onPress={() => derniere.current && void lancer(derniere.current.texte, derniere.current.tache)}
++                onPress={() =>
++                  derniere.current && void lancer(derniere.current.texte, derniere.current.tache, derniere.current.ensuite)
++                }
 +              />
 +              <Bouton libelle={t("back")} variante="secondaire" onPress={() => setEtat({ type: "repos" })} />
 +            </View>
@@ -2883,7 +3051,54 @@ index 0000000..f53490b
 +    );
 +  }
 +
-+  const etape = etapeDuParcours(registre, jeton.spaceId);
++  if (renouvele) {
++    return <AccesRenouvele weddingName={nom} onContinuer={() => router.replace("/home" as any)} />;
++  }
++
++  if (etape === "renouveler" && etapeInitiale === "renouveler" && !renouvellementManuel) {
++    return (
++      <View className="flex-1 bg-accent-paper items-center justify-center px-6" testID="parcours-en-cours">
++        <ActivityIndicator size="large" color={GP.clay} />
++        <Text className="text-base text-mute mt-4 text-center">{t("join.renouvellementEnCours")}</Text>
++      </View>
++    );
++  }
++
++  if (etape === "renouveler") {
++    return (
++      <View className="flex-1 bg-accent-paper justify-center px-6" testID="renouvellement-d-acces">
++        <Seo title="Fiancé" description="" noindex />
++        <View style={{ width: "100%", maxWidth: 480, alignSelf: "center" }}>
++          <View className="items-center mb-10">
++            <View className="w-20 h-20 rounded-full bg-primary-50 dark:bg-primary-900 items-center justify-center mb-5">
++              <KeyRound size={36} color={GP.clay} />
++            </View>
++            <PageHeader
++              eyebrow={t("join.inviteEyebrow")}
++              title={t("join.renouvelerTitre")}
++              tagline={nom ? t("join.renouvelerDetail", { name: nom }) : t("join.renouvelerDetailSansNom")}
++              titleSize={26}
++              style={{ paddingHorizontal: 0, paddingTop: 0 }}
++            />
++          </View>
++          <View style={{ gap: 12 }}>
++            <Bouton
++              libelle={t("join.renouvelerBouton")}
++              icone={<RefreshCw size={20} color="#fff" />}
++              testID="bouton-renouveler-l-acces"
++              onPress={renouveler}
++            />
++            <Bouton
++              libelle={t("join.noGoBack")}
++              variante="secondaire"
++              icone={<ArrowLeft size={20} color={GP.clay} />}
++              onPress={onRetour}
++            />
++          </View>
++        </View>
++      </View>
++    );
++  }
 +
 +  if (etape === "deja-acceptee") {
 +    return (
@@ -3706,18 +3921,39 @@ index 0000000..57de796
 +  );
 +}
 diff --git a/apps/mobile/lib/join-space.ts b/apps/mobile/lib/join-space.ts
-index 7894fe6..fff1f0e 100644
+index 7894fe6..c9ce9ae 100644
 --- a/apps/mobile/lib/join-space.ts
 +++ b/apps/mobile/lib/join-space.ts
-@@ -14,6 +14,7 @@ import { generatePassphrase, deriveSessionFromPhrase } from "@/lib/identity";
- import { resolveServerUrl } from "@/lib/server";
+@@ -9,29 +9,46 @@
+  * and onboarding.tsx without React context.
+  */
+ 
+-import { joinSpaceByLink, hydrateSpaceAccessStore, type SpaceInviteLinkToken } from "@fiance/sdk";
++import { joinSpaceByLink, hydrateSpaceAccessStore, getSpaceAccessEntry, type SpaceInviteLinkToken } from "@fiance/sdk";
+ import { generatePassphrase, deriveSessionFromPhrase } from "@/lib/identity";
+-import { resolveServerUrl } from "@/lib/server";
++import { resolveServerUrl, resolveSessionConfig } from "@/lib/server";
  import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
  import { resolveActiveMemberPermissions } from "@/lib/permissions/resolve";
 +import { planifierLeCoffre } from "@/lib/compte-session";
++// MODIFICATION LOCALE — un lien neuf renouvelle l'accès d'un mariage déjà présent.
++import { accesARenouveler } from "@/lib/parcours-d-invitation";
++import { adopterLeJeton } from "@/lib/renouvellement-automatique";
++import { sujetDuCap } from "@/lib/renouvellement-des-acces";
++import { clearActivation } from "@/lib/providers";
++import { useAccesRefuseStore } from "@/store/useAccesRefuseStore";
++import { useAccesChiffreStore } from "@/store/useAccesChiffreStore";
++import { useCompteStore } from "@/store/useCompteStore";
  
  /**
   * Join a wedding from a space-invite link token.
-@@ -25,7 +26,10 @@ import { resolveActiveMemberPermissions } from "@/lib/permissions/resolve";
+  *
+  * - De-dupes: if this device already has a wedding for the token's spaceId,
+- *   switches to it and returns without creating a new entry.
++ *   switches to it and returns without creating a new entry — or, for a NEW
++ *   link, adopts its access (`renouvelerLAccesParLien`).
+  * - Otherwise: generates a fresh BIP-39 identity for the joiner, calls
+  *   `joinSpaceByLink` to store the link credential, then creates a local
   *   wedding entry with `role: "member"` so provisioning never tries to
   *   re-provision the space as owner.
   */
@@ -3729,7 +3965,18 @@ index 7894fe6..fff1f0e 100644
    const store = useWeddingRegistryStore.getState();
    const registry = store.registry;
  
-@@ -60,12 +64,14 @@ export async function joinWeddingByToken(token: SpaceInviteLinkToken): Promise<v
+-  // De-dupe: already have this space — just switch to it.
++  // De-dupe: already have this space — just switch to it, unless the link brings a new access.
+   const existing = registry?.weddings.find((w) => w.spaceId === token.spaceId);
+   if (existing) {
++    if (accesARenouveler(existing, { capDuJeton: token.cap, capEnregistre: getSpaceAccessEntry(token.spaceId)?.cap })) {
++      await renouvelerLAccesParLien(token);
++      return;
++    }
+     await store.switchWedding(existing.id);
+     return;
+   }
+@@ -60,12 +77,14 @@ export async function joinWeddingByToken(token: SpaceInviteLinkToken): Promise<v
    // Create the local wedding entry. spaceId is persisted atomically so
    // ensureSpaceProvisioned fast-paths and never runs owner setup.
    const entry = await store.createWedding(
@@ -3745,10 +3992,44 @@ index 7894fe6..fff1f0e 100644
  
    // Remember the invite's ephemeral subject id so we can resolve (and later
    // re-resolve) the role the owner assigned to this link, keyed by that id.
-@@ -76,4 +82,5 @@ export async function joinWeddingByToken(token: SpaceInviteLinkToken): Promise<v
+@@ -76,4 +95,39 @@ export async function joinWeddingByToken(token: SpaceInviteLinkToken): Promise<v
      // permission assignments sync in (they may not be present yet).
      await resolveActiveMemberPermissions().catch(() => {});
    }
++  planifierLeCoffre();
++}
++
++/**
++ * MODIFICATION LOCALE — adopter l'accès d'un lien neuf pour un mariage déjà présent.
++ *
++ * Sous l'identité EXISTANTE de l'entrée (aucune phrase neuve) : `joinSpaceByLink`
++ * réécrit `pubAccess` côté serveur, que `activateSync` relit à chaque démarrage.
++ * Le rôle se résout ensuite sur le sujet du nouveau lien.
++ */
++export async function renouvelerLAccesParLien(token: SpaceInviteLinkToken): Promise<void> {
++  const store = useWeddingRegistryStore.getState();
++  const existant = store.registry?.weddings.find((w) => w.spaceId === token.spaceId);
++  if (!existant) throw new Error("[join-space] aucun mariage à renouveler pour cet espace");
++  const cfg = await resolveSessionConfig(existant);
++  if (!cfg) throw new Error("[join-space] l'identité de ce mariage est introuvable sur cet appareil");
++
++  // L'état de lecture appartient à l'ancien accès : la prochaine hydratation le refait.
++  useAccesChiffreStore.getState().reinitialiser();
++  await adopterLeJeton(cfg.session, token);
++  useAccesRefuseStore.getState().lever(token.spaceId);
++  await store.updateWedding(existant.id, {
++    inviteSubjectId: sujetDuCap(token.cap) ?? undefined,
++    roleId: undefined,
++    permissions: undefined,
++  });
++  await resolveActiveMemberPermissions().catch(() => {});
++
++  clearActivation(existant.id);
++  if (useWeddingRegistryStore.getState().registry?.activeWeddingId === existant.id) {
++    useCompteStore.getState().relancer();
++  } else {
++    await useWeddingRegistryStore.getState().switchWedding(existant.id);
++  }
 +  planifierLeCoffre();
  }
 diff --git a/apps/mobile/lib/messages-de-compte.ts b/apps/mobile/lib/messages-de-compte.ts
@@ -3821,22 +4102,53 @@ index 0000000..379255f
 +}
 diff --git a/apps/mobile/lib/parcours-d-invitation.ts b/apps/mobile/lib/parcours-d-invitation.ts
 new file mode 100644
-index 0000000..c8d5b54
+index 0000000..afbcfb4
 --- /dev/null
 +++ b/apps/mobile/lib/parcours-d-invitation.ts
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,83 @@
 +import { CompteError } from "@/lib/compte";
-+import type { WeddingRegistry } from "@/lib/wedding-registry";
++import { nonceDuCap, sujetDuCap } from "@/lib/renouvellement-des-acces";
++import type { WeddingRegistry, WeddingRegistryEntry } from "@/lib/wedding-registry";
 +
-+export type EtapeDuParcours = "deja-acceptee" | "confirmer" | "creer-un-compte";
++export type EtapeDuParcours = "deja-acceptee" | "renouveler" | "confirmer" | "creer-un-compte";
++
++/** L'accès que porte le jeton présenté, et celui que l'appareil détient pour cet espace. */
++export interface AccesPresente {
++  capDuJeton: unknown;
++  /** Le cap de l'entrée d'accès enregistrée, quand le magasin d'accès est chargé. */
++  capEnregistre?: unknown;
++}
 +
 +export function etapeDuParcours(
 +  registre: Pick<WeddingRegistry, "weddings"> | null | undefined,
 +  spaceId: string,
++  acces?: AccesPresente,
 +): EtapeDuParcours {
 +  const mariages = registre?.weddings ?? [];
-+  if (mariages.some((w) => w.spaceId === spaceId)) return "deja-acceptee";
++  const existant = mariages.find((w) => w.spaceId === spaceId);
++  if (existant) return acces && accesARenouveler(existant, acces) ? "renouveler" : "deja-acceptee";
 +  return mariages.length > 0 ? "confirmer" : "creer-un-compte";
++}
++
++/**
++ * MODIFICATION LOCALE — un lien NEUF pour un mariage déjà présent remplace l'accès.
++ *
++ * Sans quoi un appareil au cap expiré n'avait aucune voie de rattrapage. Membres
++ * seulement : le propriétaire n'échange pas son accès contre un lien. Le nonce
++ * départage ; à défaut d'accès chargé, le sujet du dernier lien adopté.
++ */
++export function accesARenouveler(
++  entree: Pick<WeddingRegistryEntry, "role" | "inviteSubjectId">,
++  acces: AccesPresente,
++): boolean {
++  if (entree.role !== "member") return false;
++  const nouveau = nonceDuCap(acces.capDuJeton);
++  if (!nouveau) return false;
++  const actuel = nonceDuCap(acces.capEnregistre);
++  if (actuel) return actuel !== nouveau;
++  const sujet = sujetDuCap(acces.capDuJeton);
++  if (entree.inviteSubjectId && sujet) return entree.inviteSubjectId !== sujet;
++  return true;
 +}
 +
 +export interface ActionsDeLaSequence {
@@ -3847,7 +4159,7 @@ index 0000000..c8d5b54
 +  consommer: () => Promise<void>;
 +}
 +
-+/** Appareil déjà connecté : jonction, puis dépôt consommé au mieux. */
++/** Appareil déjà connecté : jonction (ou renouvellement), puis dépôt consommé au mieux. */
 +export async function sequenceDeJonction(actions: Pick<ActionsDeLaSequence, "joindre" | "consommer">): Promise<void> {
 +  await actions.joindre();
 +  await actions.consommer().catch(() => {});
@@ -4015,15 +4327,26 @@ index f268d6a..74508df 100644
 +  return suite;
  }
 diff --git a/apps/mobile/public/sw.js b/apps/mobile/public/sw.js
-index 6c1704c..8830065 100644
+index 6c1704c..347d3eb 100644
 --- a/apps/mobile/public/sw.js
 +++ b/apps/mobile/public/sw.js
-@@ -1,4 +1,4 @@
+@@ -1,5 +1,5 @@
 -const CACHE_NAME = "fiance-v3";
-+const CACHE_NAME = "fiance-v4";
- const PRECACHE = ["/", "/manifest.json"];
+-const PRECACHE = ["/", "/manifest.json"];
++const CACHE_NAME = "fiance-v5";
++const PRECACHE = ["/home", "/manifest.json"];
  
  self.addEventListener("install", (e) => {
+   e.waitUntil(
+@@ -29,7 +29,7 @@ self.addEventListener("fetch", (e) => {
+   // shell only when offline.
+   if (request.mode === "navigate") {
+     e.respondWith(
+-      fetch(request).catch(async () => (await caches.match("/")) ?? Response.error())
++      fetch(request).catch(async () => (await caches.match("/home")) ?? Response.error())
+     );
+     return;
+   }
 @@ -39,6 +39,9 @@ self.addEventListener("fetch", (e) => {
    // whose response hash must never be served stale (causes CAS 409 loops).
    const url = new URL(request.url);
@@ -4119,10 +4442,10 @@ index 0000000..253d12d
 +  poser: (enCours) => set({ enCours }),
 +}));
 diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
-index 8c90fdb..87dbc02 100644
+index 8c90fdb..25442bb 100644
 --- a/apps/mobile/lib/invite-link.ts
 +++ b/apps/mobile/lib/invite-link.ts
-@@ -71,6 +118,7 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
+@@ -71,6 +165,7 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
    // Publish the snapshot (incl. the new assignment) so the invite never points a
    // member at a contentless space and their role resolves on first hydrate.
    await pushSpaceSnapshot(cfg.session, spaceId, entry.weddingNodeId ?? entry.id);
@@ -4131,7 +4454,7 @@ index 8c90fdb..87dbc02 100644
    // Diagnostics for the "member joins but sees no data" (objdoc 403) bug: a link invitee
    // only earns space:member if its ephemeral subUserId is in the server _access roster.
 diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
-index 07ec918..f5ad5cb 100644
+index 07ec918..c386e80 100644
 --- a/apps/mobile/components/InviteQRSheet.tsx
 +++ b/apps/mobile/components/InviteQRSheet.tsx
 @@ -1,10 +1,11 @@

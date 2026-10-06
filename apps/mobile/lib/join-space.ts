@@ -9,18 +9,27 @@
  * and onboarding.tsx without React context.
  */
 
-import { joinSpaceByLink, hydrateSpaceAccessStore, type SpaceInviteLinkToken } from "@fiance/sdk";
+import { joinSpaceByLink, hydrateSpaceAccessStore, getSpaceAccessEntry, type SpaceInviteLinkToken } from "@fiance/sdk";
 import { generatePassphrase, deriveSessionFromPhrase } from "@/lib/identity";
-import { resolveServerUrl } from "@/lib/server";
+import { resolveServerUrl, resolveSessionConfig } from "@/lib/server";
 import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
 import { resolveActiveMemberPermissions } from "@/lib/permissions/resolve";
 import { planifierLeCoffre } from "@/lib/compte-session";
+// MODIFICATION LOCALE — un lien neuf renouvelle l'accès d'un mariage déjà présent.
+import { accesARenouveler } from "@/lib/parcours-d-invitation";
+import { adopterLeJeton } from "@/lib/renouvellement-automatique";
+import { sujetDuCap } from "@/lib/renouvellement-des-acces";
+import { clearActivation } from "@/lib/providers";
+import { useAccesRefuseStore } from "@/store/useAccesRefuseStore";
+import { useAccesChiffreStore } from "@/store/useAccesChiffreStore";
+import { useCompteStore } from "@/store/useCompteStore";
 
 /**
  * Join a wedding from a space-invite link token.
  *
  * - De-dupes: if this device already has a wedding for the token's spaceId,
- *   switches to it and returns without creating a new entry.
+ *   switches to it and returns without creating a new entry — or, for a NEW
+ *   link, adopts its access (`renouvelerLAccesParLien`).
  * - Otherwise: generates a fresh BIP-39 identity for the joiner, calls
  *   `joinSpaceByLink` to store the link credential, then creates a local
  *   wedding entry with `role: "member"` so provisioning never tries to
@@ -33,9 +42,13 @@ export async function joinWeddingByToken(
   const store = useWeddingRegistryStore.getState();
   const registry = store.registry;
 
-  // De-dupe: already have this space — just switch to it.
+  // De-dupe: already have this space — just switch to it, unless the link brings a new access.
   const existing = registry?.weddings.find((w) => w.spaceId === token.spaceId);
   if (existing) {
+    if (accesARenouveler(existing, { capDuJeton: token.cap, capEnregistre: getSpaceAccessEntry(token.spaceId)?.cap })) {
+      await renouvelerLAccesParLien(token);
+      return;
+    }
     await store.switchWedding(existing.id);
     return;
   }
@@ -81,6 +94,40 @@ export async function joinWeddingByToken(
     // Best-effort immediate resolve; providers re-runs it once the owner's
     // permission assignments sync in (they may not be present yet).
     await resolveActiveMemberPermissions().catch(() => {});
+  }
+  planifierLeCoffre();
+}
+
+/**
+ * MODIFICATION LOCALE — adopter l'accès d'un lien neuf pour un mariage déjà présent.
+ *
+ * Sous l'identité EXISTANTE de l'entrée (aucune phrase neuve) : `joinSpaceByLink`
+ * réécrit `pubAccess` côté serveur, que `activateSync` relit à chaque démarrage.
+ * Le rôle se résout ensuite sur le sujet du nouveau lien.
+ */
+export async function renouvelerLAccesParLien(token: SpaceInviteLinkToken): Promise<void> {
+  const store = useWeddingRegistryStore.getState();
+  const existant = store.registry?.weddings.find((w) => w.spaceId === token.spaceId);
+  if (!existant) throw new Error("[join-space] aucun mariage à renouveler pour cet espace");
+  const cfg = await resolveSessionConfig(existant);
+  if (!cfg) throw new Error("[join-space] l'identité de ce mariage est introuvable sur cet appareil");
+
+  // L'état de lecture appartient à l'ancien accès : la prochaine hydratation le refait.
+  useAccesChiffreStore.getState().reinitialiser();
+  await adopterLeJeton(cfg.session, token);
+  useAccesRefuseStore.getState().lever(token.spaceId);
+  await store.updateWedding(existant.id, {
+    inviteSubjectId: sujetDuCap(token.cap) ?? undefined,
+    roleId: undefined,
+    permissions: undefined,
+  });
+  await resolveActiveMemberPermissions().catch(() => {});
+
+  clearActivation(existant.id);
+  if (useWeddingRegistryStore.getState().registry?.activeWeddingId === existant.id) {
+    useCompteStore.getState().relancer();
+  } else {
+    await useWeddingRegistryStore.getState().switchWedding(existant.id);
   }
   planifierLeCoffre();
 }

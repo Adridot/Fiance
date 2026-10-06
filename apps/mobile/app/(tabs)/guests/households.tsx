@@ -1,6 +1,8 @@
 import React, { useMemo, useRef, useState } from "react";
 import { View, Text, ScrollView, Pressable } from "react-native-css/components";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { revenir } from "@/lib/revenir";
+import { repliDe } from "@/lib/repli-des-ecrans";
 import { useTranslation } from "react-i18next";
 import { Check, CheckCircle2, Home } from "lucide-react-native";
 import {
@@ -14,16 +16,14 @@ import { useGuestsStore } from "@/store/useGuestsStore";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
 import { EmptyState } from "@/components/EmptyState";
 import { theme as GP } from "@/lib/theme";
+import { ZoneTactile } from "@/components/ZoneTactile";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import type { Guest, Household } from "@/db/schema";
 
-function SelectionBox({ checked, onToggle }: { checked: boolean; onToggle: () => void }) {
+function SelectionBox({ checked }: { checked: boolean }) {
   return (
-    <Pressable
-      onPress={onToggle}
-      hitSlop={11}
-      accessibilityRole="checkbox"
-      accessibilityState={{ checked }}
-      className="w-[22px] h-[22px] rounded-full items-center justify-center active:opacity-60"
+    <View
+      className="w-[22px] h-[22px] rounded-full items-center justify-center"
       style={{
         backgroundColor: checked ? GP.clay : "transparent",
         borderWidth: checked ? 0 : 1.5,
@@ -31,7 +31,7 @@ function SelectionBox({ checked, onToggle }: { checked: boolean; onToggle: () =>
       }}
     >
       {checked ? <Check size={13} color="#FFFFFF" strokeWidth={3} /> : null}
-    </Pressable>
+    </View>
   );
 }
 
@@ -83,27 +83,32 @@ function CandidateCard({
       {candidate.members.map((g) => {
         const attached = householdOf(g);
         return (
-          <View key={g.id} className="flex-row items-center gap-2 mt-2">
-            {canEdit && (
-              <SelectionBox checked={chosen.has(g.id)} onToggle={() => toggle(g.id)} />
-            )}
-            <Text
-              className={`flex-1 text-sm ${attached ? "text-mute" : "text-ink"}`}
-              numberOfLines={1}
+          <View key={g.id} className="flex-row items-center" style={{ minHeight: CIBLE_TACTILE }}>
+            <Pressable
+              onPress={() => toggle(g.id)}
+              disabled={!canEdit}
+              accessibilityRole={canEdit ? "checkbox" : undefined}
+              accessibilityState={{ checked: chosen.has(g.id) }}
+              className="flex-1 flex-row items-center gap-2 active:opacity-60"
+              style={{ minHeight: CIBLE_TACTILE }}
             >
-              {formatGuestName(g)}
-            </Text>
-            {attached && (
-              <Pressable
-                onPress={() => canEdit && onDetach([g.id])}
-                disabled={!canEdit}
-                className="flex-row items-center gap-1 shrink-0"
+              {canEdit && <SelectionBox checked={chosen.has(g.id)} />}
+              <Text
+                className={`flex-1 text-sm ${attached ? "text-mute" : "text-ink"}`}
+                numberOfLines={1}
               >
-                <Home size={12} color={GP.mute} />
-                <Text className="text-[11px] text-mute" numberOfLines={1}>
-                  {attached}
-                </Text>
-              </Pressable>
+                {formatGuestName(g)}
+              </Text>
+            </Pressable>
+            {attached && (
+              <ZoneTactile onPress={() => canEdit && onDetach([g.id])} disabled={!canEdit} style={{ flexShrink: 0 }}>
+                <View className="flex-row items-center gap-1">
+                  <Home size={12} color={GP.mute} />
+                  <Text className="text-[11px] text-mute" numberOfLines={1}>
+                    {attached}
+                  </Text>
+                </View>
+              </ZoneTactile>
             )}
           </View>
         );
@@ -114,9 +119,10 @@ function CandidateCard({
           <Pressable
             onPress={groupChosen}
             disabled={chosen.size === 0}
-            className={`flex-1 py-2.5 rounded-xl items-center ${
+            className={`flex-1 rounded-xl items-center justify-center ${
               chosen.size === 0 ? "bg-accent-paper" : "bg-primary-500"
             }`}
+            style={{ minHeight: CIBLE_TACTILE }}
           >
             <Text
               className={`text-sm font-semibold ${
@@ -131,7 +137,8 @@ function CandidateCard({
               for (const g of candidate.members) onGroup([g.id]);
               setChosen(new Set());
             }}
-            className="flex-1 py-2.5 rounded-xl items-center bg-accent-paper border border-hair"
+            className="flex-1 rounded-xl items-center justify-center bg-accent-paper border border-hair"
+            style={{ minHeight: CIBLE_TACTILE }}
           >
             <Text className="text-sm font-semibold text-ink-soft">
               {t("household.makeEachAlone")}
@@ -191,7 +198,7 @@ export default function HouseholdsScreen() {
           icon={CheckCircle2}
           title={t("household.empty")}
           actionLabel={t("backToGuests")}
-          onAction={() => router.back()}
+          onAction={() => revenir(router, repliDe("guests", "households"))}
         />
       </View>
     );

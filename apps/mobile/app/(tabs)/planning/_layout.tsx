@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useSettingsStore } from "@/store/useSettingsStore";
 import { useIsWideScreen } from "@/lib/useIsWideScreen";
 import { theme as GP } from "@/lib/theme";
+import { optionsDeRetour } from "@/components/BoutonRetour";
 
 export default function PlanningLayout() {
   const { t } = useTranslation("planning");
@@ -14,11 +15,12 @@ export default function PlanningLayout() {
   const isWide = useIsWideScreen();
   return (
     <Stack
-      screenOptions={{
+      screenOptions={({ route }) => ({
         headerStyle: { backgroundColor: isDark ? "#111827" : "#FFFFFF" },
         headerTintColor: isDark ? "#FFFFFF" : "#111827",
         headerTitleStyle: { fontWeight: "600" },
-      }}
+        ...optionsDeRetour("planning", route.name),
+      })}
     >
       <Stack.Screen
         name="index"
