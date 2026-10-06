@@ -141,7 +141,8 @@ export default function TableManagementScreen() {
                 {t("newTable")}
               </Text>
               <TextInput
-                className="text-base text-ink border-b border-hair pb-2 mb-3"
+                className="text-base text-ink border-b border-hair mb-3"
+                style={{ minHeight: CIBLE_TACTILE }}
                 placeholder={t("tableName")}
                 placeholderTextColor="#D0D0D8"
                 value={newTableName}
@@ -150,7 +151,8 @@ export default function TableManagementScreen() {
                 editable={canEdit}
               />
               <TextInput
-                className="text-base text-ink border-b border-hair pb-2 mb-3"
+                className="text-base text-ink border-b border-hair mb-3"
+                style={{ minHeight: CIBLE_TACTILE }}
                 placeholder={t("capacity")}
                 placeholderTextColor="#D0D0D8"
                 value={newTableCapacity}
@@ -206,6 +208,7 @@ export default function TableManagementScreen() {
                     {editingTableId === table.id ? (
                       <TextInput
                         className="text-base font-semibold text-ink flex-1"
+                        style={{ minHeight: CIBLE_TACTILE }}
                         value={editingName}
                         onChangeText={setEditingName}
                         onBlur={() => {

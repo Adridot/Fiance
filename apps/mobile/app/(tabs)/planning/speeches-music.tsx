@@ -152,7 +152,8 @@ export default function SpeechesMusicScreen() {
         {editingId ? t("music.editTrack") : t("music.newTrack")}
       </Text>
       <TextInput
-        className="text-base text-ink border-b border-hair pb-2 mb-3"
+        className="text-base text-ink border-b border-hair mb-3"
+        style={{ minHeight: CIBLE_TACTILE }}
         placeholder={t("music.titlePlaceholder")}
         placeholderTextColor="#D0D0D8"
         value={form.title}
@@ -160,7 +161,8 @@ export default function SpeechesMusicScreen() {
         editable={canEdit}
       />
       <TextInput
-        className="text-base text-ink border-b border-hair pb-2 mb-3"
+        className="text-base text-ink border-b border-hair mb-3"
+        style={{ minHeight: CIBLE_TACTILE }}
         placeholder={t("music.artistPlaceholder")}
         placeholderTextColor="#D0D0D8"
         value={form.artist}
@@ -185,7 +187,8 @@ export default function SpeechesMusicScreen() {
         <ToggleRow label={t("music.mustPlay")} value={form.mustPlay} onToggle={() => setForm((f) => ({ ...f, mustPlay: !f.mustPlay }))} />
       </View>
       <TextInput
-        className="text-base text-ink border-b border-hair pb-2 mt-3"
+        className="text-base text-ink border-b border-hair mt-3"
+        style={{ minHeight: CIBLE_TACTILE }}
         placeholder={t("music.notesPlaceholder")}
         placeholderTextColor="#D0D0D8"
         value={form.notes}

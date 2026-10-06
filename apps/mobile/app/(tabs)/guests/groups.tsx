@@ -106,7 +106,8 @@ export default function GroupsScreen() {
                 {t("newGroup")}
               </Text>
               <TextInput
-                className="text-base text-ink border-b border-hair pb-2 mb-3"
+                className="text-base text-ink border-b border-hair mb-3"
+                style={{ minHeight: CIBLE_TACTILE }}
                 placeholder={t("groupName")}
                 placeholderTextColor="#D0D0D8"
                 value={newGroupName}
@@ -162,6 +163,7 @@ export default function GroupsScreen() {
                         {editingGroupId === group.id ? (
                           <TextInput
                             className="text-base font-semibold text-ink flex-1"
+                            style={{ minHeight: CIBLE_TACTILE }}
                             value={editingName}
                             onChangeText={setEditingName}
                             onBlur={() => {

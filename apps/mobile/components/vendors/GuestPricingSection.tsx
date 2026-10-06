@@ -130,9 +130,10 @@ export function GuestPricingSection({ vendorId }: { vendorId: string }) {
                 {subtotal > 0 ? ` · ${formatMoney(subtotal)}` : ""}
               </Text>
             </View>
-            <View className="w-24 bg-accent-paper rounded-lg px-2 py-1 flex-row items-center">
+            <View className="w-24 bg-accent-paper rounded-lg px-2 flex-row items-center" style={{ height: CIBLE_TACTILE }}>
               <TextInput
                 className="flex-1 text-sm text-ink"
+                style={{ height: CIBLE_TACTILE }}
                 textAlign="right"
                 value={line.pricePerPerson != null ? line.pricePerPerson.toString() : ""}
                 onChangeText={(v: string) =>
@@ -160,9 +161,10 @@ export function GuestPricingSection({ vendorId }: { vendorId: string }) {
           <Text className="text-sm font-medium text-ink">{t("fixedFeeLabel")}</Text>
           <Text className="text-xs text-mute mt-0.5">{t("fixedFeeHint")}</Text>
         </View>
-        <View className="w-24 bg-accent-paper rounded-lg px-2 py-1 flex-row items-center">
+        <View className="w-24 bg-accent-paper rounded-lg px-2 flex-row items-center" style={{ height: CIBLE_TACTILE }}>
           <TextInput
             className="flex-1 text-sm text-ink"
+            style={{ height: CIBLE_TACTILE }}
             textAlign="right"
             value={fixedFee != null ? fixedFee.toString() : ""}
             onChangeText={(v: string) =>

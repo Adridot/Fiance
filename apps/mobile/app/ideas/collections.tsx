@@ -60,7 +60,8 @@ export default function CollectionsScreen() {
               {t("newCollection")}
             </Text>
             <TextInput
-              className="text-base text-ink border-b border-hair pb-2 mb-3"
+              className="text-base text-ink border-b border-hair mb-3"
+              style={{ minHeight: CIBLE_TACTILE }}
               placeholder={t("collectionName")}
               placeholderTextColor="#9CA3AF"
               value={newName}
@@ -69,7 +70,8 @@ export default function CollectionsScreen() {
               editable={canEdit}
             />
             <TextInput
-              className="text-base text-ink border-b border-hair pb-2 mb-3"
+              className="text-base text-ink border-b border-hair mb-3"
+              style={{ minHeight: CIBLE_TACTILE }}
               placeholder={t("collectionDesc")}
               placeholderTextColor="#9CA3AF"
               value={newDescription}

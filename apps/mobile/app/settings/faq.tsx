@@ -6,6 +6,7 @@ import { useWeddingStore } from "@/store/useWeddingStore";
 import type { FaqItem } from "@/lib/public-page";
 import { PageHeader } from "@/components/PageHeader";
 import { BoutonIcone } from "@/components/BoutonIcone";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { Label } from "@/components/Label";
 import { useHasFeature } from "@/lib/limits";
 import { useShowPaywall } from "@/components/PaywallProvider";
@@ -101,6 +102,7 @@ export default function FaqScreen() {
               </Text>
               <TextInput
                 className="text-base text-ink"
+                style={{ minHeight: CIBLE_TACTILE }}
                 value={item.question}
                 onChangeText={(text) => updateItem(index, { question: text })}
                 placeholder={t("faqQuestionPlaceholder")}
@@ -113,6 +115,7 @@ export default function FaqScreen() {
               </Text>
               <TextInput
                 className="text-base text-ink"
+                style={{ minHeight: CIBLE_TACTILE }}
                 value={item.answer}
                 onChangeText={(text) => updateItem(index, { answer: text })}
                 placeholder={t("faqAnswerPlaceholder")}

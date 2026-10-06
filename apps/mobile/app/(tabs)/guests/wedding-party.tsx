@@ -75,7 +75,8 @@ export default function WeddingPartyScreen() {
         {editingId ? t("weddingParty.editRole") : t("weddingParty.newRole")}
       </Text>
       <TextInput
-        className="text-base text-ink border-b border-hair pb-2"
+        className="text-base text-ink border-b border-hair"
+        style={{ minHeight: CIBLE_TACTILE }}
         placeholder={t("weddingParty.roleNamePlaceholder")}
         placeholderTextColor="#D0D0D8"
         value={name}

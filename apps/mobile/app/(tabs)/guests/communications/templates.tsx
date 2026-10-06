@@ -11,6 +11,7 @@ import { FAB } from "@/components/FAB";
 import { BoutonIcone } from "@/components/BoutonIcone";
 import { ChipSelect, FormActions } from "@/components/FormSection";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { COMMUNICATION_CHANNEL_LABELS, type CommunicationChannel } from "@fiance/sdk";
 import type { CommunicationTemplate } from "@/db/schema";
 
@@ -93,7 +94,8 @@ export default function CommunicationTemplatesScreen() {
         {editingId ? t("communications.templates.editTemplate") : t("communications.templates.newTemplate")}
       </Text>
       <TextInput
-        className="text-base text-ink border-b border-hair pb-2 mb-3"
+        className="text-base text-ink border-b border-hair mb-3"
+        style={{ minHeight: CIBLE_TACTILE }}
         placeholder={t("communications.templates.namePlaceholder")}
         placeholderTextColor="#D0D0D8"
         value={form.name}
@@ -102,7 +104,8 @@ export default function CommunicationTemplatesScreen() {
       />
       <ChipSelect options={CHANNELS} value={form.channel} onChange={(channel) => setForm((f) => ({ ...f, channel }))} labels={channelLabels} />
       <TextInput
-        className="text-base text-ink border-b border-hair pb-2 mt-3"
+        className="text-base text-ink border-b border-hair mt-3"
+        style={{ minHeight: CIBLE_TACTILE }}
         placeholder={t("communications.subject")}
         placeholderTextColor="#D0D0D8"
         value={form.subject}

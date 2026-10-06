@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { FormActions } from "@/components/FormSection";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { theme as GP } from "@/lib/theme";
 import { analytics } from "@/lib/analytics";
 import type { InvitationTypeEntity } from "@/db/schema";
@@ -130,7 +131,8 @@ export default function InvitationTypesScreen() {
                 {t("newInvitationType")}
               </Text>
               <TextInput
-                className="text-base text-ink border-b border-hair pb-2"
+                className="text-base text-ink border-b border-hair"
+                style={{ minHeight: CIBLE_TACTILE }}
                 placeholder={t("invitationTypeNamePlaceholder")}
                 placeholderTextColor="#D0D0D8"
                 value={newLabel}
@@ -163,7 +165,8 @@ export default function InvitationTypesScreen() {
                 <View key={type.id} className="bg-accent-card rounded-2xl p-4 mb-2.5 border border-primary-200 dark:border-primary-800">
                   <Text className="text-sm text-mute mb-2">{type.label}</Text>
                   <TextInput
-                    className="text-base text-ink border-b border-hair pb-2"
+                    className="text-base text-ink border-b border-hair"
+                    style={{ minHeight: CIBLE_TACTILE }}
                     placeholder={t("invitationTypeName")}
                     placeholderTextColor="#D0D0D8"
                     value={editingLabel}

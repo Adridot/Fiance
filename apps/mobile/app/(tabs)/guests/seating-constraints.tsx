@@ -19,6 +19,7 @@ import { BoutonIcone } from "@/components/BoutonIcone";
 import { ChipSelect, ToggleRow, FormActions } from "@/components/FormSection";
 import { GuestSelectList } from "@/components/GuestSelectList";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { analytics } from "@/lib/analytics";
 import type { SeatingConstraint } from "@/db/schema";
 import { theme as GP } from "@/lib/theme";
@@ -114,7 +115,8 @@ export default function SeatingConstraintsScreen() {
       <ChipSelect options={TYPES} value={form.type} onChange={(type) => setForm((f) => ({ ...f, type }))} labels={typeLabels} />
 
       <TextInput
-        className="text-base text-ink border-b border-hair pb-2 mt-4"
+        className="text-base text-ink border-b border-hair mt-4"
+        style={{ minHeight: CIBLE_TACTILE }}
         placeholder={t("seatingConstraints.labelPlaceholder")}
         placeholderTextColor="#D0D0D8"
         value={form.label}

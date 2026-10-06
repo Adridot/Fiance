@@ -12,6 +12,7 @@ import { FAB } from "@/components/FAB";
 import { BoutonIcone } from "@/components/BoutonIcone";
 import { ChipSelect, ToggleRow, DateRow, TimeRow, FormActions } from "@/components/FormSection";
 import { analytics } from "@/lib/analytics";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
 import { useShowPaywall } from "@/components/PaywallProvider";
 import { QuotaBadge } from "@/components/QuotaBadge";
@@ -139,7 +140,8 @@ export default function PlanningEventsScreen() {
       </Text>
 
       <TextInput
-        className="text-base text-ink border-b border-hair pb-2 mb-4"
+        className="text-base text-ink border-b border-hair mb-4"
+        style={{ minHeight: CIBLE_TACTILE }}
         placeholder={t("events.titlePlaceholder")}
         placeholderTextColor="#D0D0D8"
         value={form.title}
@@ -155,7 +157,8 @@ export default function PlanningEventsScreen() {
       </View>
 
       <TextInput
-        className="text-base text-ink border-b border-hair pb-2 mt-3"
+        className="text-base text-ink border-b border-hair mt-3"
+        style={{ minHeight: CIBLE_TACTILE }}
         placeholder={t("events.venuePlaceholder")}
         placeholderTextColor="#D0D0D8"
         value={form.venueName}
@@ -163,7 +166,8 @@ export default function PlanningEventsScreen() {
         editable={canEdit}
       />
       <TextInput
-        className="text-base text-ink border-b border-hair pb-2 mt-3"
+        className="text-base text-ink border-b border-hair mt-3"
+        style={{ minHeight: CIBLE_TACTILE }}
         placeholder={t("events.addressPlaceholder")}
         placeholderTextColor="#D0D0D8"
         value={form.address}
