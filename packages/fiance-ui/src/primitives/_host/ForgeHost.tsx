@@ -1,5 +1,6 @@
 'use client'
 import React, { createContext, useContext } from 'react'
+import { Platform } from 'react-native'
 import { Host } from '@expo/ui'
 import type { UniversalHostProps } from '@expo/ui'
 import { useForgeTheme } from '../../theme/context'
@@ -17,10 +18,16 @@ interface ForgeHostProps extends UniversalHostProps {
  * (CSS custom properties). Marks descendants via `HostContext` so nested seahorse
  * native primitives render bare instead of creating their own bridge.
  */
-function ForgeHost({ children, seedColor, ...rest }: ForgeHostProps) {
+function ForgeHost({ children, seedColor, ignoreSafeArea, ...rest }: ForgeHostProps) {
   const { colors } = useForgeTheme()
   return (
-    <Host seedColor={seedColor ?? colors.primary} {...rest}>
+    <Host
+      seedColor={seedColor ?? colors.primary}
+      // Web : sinon le Host se rembourre des zones sûres (env()) ; sous viewport-fit=cover,
+      // chaque bouton ou case prendrait l'encoche et l'indicateur d'accueil de l'iPhone.
+      ignoreSafeArea={ignoreSafeArea ?? (Platform.OS === 'web' ? 'all' : undefined)}
+      {...rest}
+    >
       <HostContext.Provider value={true}>{children}</HostContext.Provider>
     </Host>
   )
