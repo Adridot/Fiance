@@ -357,7 +357,8 @@ export default function VendorDetailScreen() {
 
             <Pressable
               onPress={() => setShowDates(!showDates)}
-              className="flex-row items-center justify-between mb-2 mt-1"
+              className="flex-row items-center justify-between"
+              style={{ paddingTop: 12, paddingBottom: 8, marginTop: -8 }}
             >
               <SectionTitle>{t("dates")}</SectionTitle>
               {showDates ? (
