@@ -1,0 +1,134 @@
+diff --git a/apps/mobile/components/ChoixDeDocument.tsx b/apps/mobile/components/ChoixDeDocument.tsx
+new file mode 100644
+index 0000000..a0908dd
+--- /dev/null
++++ b/apps/mobile/components/ChoixDeDocument.tsx
+@@ -0,0 +1,27 @@
++import React from "react";
++import { Pressable } from "react-native";
++import * as Crypto from "expo-crypto";
++import { pickAndStoreDocument, type PickedDocumentFile } from "@/lib/documents";
++
++export interface ChoixDeDocumentProps {
++  onChoisi: (document: PickedDocumentFile & { id: string }) => void;
++  onErreur: () => void;
++  children: React.ReactNode;
++}
++
++/** Choisit un fichier et le stocke sous un nouvel identifiant ; la version web est un vrai `<label>`. */
++export function ChoixDeDocument({ onChoisi, onErreur, children }: ChoixDeDocumentProps) {
++  return (
++    <Pressable
++      style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}
++      onPress={() => {
++        const id = Crypto.randomUUID();
++        pickAndStoreDocument(id).then((document) => {
++          if (document) onChoisi({ id, ...document });
++        }, onErreur);
++      }}
++    >
++      {children}
++    </Pressable>
++  );
++}
+diff --git a/apps/mobile/components/ChoixDeDocument.web.tsx b/apps/mobile/components/ChoixDeDocument.web.tsx
+new file mode 100644
+index 0000000..5e46c13
+--- /dev/null
++++ b/apps/mobile/components/ChoixDeDocument.web.tsx
+@@ -0,0 +1,24 @@
++import React from "react";
++import * as Crypto from "expo-crypto";
++import { stockerUnFichierWeb } from "@/lib/documents";
++import type { ChoixDeDocumentProps } from "./ChoixDeDocument";
++
++// Un vrai <label> : en app installée, Safari n'ouvre pas un sélecteur de fichier déclenché par script (cf. export-import.tsx).
++export function ChoixDeDocument({ onChoisi, onErreur, children }: ChoixDeDocumentProps) {
++  return (
++    <label style={{ display: "block", position: "relative", cursor: "pointer" }}>
++      <input
++        type="file"
++        style={{ position: "absolute", opacity: 0, width: 1, height: 1, pointerEvents: "none" }}
++        onChange={(e) => {
++          const fichier = e.target.files?.[0];
++          e.target.value = "";
++          if (!fichier) return;
++          const id = Crypto.randomUUID();
++          stockerUnFichierWeb(id, fichier).then((document) => onChoisi({ id, ...document }), onErreur);
++        }}
++      />
++      {children}
++    </label>
++  );
++}
+diff --git a/apps/mobile/lib/documents.ts b/apps/mobile/lib/documents.ts
+index 28a079c..208b3af 100644
+--- a/apps/mobile/lib/documents.ts
++++ b/apps/mobile/lib/documents.ts
+@@ -20,18 +20,31 @@ function blobKeyFor(id: string): string {
+   return `document-blob-${id}`;
+ }
+ 
++function readBlobAsDataUrl(blob: Blob): Promise<string> {
++  return new Promise<string>((resolve, reject) => {
++    const reader = new FileReader();
++    reader.onloadend = () => resolve(reader.result as string);
++    reader.onerror = reject;
++    reader.readAsDataURL(blob);
++  });
++}
++
+ function readAssetAsDataUrl(uri: string): Promise<string> {
+   return fetch(uri)
+     .then((res) => res.blob())
+-    .then(
+-      (blob) =>
+-        new Promise<string>((resolve, reject) => {
+-          const reader = new FileReader();
+-          reader.onloadend = () => resolve(reader.result as string);
+-          reader.onerror = reject;
+-          reader.readAsDataURL(blob);
+-        }),
+-    );
++    .then(readBlobAsDataUrl);
++}
++
++/** Web : stocke un fichier choisi par un vrai `<input type="file">` (voir `components/ChoixDeDocument.web.tsx`). */
++export async function stockerUnFichierWeb(id: string, fichier: File): Promise<PickedDocumentFile> {
++  const blobKey = blobKeyFor(id);
++  writeCollection(blobKey, await readBlobAsDataUrl(fichier));
++  return {
++    fileName: fichier.name,
++    mimeType: fichier.type || null,
++    fileSize: fichier.size,
++    localUri: blobKey,
++  };
+ }
+ 
+ /** Opens the file picker and stores the picked file. Returns null if the user cancels. */
+diff --git a/packages/fiance-ui/src/primitives/bottom-sheet/index.tsx b/packages/fiance-ui/src/primitives/bottom-sheet/index.tsx
+index f27dcce..65bbd28 100644
+--- a/packages/fiance-ui/src/primitives/bottom-sheet/index.tsx
++++ b/packages/fiance-ui/src/primitives/bottom-sheet/index.tsx
+@@ -1,8 +1,11 @@
+ import React from "react";
+-import { Platform } from "react-native";
++import { Platform, type ViewStyle } from "react-native";
+ import BottomSheetNative, { BottomSheetView } from "@expo/ui/community/bottom-sheet";
+ import { useForgeTheme } from "../../theme/context";
+ 
++// Web : vaul fixe la feuille au bas de la fenêtre ; sans cela sa dernière ligne passe sous l'indicateur d'accueil.
++const zoneSureDuBas = { paddingBottom: "env(safe-area-inset-bottom, 0px)" } as unknown as ViewStyle;
++
+ interface BottomSheetProps {
+   visible: boolean;
+   onDismiss: () => void;
+@@ -32,7 +35,7 @@ export function BottomSheet({ visible, onDismiss, children, backgroundColor, sna
+       index={visible ? 0 : -1}
+       enablePanDownToClose
+       onDismiss={onDismiss}
+-      backgroundStyle={{ backgroundColor: bg }}
++      backgroundStyle={Platform.OS === "web" ? [{ backgroundColor: bg }, zoneSureDuBas] : { backgroundColor: bg }}
+       snapPoints={snapPoints}
+       // iOS: fitToContents re-measures + resizes the sheet after present, which
+       // desyncs the RNHostView touch handler (rows show a press state but onPress

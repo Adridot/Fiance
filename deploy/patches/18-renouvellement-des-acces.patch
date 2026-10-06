@@ -194,10 +194,10 @@ index 0000000..069e31f
 +});
 diff --git a/apps/mobile/__tests__/invite-link-acces.test.ts b/apps/mobile/__tests__/invite-link-acces.test.ts
 new file mode 100644
-index 0000000..dd05050
+index 0000000..cfdf2bc
 --- /dev/null
 +++ b/apps/mobile/__tests__/invite-link-acces.test.ts
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,115 @@
 +/**
 + * Le lien d'invitation : un accès de trois ans, émis sur un contenu à l'époque
 + * courante, et un magasin d'invitations qui ne perd pas les liens passés.
@@ -290,6 +290,27 @@ index 0000000..dd05050
 +    await createInviteLink(ENTREE as never, undefined, "Emma");
 +
 +    expect(mockHydraterMagasin).toHaveBeenCalledWith('{"sp-1:ancien":{"edPub":"e","kemPub":"k"}}');
++  });
++});
++
++describe("reprendreSurConflit", () => {
++  const conflit = () => Object.assign(new Error("hash_mismatch"), { name: "ConflictError" });
++
++  it("relance une création qui a perdu la course au keyring", async () => {
++    const { reprendreSurConflit } = await import("@/lib/invite-link");
++    const tache = vi.fn().mockRejectedValueOnce(conflit()).mockResolvedValueOnce("lien");
++    await expect(reprendreSurConflit(tache)).resolves.toBe("lien");
++    expect(tache).toHaveBeenCalledTimes(2);
++  });
++
++  it("ne relance ni une autre erreur, ni au-delà du nombre d'essais", async () => {
++    const { reprendreSurConflit } = await import("@/lib/invite-link");
++    const autre = vi.fn().mockRejectedValue(new Error("HTTP 500"));
++    await expect(reprendreSurConflit(autre)).rejects.toThrow("HTTP 500");
++    expect(autre).toHaveBeenCalledTimes(1);
++    const toujours = vi.fn().mockRejectedValue(conflit());
++    await expect(reprendreSurConflit(toujours, 3)).rejects.toThrow("hash_mismatch");
++    expect(toujours).toHaveBeenCalledTimes(3);
 +  });
 +});
 diff --git a/apps/mobile/__tests__/renouvellement-automatique.test.ts b/apps/mobile/__tests__/renouvellement-automatique.test.ts
@@ -1885,10 +1906,10 @@ index 0000000..10189f5
 +    set((etat) => (!etat.refus || (spaceId !== undefined && etat.refus.spaceId !== spaceId) ? etat : { refus: null })),
 +}));
 diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
-index 8c90fdb..86969ce 100644
+index 8c90fdb..25442bb 100644
 --- a/apps/mobile/lib/invite-link.ts
 +++ b/apps/mobile/lib/invite-link.ts
-@@ -32,6 +81,14 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
+@@ -32,6 +97,14 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
    if (!cfg) throw new Error("INVITE_NO_SESSION");
    const spaceId = await ensureSpaceProvisioned(cfg.session, entry);
  

@@ -572,6 +572,77 @@ GROUPES = collections.OrderedDict([
         "apps/mobile/lib/menu-deroulant.ts",
         "apps/mobile/lib/usePwaInstall.ts",
     ])),
+    # Un retour d'en-tête qui marche sans historique (lien direct, rechargement,
+    # app installée relancée), et le lien RSVP d'une fiche ouverte à froid.
+    ("20-retours-sans-historique", (LOCAL, [
+        "apps/mobile/__tests__/disponibilite-du-lien-rsvp.test.ts",
+        "apps/mobile/__tests__/lien-rsvp-hook.test.ts",
+        "apps/mobile/__tests__/mocks/harnais-de-hook.ts",
+        "apps/mobile/__tests__/repli-des-ecrans.test.ts",
+        "apps/mobile/__tests__/revenir.test.ts",
+        "apps/mobile/app/(tabs)/planning/agenda-event.tsx",
+        "apps/mobile/app/ideas/_layout.tsx",
+        "apps/mobile/components/BoutonRetour.tsx",
+        "apps/mobile/components/SuiviDeNavigation.tsx",
+        "apps/mobile/i18n/locales/en/budget.json",
+        "apps/mobile/i18n/locales/fr/budget.json",
+        "apps/mobile/lib/disponibilite-du-lien-rsvp.ts",
+        "apps/mobile/lib/repli-des-ecrans.ts",
+        "apps/mobile/lib/revenir.ts",
+    ])),
+    # Sur le web : une case ou un interrupteur basculent une fois par toucher, et
+    # les contrôles partagés offrent 44 px au doigt (`hitSlop` y est inerte).
+    ("21-controles-partages", (LOCAL, [
+        "packages/fiance-ui/src/components/FilterTabs.tsx",
+        "packages/fiance-ui/src/components/form/FormSection.tsx",
+        "packages/fiance-ui/src/components/pin/PinSetup.tsx",
+        "packages/fiance-ui/src/components/sheets/DatePickerModal.tsx",
+        "packages/fiance-ui/src/components/sheets/RenameSheet.tsx",
+        "packages/fiance-ui/src/components/ui/BasculeVisuelle.tsx",
+        "packages/fiance-ui/src/components/ui/CollapsibleSection.tsx",
+        "packages/fiance-ui/src/components/ui/EmptyState.tsx",
+        "packages/fiance-ui/src/components/ui/FilterTabs.tsx",
+        "packages/fiance-ui/src/components/ui/PuceWeb.tsx",
+        "packages/fiance-ui/src/components/ui/ToggleCard.tsx",
+        "packages/fiance-ui/src/primitives/_host/ForgeHost.tsx",
+        "packages/fiance-ui/src/primitives/button/index.tsx",
+        "packages/fiance-ui/src/utils/bascule-clavier.test.ts",
+        "packages/fiance-ui/src/utils/bascule-clavier.ts",
+        "packages/fiance-ui/src/utils/cible-tactile.test.ts",
+        "packages/fiance-ui/src/utils/cible-tactile.ts",
+        "packages/fiance-ui/src/utils/nom-saisi.test.ts",
+        "packages/fiance-ui/src/utils/nom-saisi.ts",
+    ])),
+    # Les cibles de l'app à 44 px : boutons d'icône, lignes, puces, en-têtes.
+    ("22-cibles-tactiles", (LOCAL, [
+        "apps/mobile/__tests__/cible-tactile.test.ts",
+        "apps/mobile/app/(tabs)/guests/communications.tsx",
+        "apps/mobile/app/(tabs)/guests/communications/templates.tsx",
+        "apps/mobile/app/(tabs)/guests/invitation-types.tsx",
+        "apps/mobile/app/(tabs)/guests/wedding-party.tsx",
+        "apps/mobile/app/ideas/collections.tsx",
+        "apps/mobile/app/settings/event-photos.tsx",
+        "apps/mobile/components/BoutonIcone.tsx",
+        "apps/mobile/components/PremiumGate.tsx",
+        "apps/mobile/components/SegmentedControl.web.tsx",
+        "apps/mobile/components/StatusSelector.tsx",
+        "apps/mobile/components/ZoneTactile.tsx",
+        "apps/mobile/i18n/locales/en/ideas.json",
+        "apps/mobile/i18n/locales/fr/ideas.json",
+        "apps/mobile/lib/cible-tactile.ts",
+        # `lib/cible-tactile.ts` reprend la définition de fiance-ui par son sous-chemin.
+        "apps/mobile/tsconfig.json",
+        "apps/mobile/vitest.config.ts",
+        "packages/fiance-ui/package.json",
+    ])),
+    # Sur le web : un onglet touché empile l'historique au lieu d'y remonter,
+    # feuilles au-dessus de la zone sûre, sélecteur de fichier par un <label>.
+    ("23-navigation-et-pwa", (LOCAL, [
+        "apps/mobile/components/ChoixDeDocument.tsx",
+        "apps/mobile/components/ChoixDeDocument.web.tsx",
+        "apps/mobile/lib/documents.ts",
+        "packages/fiance-ui/src/primitives/bottom-sheet/index.tsx",
+    ])),
 ])
 
 # Fichiers partagés, découpés par hunk : (marqueur dans le hunk, patch cible).
@@ -637,6 +708,7 @@ PARTAGES = {
         ("revocationAccomplie", "12-acces-chiffre-et-invitations"),
         ("revocationIncomplete", "12-acces-chiffre-et-invitations"),
         ("onAvancement", "12-acces-chiffre-et-invitations"),
+        ("CIBLE_TACTILE", "22-cibles-tactiles"),
     ],
 
     # ── `invite-link.ts` et `InviteQRSheet.tsx`, partagés entre 12 et 13 ────
@@ -675,6 +747,7 @@ PARTAGES = {
         # icônes et les ponts d'envoi de la feuille (WhatsApp, SMS, e-mail,
         # QR replié), ne contient aucun marqueur des autres sujets.
         ("MessageCircle", "17-compte-et-connexion"),
+        ("CIBLE_TACTILE", "22-cibles-tactiles"),
     ],
 
     # ── `space-sync.ts` et son test, partagés entre 04 et 08 ────────────────
@@ -786,7 +859,10 @@ PARTAGES = {
                                                 ("nameParticle", "04-groupes-cotes"),
                                                 ("noGroupMembers", "04-groupes-cotes"),
                                                 ("lastNameRequired", "04-groupes-cotes"),
-                                                ("sideNamed", "04-groupes-cotes")],
+                                                ("sideNamed", "04-groupes-cotes"),
+                                                ("rsvpLink", "20-retours-sans-historique"),
+                                                ("removeCompanion", "22-cibles-tactiles"),
+                                                ("unassignRole", "22-cibles-tactiles")],
     "apps/mobile/i18n/locales/en/guests.json": [("quickAdd", "04-groupes-cotes"),
                                                 ("columnInvitationType", "04-groupes-cotes"),
                                                 ("inlineApplyToHousehold", "04-groupes-cotes"),
@@ -799,7 +875,10 @@ PARTAGES = {
                                                 ("nameParticle", "04-groupes-cotes"),
                                                 ("noGroupMembers", "04-groupes-cotes"),
                                                 ("lastNameRequired", "04-groupes-cotes"),
-                                                ("sideNamed", "04-groupes-cotes")],
+                                                ("sideNamed", "04-groupes-cotes"),
+                                                ("rsvpLink", "20-retours-sans-historique"),
+                                                ("removeCompanion", "22-cibles-tactiles"),
+                                                ("unassignRole", "22-cibles-tactiles")],
 }
 
 

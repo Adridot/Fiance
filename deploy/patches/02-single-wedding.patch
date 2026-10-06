@@ -710,7 +710,7 @@ index c3db819..3d354ef 100644
    );
  }
 diff --git a/apps/mobile/app/settings/index.tsx b/apps/mobile/app/settings/index.tsx
-index f48d438..a8d5d21 100644
+index f48d438..34fcf29 100644
 --- a/apps/mobile/app/settings/index.tsx
 +++ b/apps/mobile/app/settings/index.tsx
 @@ -9,7 +9,7 @@ import { toast } from "@/lib/toast/sonner";
@@ -734,7 +734,16 @@ index f48d438..a8d5d21 100644
  import { usePlanningStore } from "@/store/usePlanningStore";
  import { useWeddingRegistryStore } from "@/store/useWeddingRegistryStore";
  import { usePermissionsStore } from "@/store/usePermissionsStore";
-@@ -52,6 +52,7 @@ import { Label } from "@/components/Label";
+@@ -40,6 +40,8 @@ import {
+ } from "@/lib/notifications";
+ import { SectionTitle, ChipSelect } from "@/components/FormSection";
+ import { ConfirmSheet } from "@/components/ConfirmSheet";
++import { BoutonIcone } from "@/components/BoutonIcone";
++import { CIBLE_TACTILE } from "@/lib/cible-tactile";
+ import { RenameSheet } from "@/components/RenameSheet";
+ import { InviteQRSheet } from "@/components/InviteQRSheet";
+ import { ToggleCard } from "@/components/ToggleCard";
+@@ -52,6 +54,7 @@ import { Label } from "@/components/Label";
  import { Chip } from "@/components/Chip";
  import { PageHeader } from "@/components/PageHeader";
  import { useWeddingStore } from "@/store/useWeddingStore";
@@ -742,7 +751,7 @@ index f48d438..a8d5d21 100644
  import { theme } from "@/lib/theme";
  
  export default function SettingsScreen() {
-@@ -62,13 +63,14 @@ export default function SettingsScreen() {
+@@ -62,13 +65,14 @@ export default function SettingsScreen() {
    const colorScheme = useSettingsStore((s) => s.colorScheme);
    const setColorScheme = useSettingsStore((s) => s.setColorScheme);
    const tasks = usePlanningStore((s) => s.tasks);
@@ -758,7 +767,7 @@ index f48d438..a8d5d21 100644
    const deleteWedding = useWeddingRegistryStore((s) => s.deleteWedding);
    const updateRegistryWedding = useWeddingRegistryStore((s) => s.updateWedding);
  
-@@ -204,15 +206,16 @@ export default function SettingsScreen() {
+@@ -204,15 +208,16 @@ export default function SettingsScreen() {
      [activeEntry],
    );
  
@@ -784,7 +793,7 @@ index f48d438..a8d5d21 100644
  
    const [showJoinScanner, setShowJoinScanner] = useState(false);
  
-@@ -329,12 +332,27 @@ export default function SettingsScreen() {
+@@ -329,12 +334,27 @@ export default function SettingsScreen() {
          </View>
        )}
  
@@ -813,7 +822,7 @@ index f48d438..a8d5d21 100644
              </View>
            }
            title={premium ? t("premiumUnlocked") : t("premiumTitle")}
-@@ -349,7 +367,7 @@ export default function SettingsScreen() {
+@@ -349,7 +369,7 @@ export default function SettingsScreen() {
          <IconCard
            icon={
              <View className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center">
@@ -822,7 +831,7 @@ index f48d438..a8d5d21 100644
              </View>
            }
            title={t("publicPageTitle")}
-@@ -361,7 +379,7 @@ export default function SettingsScreen() {
+@@ -361,7 +381,7 @@ export default function SettingsScreen() {
          {/* <IconCard
            icon={
              <View className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center">
@@ -831,7 +840,7 @@ index f48d438..a8d5d21 100644
              </View>
            }
            title={t("documentsTitle")}
-@@ -409,7 +427,7 @@ export default function SettingsScreen() {
+@@ -409,7 +429,7 @@ export default function SettingsScreen() {
            <IconCard
              icon={
                <View className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center">
@@ -840,7 +849,7 @@ index f48d438..a8d5d21 100644
                </View>
              }
              title={t("shareInviteLink")}
-@@ -417,7 +435,7 @@ export default function SettingsScreen() {
+@@ -417,7 +437,7 @@ export default function SettingsScreen() {
              right={
                canInviteMember
                  ? <ChevronRight size={18} color="#C0C0C8" />
@@ -849,7 +858,7 @@ index f48d438..a8d5d21 100644
              }
              onPress={handleInvite}
            />
-@@ -426,7 +444,7 @@ export default function SettingsScreen() {
+@@ -426,7 +446,7 @@ export default function SettingsScreen() {
            <IconCard
              icon={
                <View className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center">
@@ -858,7 +867,7 @@ index f48d438..a8d5d21 100644
                </View>
              }
              title={t("rolesTitle")}
-@@ -439,7 +457,7 @@ export default function SettingsScreen() {
+@@ -439,7 +459,7 @@ export default function SettingsScreen() {
            <IconCard
              icon={
                <View className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900 items-center justify-center">
@@ -867,7 +876,7 @@ index f48d438..a8d5d21 100644
                </View>
              }
              title={t("collabInviteLockedTitle")}
-@@ -449,8 +467,8 @@ export default function SettingsScreen() {
+@@ -449,8 +469,8 @@ export default function SettingsScreen() {
          {needsNamespaceResync(activeEntry) && (
            <IconCard
              icon={
@@ -878,7 +887,12 @@ index f48d438..a8d5d21 100644
                </View>
              }
              title={t("resyncWedding")}
-@@ -503,13 +521,13 @@ export default function SettingsScreen() {
+@@ -499,17 +519,18 @@ export default function SettingsScreen() {
+                   }
+                 }}
+                 className="flex-row items-center flex-1 active:opacity-80"
++                style={{ minHeight: CIBLE_TACTILE }}
+               >
                  <View
                    className="w-10 h-10 rounded-xl items-center justify-center mr-3"
                    style={{
@@ -895,7 +909,7 @@ index f48d438..a8d5d21 100644
                    />
                  </View>
                  <View className="flex-1">
-@@ -521,7 +539,7 @@ export default function SettingsScreen() {
+@@ -521,37 +542,37 @@ export default function SettingsScreen() {
                    </Text>
                  </View>
                  {isActive && (
@@ -903,8 +917,22 @@ index f48d438..a8d5d21 100644
 +                  <CheckCircle2 size={20} color={theme.clay} />
                  )}
                </Pressable>
-               <Pressable
-@@ -539,19 +557,25 @@ export default function SettingsScreen() {
+-              <Pressable
+-                onPress={() => setRenameWeddingId(w.id)}
+-                className="ml-2 w-8 h-8 items-center justify-center rounded-lg"
+-              >
++              <BoutonIcone libelle={`${t("renameWedding")} ${w.label}`} onPress={() => setRenameWeddingId(w.id)}>
+                 <Pencil size={16} color="#9CA3AF" />
+-              </Pressable>
+-              <Pressable
+-                onPress={() => setDeleteWeddingId(w.id)}
+-                className="ml-1 w-8 h-8 items-center justify-center rounded-lg"
+-              >
++              </BoutonIcone>
++              <BoutonIcone libelle={`${t("delete")} ${w.label}`} onPress={() => setDeleteWeddingId(w.id)}>
+                 <Trash2 size={16} color="#EF4444" />
+-              </Pressable>
++              </BoutonIcone>
              </View>
            );
          })}
@@ -936,7 +964,7 @@ index f48d438..a8d5d21 100644
          <Pressable
            onPress={() => setShowJoinScanner(true)}
            className="bg-accent-card rounded-2xl p-4 mb-2 border border-hair dark:border-hair flex-row items-center active:opacity-80"
-@@ -573,7 +597,7 @@ export default function SettingsScreen() {
+@@ -573,7 +594,7 @@ export default function SettingsScreen() {
          <ToggleCard
            icon={
              <View className="w-10 h-10 rounded-xl bg-accent-paper items-center justify-center">
@@ -945,7 +973,7 @@ index f48d438..a8d5d21 100644
              </View>
            }
            title={t("appLock")}
-@@ -590,7 +614,7 @@ export default function SettingsScreen() {
+@@ -590,7 +611,7 @@ export default function SettingsScreen() {
            <ToggleCard
              icon={
                <View className="w-10 h-10 rounded-xl bg-accent-paper items-center justify-center" style={{ position: "relative" }}>
@@ -954,7 +982,7 @@ index f48d438..a8d5d21 100644
                  {!hasReminders && (
                    <View
                      className="w-3.5 h-3.5 rounded-full bg-primary-500 items-center justify-center"
-@@ -611,7 +635,7 @@ export default function SettingsScreen() {
+@@ -611,7 +632,7 @@ export default function SettingsScreen() {
                onPress={() => { toast.error(t("remindersLockedHint")); setShowPaywall(true); }}
                className="flex-row items-start gap-2 mb-2 -mt-1 px-3.5 py-3 rounded-xl bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-800 active:opacity-70"
              >
@@ -963,7 +991,7 @@ index f48d438..a8d5d21 100644
                <Text className="flex-1 text-xs text-primary-600 dark:text-primary-300 leading-4">
                  {t("remindersLockedHint")}
                </Text>
-@@ -751,14 +775,6 @@ export default function SettingsScreen() {
+@@ -751,14 +772,6 @@ export default function SettingsScreen() {
        onCancel={() => setDeleteWeddingId(null)}
      />
  
@@ -978,7 +1006,7 @@ index f48d438..a8d5d21 100644
      <ConfirmSheet
        visible={showDisableLock}
        title={t("disableLock")}
-@@ -796,6 +812,7 @@ export default function SettingsScreen() {
+@@ -796,6 +809,7 @@ export default function SettingsScreen() {
        visible={showInviteQR}
        onClose={() => setShowInviteQR(false)}
        generate={generateInvite}

@@ -3324,16 +3324,18 @@ index 9d1e35f..8a7279f 100644
 +  }
  }
 diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
-index 8c90fdb..86969ce 100644
+index 8c90fdb..25442bb 100644
 --- a/apps/mobile/lib/invite-link.ts
 +++ b/apps/mobile/lib/invite-link.ts
-@@ -45,13 +102,32 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
+@@ -45,13 +118,34 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
    // Name the invite after the collaborator when provided, so it's identifiable in the
    // invite store / roster; fall back to the wedding label.
    const collaboratorName = name?.trim() || undefined;
 -  const { token, link, inviteUserId } = await createSpaceInviteLink(cfg.session, spaceId, collaboratorName ?? entry.label, canWrite, origin);
-+  const { token, link, inviteUserId } = await createSpaceInviteLink(
-+    cfg.session, spaceId, collaboratorName ?? entry.label, canWrite, origin, { ttlSec: DUREE_D_UN_ACCES_SEC },
++  const { token, link, inviteUserId } = await reprendreSurConflit(() =>
++    createSpaceInviteLink(
++      cfg.session, spaceId, collaboratorName ?? entry.label, canWrite, origin, { ttlSec: DUREE_D_UN_ACCES_SEC },
++    ),
 +  );
 +
 +  // Le dépôt AVANT l'affectation et la poussée : s'il échoue, aucune affectation
@@ -3365,10 +3367,10 @@ index 8c90fdb..86969ce 100644
    if (role) {
      const subjectUserId = inviteUserId ?? (token.cap as { subUserId?: string }).subUserId;
 diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
-index 8c90fdb..86969ce 100644
+index 8c90fdb..25442bb 100644
 --- a/apps/mobile/lib/invite-link.ts
 +++ b/apps/mobile/lib/invite-link.ts
-@@ -96,5 +173,46 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
+@@ -96,5 +191,46 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
      console.warn("[invite] roster diagnostics failed", err);
    }
  
@@ -3417,10 +3419,10 @@ index 8c90fdb..86969ce 100644
 +  } catch { /* la mémoire des codes est un confort, pas une garantie */ }
  }
 diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
-index 07ec918..f5ad5cb 100644
+index 07ec918..c386e80 100644
 --- a/apps/mobile/components/InviteQRSheet.tsx
 +++ b/apps/mobile/components/InviteQRSheet.tsx
-@@ -29,6 +62,8 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
+@@ -29,6 +63,8 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
    const [url, setUrl] = useState("");
    const [detail, setDetail] = useState("");
    const [name, setName] = useState("");
@@ -3430,10 +3432,10 @@ index 07ec918..f5ad5cb 100644
    const roleLabel = (r: RoleDefinition) => (r.isSystem ? t(r.name) : r.name);
    const surfaceLabel = (s: FeatureSurface) =>
 diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
-index 07ec918..f5ad5cb 100644
+index 07ec918..c386e80 100644
 --- a/apps/mobile/components/InviteQRSheet.tsx
 +++ b/apps/mobile/components/InviteQRSheet.tsx
-@@ -203,44 +320,141 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
+@@ -203,44 +321,141 @@ export function InviteQRSheet({ visible, onClose, generate }: InviteQRSheetProps
  
          {state === "ready" && (
            <>

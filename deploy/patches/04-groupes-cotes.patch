@@ -308,10 +308,21 @@ index 0000000..b7ca900
 +  });
 +});
 diff --git a/apps/mobile/app/(tabs)/guests/[id].tsx b/apps/mobile/app/(tabs)/guests/[id].tsx
-index 6f9a1be..68c531d 100644
+index 6f9a1be..b059530 100644
 --- a/apps/mobile/app/(tabs)/guests/[id].tsx
 +++ b/apps/mobile/app/(tabs)/guests/[id].tsx
-@@ -16,6 +16,12 @@ import { useVendorsStore } from "@/store/useVendorsStore";
+@@ -1,7 +1,9 @@
+ import React, { useState } from "react";
+ import { View, Text, ScrollView, TextInput, Pressable } from "react-native-css/components";
+-import { Alert, Share, Platform } from "react-native";
++import { ActivityIndicator, Alert, Share, Platform } from "react-native";
+ import { useLocalSearchParams, useRouter, Stack } from "expo-router";
++import { revenir } from "@/lib/revenir";
++import { repliDe } from "@/lib/repli-des-ecrans";
+ import { useTranslation } from "react-i18next";
+ import * as Crypto from "expo-crypto";
+ import { useGuestsStore } from "@/store/useGuestsStore";
+@@ -16,6 +18,12 @@ import { useVendorsStore } from "@/store/useVendorsStore";
  import { useSeatingConstraintsStore } from "@/store/useSeatingConstraintsStore";
  import { useCommunicationsStore } from "@/store/useCommunicationsStore";
  import {
@@ -324,7 +335,16 @@ index 6f9a1be..68c531d 100644
    MEAL_CHOICE_LABELS,
    SEATING_CONSTRAINT_TYPE_LABELS,
    COMMUNICATION_CHANNEL_LABELS,
-@@ -51,6 +57,7 @@ import {
+@@ -23,7 +31,7 @@ import {
+   type SeatingConstraintType,
+   type CommunicationChannel,
+ } from "@fiance/sdk";
+-import { useGuestRsvpUrl } from "@/lib/rsvp-sync";
++import { useGuestRsvpLink } from "@/lib/rsvp-sync";
+ import {
+   RSVP_STATUS_LABELS,
+   RSVP_STATUS_COLORS,
+@@ -51,6 +59,7 @@ import {
    Gift,
    FileText,
    UsersRound,
@@ -332,7 +352,7 @@ index 6f9a1be..68c531d 100644
    Ban,
    type LucideIcon,
  } from "lucide-react-native";
-@@ -61,6 +68,8 @@ import { useCanAddMore, FREE_LIMITS } from "@/lib/limits";
+@@ -61,6 +70,8 @@ import { useCanAddMore, FREE_LIMITS } from "@/lib/limits";
  import { PaywallSheet } from "@/components/PaywallSheet";
  import { ConfirmSheet } from "@/components/ConfirmSheet";
  import { CompanionPickerModal } from "@/components/CompanionPickerModal";
@@ -341,16 +361,28 @@ index 6f9a1be..68c531d 100644
  import {
    SectionTitle,
    FormCard,
-@@ -88,7 +97,7 @@ const DIETS: Diet[] = [
+@@ -76,6 +87,9 @@ import { HorizontalChipSelect } from "@/components/HorizontalChipSelect";
+ import { StatusSelector } from "@/components/StatusSelector";
+ import { PageHeader } from "@/components/PageHeader";
+ import { Seal } from "@/components/Seal";
++import { BoutonIcone } from "@/components/BoutonIcone";
++import { ZoneTactile } from "@/components/ZoneTactile";
++import { CIBLE_TACTILE, agrandir } from "@/lib/cible-tactile";
+ import type { Guest } from "@/db/schema";
+ 
+ const RSVP_STATUSES: RsvpStatus[] = ["PENDING", "ACCEPTED", "DECLINED", "MAYBE"];
+@@ -88,7 +102,9 @@ const DIETS: Diet[] = [
    "ALLERGY",
  ];
  
 -type SheetKey = "role" | "contact" | "rsvp" | "placement" | "meal" | "transport" | "postWedding" | "notes";
++const bandeauDesRoles = agrandir({ haut: 10, bas: 10 }, { marges: { bas: 16 } });
++
 +type SheetKey = "role" | "contact" | "household" | "rsvp" | "placement" | "meal" | "transport" | "postWedding" | "notes";
  
  export default function GuestDetailScreen() {
    const { t } = useTranslation("guests");
-@@ -98,6 +107,10 @@ export default function GuestDetailScreen() {
+@@ -98,6 +114,10 @@ export default function GuestDetailScreen() {
    const guests = useGuestsStore((s) => s.guests);
    const tables = useGuestsStore((s) => s.tables);
    const groups = useGuestsStore((s) => s.groups);
@@ -361,7 +393,7 @@ index 6f9a1be..68c531d 100644
    const addGuest = useGuestsStore((s) => s.addGuest);
    const updateGuest = useGuestsStore((s) => s.updateGuest);
    const removeGuest = useGuestsStore((s) => s.removeGuest);
-@@ -143,7 +156,7 @@ export default function GuestDetailScreen() {
+@@ -143,7 +163,7 @@ export default function GuestDetailScreen() {
    const [rsvpStatus, setRsvpStatus] = useState<RsvpStatus>(
      (existing?.rsvpStatus as RsvpStatus) || "PENDING"
    );
@@ -370,16 +402,62 @@ index 6f9a1be..68c531d 100644
    const [diet, setDiet] = useState<Diet>((existing?.diet as Diet) || "STANDARD");
    const [dietNotes, setDietNotes] = useState(existing?.dietNotes || "");
    const [email, setEmail] = useState(existing?.email || "");
-@@ -168,15 +181,16 @@ export default function GuestDetailScreen() {
+@@ -168,15 +188,61 @@ export default function GuestDetailScreen() {
    const [showDelete, setShowDelete] = useState(false);
    const [showCompanionPicker, setShowCompanionPicker] = useState(false);
    const [showCompanionConfirm, setShowCompanionConfirm] = useState(false);
 +  const [showMemberPicker, setShowMemberPicker] = useState(false);
    const [pendingCompanionId, setPendingCompanionId] = useState("");
    const [activeSheet, setActiveSheet] = useState<SheetKey | null>(null);
-   const rsvpUrl = useGuestRsvpUrl(isNew ? undefined : id, activeEntry);
+-  const rsvpUrl = useGuestRsvpUrl(isNew ? undefined : id, activeEntry);
++  const rsvp = useGuestRsvpLink(isNew ? undefined : id, activeEntry);
++  const rsvpDisabled = rsvp.etat === "preparation" || rsvp.etat === "indisponible";
++  const rsvpLabel =
++    rsvp.etat === "preparation" ? t("rsvpLinkPreparing") : rsvp.etat === "echec" ? t("rsvpLinkRetry") : t("rsvpLink");
  
 -  const canSave = firstName.trim().length > 0 && lastName.trim().length > 0;
++  const handleRsvpLink = async () => {
++    if (rsvp.etat === "echec") {
++      toast.error(t("rsvpLinkError"));
++      rsvp.reessayer();
++      return;
++    }
++    if (rsvp.etat === "sync-desactivee") {
++      toast.error(t("rsvpLinkNeedsSync"));
++      return;
++    }
++    const url = rsvp.url;
++    if (!url) {
++      toast.error(t("rsvpLinkPreparing"));
++      return;
++    }
++    analytics.capture("guest_rsvp_shared");
++    if (Platform.OS === "web") {
++      try {
++        if (navigator.share) {
++          await navigator.share({ url });
++        } else {
++          await navigator.clipboard.writeText(url);
++          toast.success(t("linkCopied"));
++        }
++      } catch (err) {
++        if ((err as Error)?.name === "AbortError") return;
++        try {
++          await navigator.clipboard.writeText(url);
++          toast.success(t("linkCopied"));
++        } catch {
++          toast.error(t("rsvpLinkShareError"));
++        }
++      }
++    } else {
++      try {
++        await Share.share({ message: url, url });
++      } catch {
++        toast.error(t("rsvpLinkShareError"));
++      }
++    }
++  };
++
 +  const canSave = lastName.trim().length > 0;
  
    const handleSave = () => {
@@ -390,7 +468,7 @@ index 6f9a1be..68c531d 100644
        return;
      }
      if (isNew && !canAddGuest) {
-@@ -188,16 +202,16 @@ export default function GuestDetailScreen() {
+@@ -188,16 +254,16 @@ export default function GuestDetailScreen() {
      const now = new Date().toISOString();
      const guestData: Partial<Guest> = {
        firstName: firstName.trim(),
@@ -414,7 +492,24 @@ index 6f9a1be..68c531d 100644
        diet,
        dietNotes: dietNotes || null,
        email: email || null,
-@@ -288,6 +302,15 @@ export default function GuestDetailScreen() {
+@@ -244,14 +310,14 @@ export default function GuestDetailScreen() {
+       unlinkCompanion(guestId);
+     }
+ 
+-    router.back();
++    revenir(router, repliDe("guests", "[id]"));
+   };
+ 
+   const handleDelete = () => {
+     removeGuest(id!);
+     analytics.capture("guest_deleted");
+     setShowDelete(false);
+-    router.back();
++    revenir(router, repliDe("guests", "[id]"));
+   };
+ 
+   const guestRoles = isNew ? [] : weddingRoleAssignments.filter((a) => a.guestId === id);
+@@ -288,6 +354,15 @@ export default function GuestDetailScreen() {
  
    const contactSummary = [email, phone].filter(Boolean).join(" · ") || t("sections.contactEmpty");
  
@@ -430,7 +525,7 @@ index 6f9a1be..68c531d 100644
    const invitationTypeLabel = invitationTypes.find((it) => it.id === invitationType)?.label ?? invitationType;
    const rsvpSummary = `${t(RSVP_STATUS_LABELS[rsvpStatus])} · ${invitationTypeLabel}`;
  
-@@ -318,7 +341,7 @@ export default function GuestDetailScreen() {
+@@ -318,7 +393,7 @@ export default function GuestDetailScreen() {
      <View className="flex-1 bg-accent-paper">
        <Stack.Screen
          options={{
@@ -439,7 +534,7 @@ index 6f9a1be..68c531d 100644
            headerRight: () => (
              <SaveHeaderButton label={t("common:save")} enabled={canSave} onPress={handleSave} />
            ),
-@@ -330,12 +353,12 @@ export default function GuestDetailScreen() {
+@@ -330,19 +405,20 @@ export default function GuestDetailScreen() {
              <PageHeader
                eyebrow={t("guest")}
                title={firstName || t("guest")}
@@ -454,7 +549,16 @@ index 6f9a1be..68c531d 100644
              )}
            </View>
          )}
-@@ -380,6 +403,14 @@ export default function GuestDetailScreen() {
+         {guestRoles.length > 0 && (
+           <Pressable
+             onPress={() => setActiveSheet("role")}
+-            className="flex-row flex-wrap gap-1.5 mb-4"
++            className="flex-row flex-wrap gap-1.5"
++            style={bandeauDesRoles}
+           >
+             {guestRoles.map((r) => (
+               <View key={r.id} className="px-2.5 py-1 rounded-full bg-accent-clay-soft dark:bg-primary-900">
+@@ -380,6 +456,14 @@ export default function GuestDetailScreen() {
            summary={contactSummary}
            onPress={() => setActiveSheet("contact")}
          />
@@ -469,7 +573,53 @@ index 6f9a1be..68c531d 100644
          <GuestSectionRow
            icon={CheckCircle2}
            title={t("sections.rsvpInvitation")}
-@@ -503,8 +534,8 @@ export default function GuestDetailScreen() {
+@@ -423,33 +507,19 @@ export default function GuestDetailScreen() {
+           <View className="flex-row gap-3 mb-3 mt-1">
+             {activeEntry?.seedPhrase && (
+               <Pressable
+-                onPress={async () => {
+-                  const url = rsvpUrl;
+-                  if (!url) return;
+-                  analytics.capture("guest_rsvp_shared");
+-                  if (Platform.OS === "web") {
+-                    try {
+-                      if (navigator.share) {
+-                        await navigator.share({ url });
+-                      } else {
+-                        await navigator.clipboard.writeText(url);
+-                        toast.success(t("linkCopied"));
+-                      }
+-                    } catch {
+-                      // share dismissed or clipboard blocked — silently ignore
+-                    }
+-                  } else {
+-                    try {
+-                      await Share.share({ message: url, url });
+-                    } catch {
+-                      // share dismissed
+-                    }
+-                  }
+-                }}
+-                className="flex-1 flex-row items-center justify-center gap-2 py-3.5 rounded-2xl border border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-950 active:opacity-70"
++                onPress={handleRsvpLink}
++                disabled={rsvpDisabled}
++                accessibilityState={{ disabled: rsvpDisabled, busy: rsvp.etat === "preparation" }}
++                className={`flex-1 flex-row items-center justify-center gap-2 py-3.5 rounded-2xl border border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-950 ${
++                  rsvpDisabled ? "opacity-60" : "active:opacity-70"
++                }`}
+               >
+-                <Share2 size={16} color={GP.clay} />
+-                <Text className="text-sm font-semibold text-primary-500">{t("rsvpLink")}</Text>
++                {rsvp.etat === "preparation" ? (
++                  <ActivityIndicator size="small" color={GP.clay} />
++                ) : (
++                  <Share2 size={16} color={GP.clay} />
++                )}
++                <Text className="text-sm font-semibold text-primary-500">{rsvpLabel}</Text>
+               </Pressable>
+             )}
+             <View className="flex-1">
+@@ -503,8 +573,8 @@ export default function GuestDetailScreen() {
            const target = guests.find((g) => g.id === pendingCompanionId);
            const old = guests.find((g) => g.id === target?.companionId);
            return t("companionConflictMessage", {
@@ -480,7 +630,7 @@ index 6f9a1be..68c531d 100644
            });
          })()}
          onConfirm={() => {
-@@ -523,9 +554,93 @@ export default function GuestDetailScreen() {
+@@ -523,34 +593,133 @@ export default function GuestDetailScreen() {
        <GuestSheet title={t("sections.contact")} visible={activeSheet === "contact"} onDismiss={() => setActiveSheet(null)}>
          <InputRow label={t("email")} value={email} onChangeText={setEmail} keyboardType="email-address" />
          <InputRow label={t("phone")} value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
@@ -506,12 +656,20 @@ index 6f9a1be..68c531d 100644
 +            {householdName(resolved?.household ?? null, members)}
 +          </Text>
 +          {members.map((m) => (
-+            <View key={m.id} className="flex-row items-center justify-between py-2 border-b border-hair">
++            <View
++              key={m.id}
++              className="flex-row items-center justify-between border-b border-hair"
++              style={{ minHeight: CIBLE_TACTILE }}
++            >
 +              <Text className="text-sm text-ink">{formatGuestName(m)}</Text>
 +              {m.id !== id && canEdit && (
-+                <Pressable onPress={() => detachFromHousehold([m.id])}>
++                <BoutonIcone
++                  libelle={`${t("household.detach")} ${formatGuestName(m)}`}
++                  onPress={() => detachFromHousehold([m.id])}
++                  empreinte={CIBLE_TACTILE}
++                >
 +                  <XCircle size={16} color="#9CA3AF" />
-+                </Pressable>
++                </BoutonIcone>
 +              )}
 +            </View>
 +          ))}
@@ -575,7 +733,75 @@ index 6f9a1be..68c531d 100644
        {!isNew && (
          <GuestSheet title={t("sections.role")} visible={activeSheet === "role"} onDismiss={() => setActiveSheet(null)}>
            {guestRoles.length > 0 && (
-@@ -632,11 +747,11 @@ export default function GuestDetailScreen() {
+             <View className="mb-3">
+               {guestRoles.map((r) => (
+-                <View key={r.id} className="flex-row items-center justify-between py-2 border-b border-hair">
++                <View
++                  key={r.id}
++                  className="flex-row items-center justify-between border-b border-hair"
++                  style={{ minHeight: CIBLE_TACTILE }}
++                >
+                   <Text className="text-sm text-ink">{roleName(r)}</Text>
+-                  <Pressable onPress={() => removeRoleAssignment(r.id)}>
++                  <BoutonIcone
++                    libelle={`${t("weddingParty.unassignRole")} ${roleName(r)}`}
++                    onPress={() => removeRoleAssignment(r.id)}
++                    empreinte={CIBLE_TACTILE}
++                  >
+                     <XCircle size={16} color="#9CA3AF" />
+-                  </Pressable>
++                  </BoutonIcone>
+                 </View>
+               ))}
+             </View>
+           )}
+           {weddingRoles.length === 0 ? (
+-            <Pressable
++            <ZoneTactile
+               onPress={() => {
+                 setActiveSheet(null);
+                 router.push("/(tabs)/guests/wedding-party");
+               }}
+-              className="active:opacity-60"
+             >
+               <Text className="text-xs text-mute mb-1">{t("weddingParty.noRolesYet")}</Text>
+               <Text className="text-xs text-primary-500 font-medium">{t("weddingParty.manageRoles")}</Text>
+-            </Pressable>
++            </ZoneTactile>
+           ) : (
+             <>
+               <Text className="text-xs text-mute mb-2 font-medium">{t("weddingParty.addRole")}</Text>
+@@ -573,15 +742,14 @@ export default function GuestDetailScreen() {
+                   analytics.capture("wedding_role_assigned");
+                 }}
+               />
+-              <Pressable
++              <ZoneTactile
+                 onPress={() => {
+                   setActiveSheet(null);
+                   router.push("/(tabs)/guests/wedding-party");
+                 }}
+-                className="mt-3 active:opacity-60"
+               >
+                 <Text className="text-xs text-primary-500 font-medium">{t("weddingParty.manageRoles")}</Text>
+-              </Pressable>
++              </ZoneTactile>
+             </>
+           )}
+         </GuestSheet>
+@@ -610,6 +778,7 @@ export default function GuestDetailScreen() {
+           <Pressable
+             onPress={() => { setActiveSheet(null); router.push("/(tabs)/guests/invitation-types"); }}
+             className="flex-row items-center gap-1.5 active:opacity-60"
++            style={{ minHeight: CIBLE_TACTILE }}
+           >
+             <Tag size={14} color="#9CA3AF" />
+             <Text className="text-xs text-mute dark:text-mute">
+@@ -629,24 +798,25 @@ export default function GuestDetailScreen() {
+               ? "bg-primary-50 dark:bg-primary-950 border-primary-200 dark:border-primary-800"
+               : "bg-accent-card border-hair"
+           }`}
++          style={{ minHeight: CIBLE_TACTILE }}
          >
            {companionId ? (
              <>
@@ -588,8 +814,24 @@ index 6f9a1be..68c531d 100644
 +                  return c ? formatGuestName(c) : "";
                  })()}
                </Text>
-               <Pressable
-@@ -657,24 +772,7 @@ export default function GuestDetailScreen() {
+-              <Pressable
+-                onPress={(e) => {
+-                  e.stopPropagation();
+-                  setCompanionId("");
+-                }}
++              <BoutonIcone
++                libelle={t("removeCompanion")}
++                onPress={() => setCompanionId("")}
++                empreinte={20}
++                style={{ marginRight: -14 }}
+               >
+                 <XCircle size={16} color="#9CA3AF" />
+-              </Pressable>
++              </BoutonIcone>
+             </>
+           ) : (
+             <>
+@@ -657,24 +827,7 @@ export default function GuestDetailScreen() {
              </>
            )}
          </Pressable>
@@ -615,16 +857,33 @@ index 6f9a1be..68c531d 100644
  
          {!isNew && (
            <>
-@@ -688,7 +786,7 @@ export default function GuestDetailScreen() {
+@@ -687,8 +840,9 @@ export default function GuestDetailScreen() {
+                     key={comm.id}
                      onPress={() => toggleRecipient(comm.id, id!, new Date().toISOString())}
                      className="flex-row items-center py-2 border-b border-hair"
++                    style={{ minHeight: CIBLE_TACTILE }}
                    >
 -                    {sent ? <CheckCircle2 size={16} color="#6e7a4a" /> : <Circle size={16} color="#C0C0C8" />}
 +                    {sent ? <CheckCircle2 size={16} color={GP.olive} /> : <Circle size={16} color="#C0C0C8" />}
                      <View className="flex-1 ml-2.5">
                        <Text className="text-sm text-ink" numberOfLines={1}>{comm.label}</Text>
                        {comm.channel && (
-@@ -752,7 +850,7 @@ export default function GuestDetailScreen() {
+@@ -703,12 +857,9 @@ export default function GuestDetailScreen() {
+             ) : (
+               <Text className="text-xs text-mute mb-2">{t("sections.communicationsEmpty")}</Text>
+             )}
+-            <Pressable
+-              onPress={() => { setActiveSheet(null); router.push("/(tabs)/guests/communications"); }}
+-              className="mt-2 active:opacity-60"
+-            >
++            <ZoneTactile onPress={() => { setActiveSheet(null); router.push("/(tabs)/guests/communications"); }}>
+               <Text className="text-xs text-primary-500 font-medium">{t("sections.viewAllCommunications")}</Text>
+-            </Pressable>
++            </ZoneTactile>
+           </>
+         )}
+       </GuestSheet>
+@@ -752,7 +903,7 @@ export default function GuestDetailScreen() {
                    .filter((gid) => gid !== id)
                    .map((gid) => {
                      const g = guests.find((gg) => gg.id === gid);
@@ -633,7 +892,33 @@ index 6f9a1be..68c531d 100644
                    })
                    .filter(Boolean)
                    .join(", ");
-@@ -954,7 +1052,7 @@ function GuestSectionRow({
+@@ -771,15 +922,14 @@ export default function GuestDetailScreen() {
+             ) : (
+               <Text className="text-xs text-mute mb-2">{t("sections.constraintsEmpty")}</Text>
+             )}
+-            <Pressable
++            <ZoneTactile
+               onPress={() => {
+                 setActiveSheet(null);
+                 router.push("/(tabs)/guests/seating-constraints");
+               }}
+-              className="mt-2 active:opacity-60"
+             >
+               <Text className="text-xs text-primary-500 font-medium">{t("sections.manageConstraints")}</Text>
+-            </Pressable>
++            </ZoneTactile>
+           </>
+         )}
+       </GuestSheet>
+@@ -855,6 +1005,7 @@ export default function GuestDetailScreen() {
+           <Pressable
+             onPress={() => { setActiveSheet(null); router.push("/(tabs)/guests/accommodations"); }}
+             className="flex-row items-center gap-1.5 active:opacity-60"
++            style={{ minHeight: CIBLE_TACTILE }}
+           >
+             <BedDouble size={14} color="#9CA3AF" />
+             <Text className="text-xs text-mute dark:text-mute">
+@@ -954,7 +1105,7 @@ function GuestSectionRow({
        className="bg-accent-card rounded-2xl p-4 mb-2.5 border border-hair flex-row items-center active:opacity-70"
      >
        <View className="w-9 h-9 rounded-full bg-accent-clay-soft dark:bg-primary-900 items-center justify-center mr-3">
@@ -643,7 +928,7 @@ index 6f9a1be..68c531d 100644
        <View className="flex-1">
          <Text className="text-sm font-semibold text-ink">{title}</Text>
 diff --git a/apps/mobile/app/(tabs)/guests/_layout.tsx b/apps/mobile/app/(tabs)/guests/_layout.tsx
-index 2f7bb44..47e78eb 100644
+index 2f7bb44..fb0a3af 100644
 --- a/apps/mobile/app/(tabs)/guests/_layout.tsx
 +++ b/apps/mobile/app/(tabs)/guests/_layout.tsx
 @@ -3,7 +3,7 @@ import { useColorScheme } from "react-native";
@@ -655,15 +940,32 @@ index 2f7bb44..47e78eb 100644
  import { useSettingsStore } from "@/store/useSettingsStore";
  import { useGuestsStore } from "@/store/useGuestsStore";
  import { useCanAddMore, FREE_LIMITS } from "@/lib/limits";
-@@ -12,6 +12,7 @@ import { toast } from "@/lib/toast/sonner";
+@@ -11,7 +11,9 @@ import { useShowPaywall } from "@/components/PaywallProvider";
+ import { toast } from "@/lib/toast/sonner";
  import { StackMenu } from "@/components/StackMenu";
  import { HeaderAddButton } from "@/components/HeaderAddButton";
++import { optionsDeRetour } from "@/components/BoutonRetour";
  import { useIsWideScreen } from "@/lib/useIsWideScreen";
 +import { theme as GP } from "@/lib/theme";
  
  export default function InvitesLayout() {
    const { t } = useTranslation("guests");
-@@ -38,7 +39,7 @@ export default function InvitesLayout() {
+@@ -26,11 +28,12 @@ export default function InvitesLayout() {
+ 
+   return (
+     <Stack
+-      screenOptions={{
++      screenOptions={({ route }) => ({
+         headerStyle: { backgroundColor: isDark ? "#111827" : "#FFFFFF" },
+         headerTintColor: isDark ? "#FFFFFF" : "#111827",
+         headerTitleStyle: { fontWeight: "600" },
+-      }}
++        ...optionsDeRetour("guests", route.name),
++      })}
+     >
+       <Stack.Screen
+         name="index"
+@@ -38,7 +41,7 @@ export default function InvitesLayout() {
            title: "",
            headerShown: !isWide,
            headerShadowVisible: false,
@@ -672,7 +974,7 @@ index 2f7bb44..47e78eb 100644
            headerRight: () => (
              <View className="flex-row items-center">
                <HeaderAddButton
-@@ -61,6 +62,11 @@ export default function InvitesLayout() {
+@@ -61,6 +64,11 @@ export default function InvitesLayout() {
                      icon: FolderOpen,
                      onPress: () => router.push("/(tabs)/guests/groups"),
                    },
@@ -684,7 +986,7 @@ index 2f7bb44..47e78eb 100644
                    {
                      label: t("tables"),
                      icon: LayoutGrid,
-@@ -99,6 +105,9 @@ export default function InvitesLayout() {
+@@ -99,6 +107,9 @@ export default function InvitesLayout() {
        />
        <Stack.Screen name="[id]" options={{ title: t("guestDetailScreen") }} />
        <Stack.Screen name="groups" options={{ title: t("groups") }} />
@@ -695,7 +997,7 @@ index 2f7bb44..47e78eb 100644
        <Stack.Screen name="tables" options={{ title: t("tablesPlanScreen") }} />
        <Stack.Screen name="accommodations" options={{ title: t("accommodations") }} />
 diff --git a/apps/mobile/app/(tabs)/guests/communication/[id].tsx b/apps/mobile/app/(tabs)/guests/communication/[id].tsx
-index c72f51d..c073db5 100644
+index c72f51d..78eec08 100644
 --- a/apps/mobile/app/(tabs)/guests/communication/[id].tsx
 +++ b/apps/mobile/app/(tabs)/guests/communication/[id].tsx
 @@ -4,6 +4,13 @@ import { LegendList } from "@legendapp/list";
@@ -712,7 +1014,16 @@ index c72f51d..c073db5 100644
  import { useCommunicationsStore } from "@/store/useCommunicationsStore";
  import { useGuestsStore } from "@/store/useGuestsStore";
  import { useCan } from "@/lib/permissions/usePermissions";
-@@ -24,6 +31,9 @@ export default function CommunicationRosterScreen() {
+@@ -12,6 +19,8 @@ import { DateRow } from "@/components/FormSection";
+ import { Avatar } from "@/components/Avatar";
+ import { SearchBar } from "@/components/SearchBar";
+ import { theme as GP } from "@/lib/theme";
++import { ZoneTactile } from "@/components/ZoneTactile";
++import { CIBLE_TACTILE } from "@/lib/cible-tactile";
+ import { Users } from "lucide-react-native";
+ import type { Guest } from "@/db/schema";
+ 
+@@ -24,6 +33,9 @@ export default function CommunicationRosterScreen() {
    const setRecipientDate = useCommunicationsStore((s) => s.setRecipientDate);
    const bulkSetRecipients = useCommunicationsStore((s) => s.bulkSetRecipients);
    const guests = useGuestsStore((s) => s.guests);
@@ -722,7 +1033,7 @@ index c72f51d..c073db5 100644
  
    const [search, setSearch] = useState("");
    const [statusFilter, setStatusFilter] = useState<"ALL" | "SENT" | "NOT_SENT">("ALL");
-@@ -34,17 +44,22 @@ export default function CommunicationRosterScreen() {
+@@ -34,17 +46,22 @@ export default function CommunicationRosterScreen() {
      [comm?.recipients]
    );
  
@@ -751,7 +1062,7 @@ index c72f51d..c073db5 100644
  
    if (!comm) {
      return (
-@@ -54,15 +69,28 @@ export default function CommunicationRosterScreen() {
+@@ -54,15 +71,28 @@ export default function CommunicationRosterScreen() {
      );
    }
  
@@ -783,7 +1094,7 @@ index c72f51d..c073db5 100644
    return (
      <View className="flex-1 bg-accent-paper">
        {comm.date || comm.notes ? (
-@@ -86,25 +114,32 @@ export default function CommunicationRosterScreen() {
+@@ -86,25 +116,32 @@ export default function CommunicationRosterScreen() {
          />
        ) : (
          <LegendList
@@ -824,7 +1135,7 @@ index c72f51d..c073db5 100644
                      </View>
                      <View
                        className="w-7 h-7 rounded-full items-center justify-center"
-@@ -117,8 +152,10 @@ export default function CommunicationRosterScreen() {
+@@ -117,8 +154,10 @@ export default function CommunicationRosterScreen() {
                      <View className="px-3 pb-3 border-t border-hair">
                        <DateRow
                          label={t("communicationSentAt")}
@@ -837,7 +1148,7 @@ index c72f51d..c073db5 100644
                        />
                      </View>
                    ) : null}
-@@ -126,8 +163,8 @@ export default function CommunicationRosterScreen() {
+@@ -126,8 +165,8 @@ export default function CommunicationRosterScreen() {
                </View>
              );
            }}
@@ -848,7 +1159,34 @@ index c72f51d..c073db5 100644
            style={{ flex: 1 }}
            contentContainerStyle={{ paddingTop: 24 }}
            showsVerticalScrollIndicator={false}
-@@ -164,16 +201,16 @@ export default function CommunicationRosterScreen() {
+@@ -149,32 +188,38 @@ export default function CommunicationRosterScreen() {
+                 {statusTabs.map((tab) => {
+                   const isActive = tab.key === statusFilter;
+                   return (
+-                    <Pressable
++                    <ZoneTactile
+                       key={tab.key}
+                       onPress={() => setStatusFilter(tab.key)}
+-                      className={`px-4 py-2 rounded-full border ${
+-                        isActive ? "bg-primary-500 border-primary-500" : "bg-accent-card border-hair"
+-                      }`}
++                      accessibilityState={{ selected: isActive }}
+                     >
+-                      <Text className={`text-sm font-medium ${isActive ? "text-white" : "text-mute"}`}>
+-                        {tab.label} ({tab.count})
+-                      </Text>
+-                    </Pressable>
++                      <View
++                        className={`px-4 py-2 rounded-full border ${
++                          isActive ? "bg-primary-500 border-primary-500" : "bg-accent-card border-hair"
++                        }`}
++                      >
++                        <Text className={`text-sm font-medium ${isActive ? "text-white" : "text-mute"}`}>
++                          {tab.label} ({tab.count})
++                        </Text>
++                      </View>
++                    </ZoneTactile>
+                   );
                  })}
                </ScrollView>
  
@@ -857,18 +1195,23 @@ index c72f51d..c073db5 100644
                  <View className="flex-row gap-2 px-4 mt-2">
                    <Pressable
 -                    onPress={() => bulkSetRecipients(comm.id, filteredGuests.map((g) => g.id), today)}
+-                    className="flex-1 bg-accent-card py-2 rounded-xl items-center border border-hair active:opacity-70"
 +                    onPress={() => bulkSetRecipients(comm.id, filteredRows.flatMap((r) => r.members.map((m) => m.id)), today)}
-                     className="flex-1 bg-accent-card py-2 rounded-xl items-center border border-hair active:opacity-70"
++                    className="flex-1 bg-accent-card rounded-xl items-center border border-hair active:opacity-70"
++                    style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}
                    >
                      <Text className="text-xs font-semibold text-ink-soft">{t("markAllSent")}</Text>
                    </Pressable>
                    <Pressable
 -                    onPress={() => bulkSetRecipients(comm.id, filteredGuests.map((g) => g.id), null)}
+-                    className="flex-1 bg-accent-card py-2 rounded-xl items-center border border-hair active:opacity-70"
 +                    onPress={() => bulkSetRecipients(comm.id, filteredRows.flatMap((r) => r.members.map((m) => m.id)), null)}
-                     className="flex-1 bg-accent-card py-2 rounded-xl items-center border border-hair active:opacity-70"
++                    className="flex-1 bg-accent-card rounded-xl items-center border border-hair active:opacity-70"
++                    style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}
                    >
                      <Text className="text-xs font-semibold text-ink-soft">{t("markAllNotSent")}</Text>
-@@ -182,7 +219,7 @@ export default function CommunicationRosterScreen() {
+                   </Pressable>
+@@ -182,7 +227,7 @@ export default function CommunicationRosterScreen() {
                )}
  
                <Text className="text-xs font-semibold text-mute uppercase tracking-wider mt-5 mb-1 px-4">
@@ -878,10 +1221,10 @@ index c72f51d..c073db5 100644
              </>
            }
 diff --git a/apps/mobile/app/(tabs)/guests/groups.tsx b/apps/mobile/app/(tabs)/guests/groups.tsx
-index 16a16fe..7384b5b 100644
+index 16a16fe..d1208e3 100644
 --- a/apps/mobile/app/(tabs)/guests/groups.tsx
 +++ b/apps/mobile/app/(tabs)/guests/groups.tsx
-@@ -2,19 +2,34 @@ import React, { useState, useMemo } from "react";
+@@ -2,19 +2,36 @@ import React, { useState, useMemo } from "react";
  import { View, Text, ScrollView, Pressable, TextInput } from "react-native-css/components";
  import { Alert } from "react-native";
  import { useTranslation } from "react-i18next";
@@ -899,6 +1242,8 @@ index 16a16fe..7384b5b 100644
 +import { useWeddingStore } from "@/store/useWeddingStore";
 +import { useGuestGroupSideLabel } from "@/lib/guest-group-side";
  import { FAB } from "@/components/FAB";
++import { BoutonIcone } from "@/components/BoutonIcone";
++import { CIBLE_TACTILE, debordement } from "@/lib/cible-tactile";
  import { EmptyState } from "@/components/EmptyState";
  import { ConfirmSheet } from "@/components/ConfirmSheet";
  import { FormActions } from "@/components/FormSection";
@@ -917,7 +1262,7 @@ index 16a16fe..7384b5b 100644
    const guests = useGuestsStore((s) => s.guests);
    const addGroup = useGuestsStore((s) => s.addGroup);
    const updateGroup = useGuestsStore((s) => s.updateGroup);
-@@ -25,17 +40,31 @@ export default function GroupsScreen() {
+@@ -25,17 +42,31 @@ export default function GroupsScreen() {
    const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
    const [editingName, setEditingName] = useState("");
  
@@ -959,7 +1304,17 @@ index 16a16fe..7384b5b 100644
  
    const handleAdd = () => {
      if (!newGroupName.trim()) {
-@@ -93,101 +122,116 @@ export default function GroupsScreen() {
+@@ -75,7 +106,8 @@ export default function GroupsScreen() {
+                 {t("newGroup")}
+               </Text>
+               <TextInput
+-                className="text-base text-ink border-b border-hair pb-2 mb-3"
++                className="text-base text-ink border-b border-hair mb-3"
++                style={{ minHeight: CIBLE_TACTILE }}
+                 placeholder={t("groupName")}
+                 placeholderTextColor="#D0D0D8"
+                 value={newGroupName}
+@@ -93,101 +125,117 @@ export default function GroupsScreen() {
            )}
  
            {/* Groups list */}
@@ -1003,7 +1358,7 @@ index 16a16fe..7384b5b 100644
 -                    <View className="w-8 h-8 rounded-lg bg-accent-blush dark:bg-primary-900 items-center justify-center mr-2">
 -                      <FolderOpen size={16} color="#b96a4a" />
 +                    {/* Group header */}
-+                    <View className="flex-row items-center justify-between">
++                    <View className="flex-row items-center justify-between mb-1.5">
 +                      <Pressable
 +                        onPress={
 +                          canEdit
@@ -1015,6 +1370,7 @@ index 16a16fe..7384b5b 100644
 +                        }
 +                        disabled={!canEdit}
 +                        className="flex-row items-center flex-1"
++                        style={{ minHeight: CIBLE_TACTILE, marginVertical: debordement(32) }}
 +                      >
 +                        <View className="w-8 h-8 rounded-lg bg-accent-blush dark:bg-primary-900 items-center justify-center mr-2">
 +                          <FolderOpen size={16} color={GP.clay} />
@@ -1022,6 +1378,7 @@ index 16a16fe..7384b5b 100644
 +                        {editingGroupId === group.id ? (
 +                          <TextInput
 +                            className="text-base font-semibold text-ink flex-1"
++                            style={{ minHeight: CIBLE_TACTILE }}
 +                            value={editingName}
 +                            onChangeText={setEditingName}
 +                            onBlur={() => {
@@ -1053,12 +1410,9 @@ index 16a16fe..7384b5b 100644
 +                          </Text>
 +                        </View>
 +                        {canEdit && (
-+                          <Pressable
-+                            onPress={() => setDeleteId(group.id)}
-+                            className="w-8 h-8 items-center justify-center"
-+                          >
++                          <BoutonIcone libelle={`${t("common:delete")} ${formatGuestGroupName(group.name)}`} onPress={() => setDeleteId(group.id)}>
 +                            <Trash2 size={16} color="#EF4444" />
-+                          </Pressable>
++                          </BoutonIcone>
 +                        )}
 +                      </View>
                      </View>
@@ -1093,7 +1447,8 @@ index 16a16fe..7384b5b 100644
 +                        onPress={openable ? () => openQueue(group.id) : undefined}
 +                        disabled={!openable}
 +                        accessibilityRole={openable ? "button" : undefined}
-+                        className={`mt-2 ${openable ? "active:opacity-60" : ""}`}
++                        className={openable ? "active:opacity-60" : ""}
++                        style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}
 +                      >
 +                        <Text
 +                          className={`text-xs ${
@@ -1118,7 +1473,8 @@ index 16a16fe..7384b5b 100644
 -                        className="w-8 h-8 items-center justify-center"
 +                        onPress={() => openHouseholds(group.id)}
 +                        accessibilityRole="button"
-+                        className="mt-2 active:opacity-60"
++                        className="active:opacity-60"
++                        style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}
                        >
 -                        <Trash2 size={16} color="#EF4444" />
 +                        <Text className="text-xs text-primary-500 font-medium">
@@ -1164,13 +1520,15 @@ index 16a16fe..7384b5b 100644
          </ScrollView>
 diff --git a/apps/mobile/app/(tabs)/guests/household/[id].tsx b/apps/mobile/app/(tabs)/guests/household/[id].tsx
 new file mode 100644
-index 0000000..a2beda9
+index 0000000..f0b12c5
 --- /dev/null
 +++ b/apps/mobile/app/(tabs)/guests/household/[id].tsx
-@@ -0,0 +1,184 @@
+@@ -0,0 +1,201 @@
 +import React, { useMemo, useState } from "react";
 +import { View, Text, ScrollView, Pressable } from "react-native-css/components";
 +import { Stack, useLocalSearchParams, useRouter } from "expo-router";
++import { revenir } from "@/lib/revenir";
++import { repliDe } from "@/lib/repli-des-ecrans";
 +import { useTranslation } from "react-i18next";
 +import { UserPlus, XCircle, ChevronRight, Scissors, Check } from "lucide-react-native";
 +import {
@@ -1186,6 +1544,8 @@ index 0000000..a2beda9
 +import { DeleteButton } from "@/components/DeleteButton";
 +import { SectionTitle } from "@/components/FormSection";
 +import { theme as GP } from "@/lib/theme";
++import { BoutonIcone } from "@/components/BoutonIcone";
++import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 +
 +export default function HouseholdScreen() {
 +  const { t } = useTranslation("guests");
@@ -1248,25 +1608,31 @@ index 0000000..a2beda9
 +        </View>
 +
 +        {members.map((m) => (
-+          <View key={m.id} className="flex-row items-center gap-2 py-3 border-b border-hair">
++          <View key={m.id} className="flex-row items-center border-b border-hair">
 +            {splitting && canEdit && (
 +              <Pressable
 +                onPress={() => toggle(m.id)}
-+                hitSlop={11}
 +                accessibilityRole="checkbox"
 +                accessibilityState={{ checked: toSplit.has(m.id) }}
-+                className="w-[22px] h-[22px] rounded-full items-center justify-center active:opacity-60"
-+                style={{
-+                  backgroundColor: toSplit.has(m.id) ? GP.clay : "transparent",
-+                  borderWidth: toSplit.has(m.id) ? 0 : 1.5,
-+                  borderColor: "#D0D0D8",
-+                }}
++                accessibilityLabel={formatGuestName(m)}
++                className="items-center justify-center active:opacity-60"
++                style={{ width: CIBLE_TACTILE, height: CIBLE_TACTILE, marginLeft: -11, marginRight: -3 }}
 +              >
-+                {toSplit.has(m.id) ? <Check size={13} color="#FFFFFF" strokeWidth={3} /> : null}
++                <View
++                  className="w-[22px] h-[22px] rounded-full items-center justify-center"
++                  style={{
++                    backgroundColor: toSplit.has(m.id) ? GP.clay : "transparent",
++                    borderWidth: toSplit.has(m.id) ? 0 : 1.5,
++                    borderColor: "#D0D0D8",
++                  }}
++                >
++                  {toSplit.has(m.id) ? <Check size={13} color="#FFFFFF" strokeWidth={3} /> : null}
++                </View>
 +              </Pressable>
 +            )}
 +            <Pressable
 +              className="flex-1 flex-row items-center justify-between active:opacity-60"
++              style={{ minHeight: CIBLE_TACTILE }}
 +              onPress={() => router.push({ pathname: "/(tabs)/guests/[id]", params: { id: m.id } })}
 +            >
 +              <Text className="text-sm text-ink" numberOfLines={1}>
@@ -1275,9 +1641,13 @@ index 0000000..a2beda9
 +              <ChevronRight size={16} color="#9CA3AF" />
 +            </Pressable>
 +            {canEdit && !splitting && (
-+              <Pressable onPress={() => detachFromHousehold([m.id])} hitSlop={11}>
++              <BoutonIcone
++                libelle={`${t("household.detach")} ${formatGuestName(m)}`}
++                onPress={() => detachFromHousehold([m.id])}
++                empreinte={CIBLE_TACTILE}
++              >
 +                <XCircle size={16} color="#9CA3AF" />
-+              </Pressable>
++              </BoutonIcone>
 +            )}
 +          </View>
 +        ))}
@@ -1286,7 +1656,8 @@ index 0000000..a2beda9
 +          <>
 +            <Pressable
 +              onPress={() => setShowPicker(true)}
-+              className="flex-row items-center gap-2 py-3 mt-1"
++              className="flex-row items-center gap-2"
++              style={{ minHeight: CIBLE_TACTILE }}
 +            >
 +              <UserPlus size={16} color={GP.clay} />
 +              <Text className="text-sm font-semibold text-primary-500">{t("household.addMember")}</Text>
@@ -1298,7 +1669,8 @@ index 0000000..a2beda9
 +                  setSplitting(!splitting);
 +                  setToSplit(new Set());
 +                }}
-+                className="flex-row items-center gap-2 py-3"
++                className="flex-row items-center gap-2"
++                style={{ minHeight: CIBLE_TACTILE }}
 +              >
 +                <Scissors size={16} color={GP.clay} />
 +                <Text className="text-sm font-semibold text-primary-500">
@@ -1311,9 +1683,10 @@ index 0000000..a2beda9
 +              <Pressable
 +                onPress={split}
 +                disabled={toSplit.size === 0}
-+                className={`py-2.5 rounded-xl items-center mb-2 ${
++                className={`rounded-xl items-center mb-2 ${
 +                  toSplit.size === 0 ? "bg-accent-paper border border-hair" : "bg-primary-500"
 +                }`}
++                style={{ minHeight: CIBLE_TACTILE, justifyContent: "center" }}
 +              >
 +                <Text className={`text-sm font-semibold ${toSplit.size === 0 ? "text-mute" : "text-white"}`}>
 +                  {t("household.splitSelected", { count: toSplit.size })}
@@ -1345,7 +1718,7 @@ index 0000000..a2beda9
 +        onConfirm={() => {
 +          setShowRemoveConfirm(false);
 +          removeHousehold(id!);
-+          router.back();
++          revenir(router, repliDe("guests", "household/[id]"));
 +        }}
 +        onCancel={() => setShowRemoveConfirm(false)}
 +      />
@@ -1354,13 +1727,15 @@ index 0000000..a2beda9
 +}
 diff --git a/apps/mobile/app/(tabs)/guests/households.tsx b/apps/mobile/app/(tabs)/guests/households.tsx
 new file mode 100644
-index 0000000..5c602b6
+index 0000000..9861492
 --- /dev/null
 +++ b/apps/mobile/app/(tabs)/guests/households.tsx
-@@ -0,0 +1,227 @@
+@@ -0,0 +1,234 @@
 +import React, { useMemo, useRef, useState } from "react";
 +import { View, Text, ScrollView, Pressable } from "react-native-css/components";
 +import { Stack, useLocalSearchParams, useRouter } from "expo-router";
++import { revenir } from "@/lib/revenir";
++import { repliDe } from "@/lib/repli-des-ecrans";
 +import { useTranslation } from "react-i18next";
 +import { Check, CheckCircle2, Home } from "lucide-react-native";
 +import {
@@ -1374,16 +1749,14 @@ index 0000000..5c602b6
 +import { useCanEditHere } from "@/lib/permissions/useCanEditHere";
 +import { EmptyState } from "@/components/EmptyState";
 +import { theme as GP } from "@/lib/theme";
++import { ZoneTactile } from "@/components/ZoneTactile";
++import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 +import type { Guest, Household } from "@/db/schema";
 +
-+function SelectionBox({ checked, onToggle }: { checked: boolean; onToggle: () => void }) {
++function SelectionBox({ checked }: { checked: boolean }) {
 +  return (
-+    <Pressable
-+      onPress={onToggle}
-+      hitSlop={11}
-+      accessibilityRole="checkbox"
-+      accessibilityState={{ checked }}
-+      className="w-[22px] h-[22px] rounded-full items-center justify-center active:opacity-60"
++    <View
++      className="w-[22px] h-[22px] rounded-full items-center justify-center"
 +      style={{
 +        backgroundColor: checked ? GP.clay : "transparent",
 +        borderWidth: checked ? 0 : 1.5,
@@ -1391,7 +1764,7 @@ index 0000000..5c602b6
 +      }}
 +    >
 +      {checked ? <Check size={13} color="#FFFFFF" strokeWidth={3} /> : null}
-+    </Pressable>
++    </View>
 +  );
 +}
 +
@@ -1443,27 +1816,32 @@ index 0000000..5c602b6
 +      {candidate.members.map((g) => {
 +        const attached = householdOf(g);
 +        return (
-+          <View key={g.id} className="flex-row items-center gap-2 mt-2">
-+            {canEdit && (
-+              <SelectionBox checked={chosen.has(g.id)} onToggle={() => toggle(g.id)} />
-+            )}
-+            <Text
-+              className={`flex-1 text-sm ${attached ? "text-mute" : "text-ink"}`}
-+              numberOfLines={1}
++          <View key={g.id} className="flex-row items-center" style={{ minHeight: CIBLE_TACTILE }}>
++            <Pressable
++              onPress={() => toggle(g.id)}
++              disabled={!canEdit}
++              accessibilityRole={canEdit ? "checkbox" : undefined}
++              accessibilityState={{ checked: chosen.has(g.id) }}
++              className="flex-1 flex-row items-center gap-2 active:opacity-60"
++              style={{ minHeight: CIBLE_TACTILE }}
 +            >
-+              {formatGuestName(g)}
-+            </Text>
-+            {attached && (
-+              <Pressable
-+                onPress={() => canEdit && onDetach([g.id])}
-+                disabled={!canEdit}
-+                className="flex-row items-center gap-1 shrink-0"
++              {canEdit && <SelectionBox checked={chosen.has(g.id)} />}
++              <Text
++                className={`flex-1 text-sm ${attached ? "text-mute" : "text-ink"}`}
++                numberOfLines={1}
 +              >
-+                <Home size={12} color={GP.mute} />
-+                <Text className="text-[11px] text-mute" numberOfLines={1}>
-+                  {attached}
-+                </Text>
-+              </Pressable>
++                {formatGuestName(g)}
++              </Text>
++            </Pressable>
++            {attached && (
++              <ZoneTactile onPress={() => canEdit && onDetach([g.id])} disabled={!canEdit} style={{ flexShrink: 0 }}>
++                <View className="flex-row items-center gap-1">
++                  <Home size={12} color={GP.mute} />
++                  <Text className="text-[11px] text-mute" numberOfLines={1}>
++                    {attached}
++                  </Text>
++                </View>
++              </ZoneTactile>
 +            )}
 +          </View>
 +        );
@@ -1474,9 +1852,10 @@ index 0000000..5c602b6
 +          <Pressable
 +            onPress={groupChosen}
 +            disabled={chosen.size === 0}
-+            className={`flex-1 py-2.5 rounded-xl items-center ${
++            className={`flex-1 rounded-xl items-center justify-center ${
 +              chosen.size === 0 ? "bg-accent-paper" : "bg-primary-500"
 +            }`}
++            style={{ minHeight: CIBLE_TACTILE }}
 +          >
 +            <Text
 +              className={`text-sm font-semibold ${
@@ -1491,7 +1870,8 @@ index 0000000..5c602b6
 +              for (const g of candidate.members) onGroup([g.id]);
 +              setChosen(new Set());
 +            }}
-+            className="flex-1 py-2.5 rounded-xl items-center bg-accent-paper border border-hair"
++            className="flex-1 rounded-xl items-center justify-center bg-accent-paper border border-hair"
++            style={{ minHeight: CIBLE_TACTILE }}
 +          >
 +            <Text className="text-sm font-semibold text-ink-soft">
 +              {t("household.makeEachAlone")}
@@ -1551,7 +1931,7 @@ index 0000000..5c602b6
 +          icon={CheckCircle2}
 +          title={t("household.empty")}
 +          actionLabel={t("backToGuests")}
-+          onAction={() => router.back()}
++          onAction={() => revenir(router, repliDe("guests", "households"))}
 +        />
 +      </View>
 +    );
@@ -1586,10 +1966,10 @@ index 0000000..5c602b6
 +  );
 +}
 diff --git a/apps/mobile/app/(tabs)/guests/index.tsx b/apps/mobile/app/(tabs)/guests/index.tsx
-index 399900f..298126c 100644
+index 399900f..b9fb373 100644
 --- a/apps/mobile/app/(tabs)/guests/index.tsx
 +++ b/apps/mobile/app/(tabs)/guests/index.tsx
-@@ -1,40 +1,81 @@
+@@ -1,40 +1,83 @@
 -import React, { useState, useMemo, useCallback } from "react";
 +import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
  import { View, Text, ScrollView, Pressable } from "react-native-css/components";
@@ -1640,6 +2020,8 @@ index 399900f..298126c 100644
  import type { RsvpStatus } from "@/db/types";
 -import { StatusBadge } from "@/components/StatusBadge";
  import { FAB } from "@/components/FAB";
++import { ZoneTactile } from "@/components/ZoneTactile";
++import { CIBLE_TACTILE, debordement } from "@/lib/cible-tactile";
 +import { GuestBulkBar } from "@/components/GuestBulkBar";
 +import {
 +  GuestListRow,
@@ -1687,7 +2069,7 @@ index 399900f..298126c 100644
    return (
      <View className="flex-1 bg-accent-paper">
        <GuestsView />
-@@ -42,62 +83,209 @@ export default function GuestsListScreen() {
+@@ -42,62 +85,222 @@ export default function GuestsListScreen() {
    );
  }
  
@@ -1741,11 +2123,13 @@ index 399900f..298126c 100644
 +  onPress,
 +  visible,
 +  survol,
++  label,
 +}: {
 +  state: "none" | "partial" | "all";
 +  onPress: () => void;
 +  visible: boolean;
 +  survol: { onHoverIn: () => void; onHoverOut: () => void };
++  label: string;
 +}) {
    return (
      <Pressable
@@ -1758,24 +2142,34 @@ index 399900f..298126c 100644
 -      className="bg-accent-card rounded-2xl p-4 mb-2 border border-hair active:opacity-80"
 +      onPress={onPress}
 +      {...survol}
-+      hitSlop={10}
 +      accessibilityRole="checkbox"
 +      accessibilityState={{ checked: state === "all" }}
-+      className="w-5 h-5 rounded-full items-center justify-center"
++      accessibilityLabel={label}
 +      style={{
++        width: CIBLE_TACTILE,
++        height: CIBLE_TACTILE,
++        margin: debordement(20),
++        alignItems: "center",
++        justifyContent: "center",
 +        opacity: visible ? 1 : 0,
-+        backgroundColor: state === "none" ? "transparent" : GP.clay,
-+        borderWidth: state === "none" ? 1.5 : 0,
-+        borderColor: GP.hairStrong,
 +      }}
      >
 -      <View className="flex-row items-center">
 -        <View className="mr-3">
 -          <Avatar ini={`${guest.firstName[0]}${guest.lastName[0]}`} size={40} />
-+      {state === "all" ? <Check size={11} color={GP.card} strokeWidth={3.4} /> : null}
-+      {state === "partial" ? (
-+        <View style={{ width: 9, height: 2.5, borderRadius: 2, backgroundColor: GP.card }} />
-+      ) : null}
++      <View
++        className="w-5 h-5 rounded-full items-center justify-center"
++        style={{
++          backgroundColor: state === "none" ? "transparent" : GP.clay,
++          borderWidth: state === "none" ? 1.5 : 0,
++          borderColor: GP.hairStrong,
++        }}
++      >
++        {state === "all" ? <Check size={11} color={GP.card} strokeWidth={3.4} /> : null}
++        {state === "partial" ? (
++          <View style={{ width: 9, height: 2.5, borderRadius: 2, backgroundColor: GP.card }} />
++        ) : null}
++      </View>
 +    </Pressable>
 +  );
 +}
@@ -1827,13 +2221,14 @@ index 399900f..298126c 100644
 +
 +  return (
 +    <View className="bg-accent-paper" style={{ paddingHorizontal: PAGE_X }}>
-+      <Pressable onPress={onToggle} {...survol} className="flex-row items-center gap-2.5 pt-5 pb-1.5">
++      <Pressable onPress={onToggle} {...survol} className="flex-row items-center gap-2.5 pt-5 pb-2.5">
 +        {canEdit ? (
 +          <GroupBox
 +            state={selectionState}
 +            onPress={onToggleGroupSelection}
 +            visible={boxVisible || hovered}
 +            survol={survol}
++            label={formatGuestGroupName(group.name)}
 +          />
 +        ) : null}
 +        <Chevron size={13} color={GP.ink} />
@@ -1869,17 +2264,17 @@ index 399900f..298126c 100644
 +        <View className="flex-1" style={{ height: 1, backgroundColor: GP.hair }} />
 +
 +        {missingCount > 0 && onStartCapture ? (
-+          <Pressable
-+            onPress={onStartCapture}
-+            accessibilityRole="button"
-+            className="flex-row items-center gap-1.5 rounded-full active:opacity-70"
-+            style={{ height: 28, paddingHorizontal: 11, backgroundColor: GP.mustardSoft }}
-+          >
-+            <Pencil size={12} color={GP.mustard} />
-+            <Text className="font-semibold" style={{ fontSize: 12, color: GP.mustard }} numberOfLines={1}>
-+              {t("namesToComplete", { count: missingCount })}
-+            </Text>
-+          </Pressable>
++          <ZoneTactile onPress={onStartCapture} style={{ marginVertical: debordement(28) }}>
++            <View
++              className="flex-row items-center gap-1.5 rounded-full"
++              style={{ height: 28, paddingHorizontal: 11, backgroundColor: GP.mustardSoft }}
++            >
++              <Pencil size={12} color={GP.mustard} />
++              <Text className="font-semibold" style={{ fontSize: 12, color: GP.mustard }} numberOfLines={1}>
++                {t("namesToComplete", { count: missingCount })}
++              </Text>
++            </View>
++          </ZoneTactile>
 +        ) : null}
 +
 +        {/* Sur écran étroit la jauge prendrait au nom la place qu'elle occupe. */}
@@ -1913,12 +2308,12 @@ index 399900f..298126c 100644
 -          {companionName && (
 -            <Text className="text-xs text-mute mt-0.5">
 -              {t("withCompanion", { name: companionName })}
-+          <Pressable onPress={onFinishCapture} accessibilityRole="button" hitSlop={8}>
++          <ZoneTactile onPress={onFinishCapture} style={{ marginVertical: debordement(28) }}>
 +            <Text className="font-semibold" style={{ fontSize: 12.5, color: GP.mustard }}>
 +              {t("nameCaptureFinish")}
              </Text>
 -          )}
-+          </Pressable>
++          </ZoneTactile>
          </View>
 -        <StatusBadge
 -          label={t(RSVP_STATUS_LABELS[guest.rsvpStatus as RsvpStatus] || "")}
@@ -1932,8 +2327,8 @@ index 399900f..298126c 100644
 +        <Pressable
 +          onPress={onOpenHouseholds ?? undefined}
 +          accessibilityRole="button"
-+          className="pb-1.5 active:opacity-60"
-+          style={{ marginLeft: GUEST_ROW_INDENT }}
++          className="active:opacity-60"
++          style={{ marginLeft: GUEST_ROW_INDENT, minHeight: CIBLE_TACTILE, justifyContent: "center" }}
 +        >
 +          <Text className="font-medium" style={{ fontSize: 11.5, color: GP.clay }} numberOfLines={1}>
 +            {t("household.remaining", { count: householdsToDo })}
@@ -1944,7 +2339,7 @@ index 399900f..298126c 100644
    );
  }
  
-@@ -105,27 +293,43 @@ function GuestCard({ guest, invitationTypeLabel }: { guest: Guest; invitationTyp
+@@ -105,27 +308,43 @@ function GuestCard({ guest, invitationTypeLabel }: { guest: Guest; invitationTyp
  
  function GuestsView() {
    const { t } = useTranslation("guests");
@@ -1998,7 +2393,7 @@ index 399900f..298126c 100644
  
    // Map invitationType id → label for display
    const typeLabels = useMemo(() => {
-@@ -150,6 +354,19 @@ function GuestsView() {
+@@ -150,6 +369,19 @@ function GuestsView() {
  
    const duplicateCount = useMemo(() => countDuplicateGuests(guests), [guests]);
  
@@ -2018,7 +2413,7 @@ index 399900f..298126c 100644
    const filteredGuests = useMemo(() => {
      return guests
        .filter((g) => {
-@@ -161,12 +378,13 @@ function GuestsView() {
+@@ -161,12 +393,13 @@ function GuestsView() {
            return false;
          }
          if (typeFilter !== "ALL" && g.invitationType !== typeFilter) return false;
@@ -2035,7 +2430,7 @@ index 399900f..298126c 100644
            );
          }
          return true;
-@@ -176,7 +394,85 @@ function GuestsView() {
+@@ -176,7 +409,85 @@ function GuestsView() {
            `${b.lastName}${b.firstName}`
          )
        );
@@ -2122,7 +2517,7 @@ index 399900f..298126c 100644
  
    const groupedGuests = useMemo(() => {
      if (groups.length === 0) return null;
-@@ -190,9 +486,12 @@ function GuestsView() {
+@@ -190,9 +501,12 @@ function GuestsView() {
      return { ungrouped, byGroup };
    }, [filteredGuests, groups]);
  
@@ -2137,7 +2532,7 @@ index 399900f..298126c 100644
        const next = new Set(prev);
        if (next.has(groupId)) next.delete(groupId);
        else next.add(groupId);
-@@ -200,60 +499,420 @@ function GuestsView() {
+@@ -200,60 +514,420 @@ function GuestsView() {
      });
    }, []);
  
@@ -2268,10 +2663,6 @@ index 399900f..298126c 100644
 +    if (pointer) {
 +      openQuickAdd();
 +      return;
-+    }
-+    if (!canAddGuest) {
-+      refuserAuQuota();
-+      return;
      }
 -    const items: GuestListItem[] = groupedGuests.ungrouped.map((guest) => ({ kind: "guest" as const, guest }));
 -    for (const { group, guests: gList } of groupedGuests.byGroup) {
@@ -2279,6 +2670,10 @@ index 399900f..298126c 100644
 -      items.push({ kind: "group-header", group, count: gList.length, collapsed });
 -      if (!collapsed) {
 -        for (const guest of gList) items.push({ kind: "guest", guest });
++    if (!canAddGuest) {
++      refuserAuQuota();
++      return;
++    }
 +    router.push({ pathname: "/(tabs)/guests/[id]", params: { id: "new" } });
 +  }, [pointer, openQuickAdd, canAddGuest, refuserAuQuota, router]);
 +
@@ -2588,7 +2983,7 @@ index 399900f..298126c 100644
    const rsvpTabs = [
      { key: "ALL", label: t("all"), count: counts.total },
      { key: "ACCEPTED", label: t("confirmed"), count: counts.accepted },
-@@ -272,10 +931,24 @@ function GuestsView() {
+@@ -272,10 +946,24 @@ function GuestsView() {
      return map;
    }, [guests]);
  
@@ -2613,13 +3008,14 @@ index 399900f..298126c 100644
    const listHeader = (
      <>
        {duplicateCount > 0 && (
-@@ -288,6 +961,16 @@ function GuestsView() {
+@@ -288,6 +976,17 @@ function GuestsView() {
            />
          </View>
        )}
 +      <Pressable
 +        onPress={() => router.push("/(tabs)/guests/recipients")}
 +        className="flex-row items-center justify-between px-4 pt-5 active:opacity-60"
++        style={{ minHeight: CIBLE_TACTILE }}
 +      >
 +        <Text className="text-sm font-semibold text-primary-500">
 +          {t("household.recipientCount", { count: recipientCount })}
@@ -2630,66 +3026,142 @@ index 399900f..298126c 100644
        <SearchBar
          value={search}
          onChangeText={setSearch}
-@@ -299,7 +982,7 @@ function GuestsView() {
+@@ -299,70 +998,153 @@ function GuestsView() {
        <ScrollView
          horizontal
          showsHorizontalScrollIndicator={false}
 -        className="mt-6 mb-10"
 +        className="mt-6 mb-4"
          style={{ flexGrow: 0 }}
-         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12, gap: 8, alignItems: "center" }}
+-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12, gap: 8, alignItems: "center" }}
++        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 6, gap: 8, alignItems: "center" }}
        >
-@@ -350,19 +1033,95 @@ function GuestsView() {
-             </Pressable>
+         {rsvpTabs.map((tab) => {
+           const isActive = tab.key === rsvpFilter;
+           return (
+-            <Pressable
++            <ZoneTactile
+               key={tab.key}
+               onPress={() => setRsvpFilter(tab.key)}
+-              className={`px-4 py-2 rounded-full border ${
+-                isActive
+-                  ? "bg-primary-500 border-primary-500"
+-                  : "bg-accent-card border-hair"
+-              }`}
++              accessibilityState={{ selected: isActive }}
+             >
+-              <Text
+-                className={`text-sm font-medium ${
+-                  isActive ? "text-white" : "text-mute"
++              <View
++                className={`px-4 py-2 rounded-full border ${
++                  isActive
++                    ? "bg-primary-500 border-primary-500"
++                    : "bg-accent-card border-hair"
+                 }`}
+               >
+-                {tab.label} ({tab.count})
+-              </Text>
+-            </Pressable>
++                <Text
++                  className={`text-sm font-medium ${
++                    isActive ? "text-white" : "text-mute"
++                  }`}
++                >
++                  {tab.label} ({tab.count})
++                </Text>
++              </View>
++            </ZoneTactile>
+           );
+         })}
+         <View className="w-px bg-hair my-1" />
+         {typeTabs.map((tab) => {
+           const isActive = tab.key === typeFilter;
+           return (
+-            <Pressable
++            <ZoneTactile
+               key={tab.key}
+               onPress={() => setTypeFilter(isActive ? "ALL" : tab.key)}
+-              className={`px-4 py-2 rounded-full border ${
+-                isActive
+-                  ? "border-primary-500 bg-primary-50 dark:bg-primary-900/30"
+-                  : "bg-accent-card border-hair"
+-              }`}
++              accessibilityState={{ selected: isActive }}
+             >
+-              <Text
+-                className={`text-sm font-medium ${
++              <View
++                className={`px-4 py-2 rounded-full border ${
+                   isActive
+-                    ? "text-primary-500"
+-                    : "text-mute"
++                    ? "border-primary-500 bg-primary-50 dark:bg-primary-900/30"
++                    : "bg-accent-card border-hair"
+                 }`}
+               >
+-                {tab.label} ({tab.count})
+-              </Text>
+-            </Pressable>
++                <Text
++                  className={`text-sm font-medium ${
++                    isActive
++                      ? "text-primary-500"
++                      : "text-mute"
++                  }`}
++                >
++                  {tab.label} ({tab.count})
++                </Text>
++              </View>
++            </ZoneTactile>
            );
          })}
 +
 +        {(childCount > 0 || childFilter) && (
-+          <Pressable
-+            onPress={() => setChildFilter(!childFilter)}
-+            className={`px-4 py-2 rounded-full border ${
-+              childFilter
-+                ? "border-primary-500 bg-primary-50 dark:bg-primary-900/30"
-+                : "bg-accent-card border-hair"
-+            }`}
-+          >
-+            <Text className={`text-sm font-medium ${childFilter ? "text-primary-500" : "text-mute"}`}>
-+              {t("child")} ({childCount})
-+            </Text>
-+          </Pressable>
++          <ZoneTactile onPress={() => setChildFilter(!childFilter)} accessibilityState={{ selected: childFilter }}>
++            <View
++              className={`px-4 py-2 rounded-full border ${
++                childFilter
++                  ? "border-primary-500 bg-primary-50 dark:bg-primary-900/30"
++                  : "bg-accent-card border-hair"
++              }`}
++            >
++              <Text className={`text-sm font-medium ${childFilter ? "text-primary-500" : "text-mute"}`}>
++                {t("child")} ({childCount})
++              </Text>
++            </View>
++          </ZoneTactile>
 +        )}
 +
 +        {groupedGuests && groupedGuests.byGroup.length > 1 && (
 +          <>
 +            <View className="w-px bg-hair my-1" />
-+            <Pressable
-+              onPress={toggleAllGroups}
-+              className="px-4 py-2 rounded-full border border-hair bg-accent-card"
-+            >
-+              <Text className="text-sm font-medium text-primary-500">
-+                {allExpanded
-+                  ? t("collapseAllGroups")
-+                  : `${t("expandAllGroups")} (${groupedGuests.byGroup.length})`}
-+              </Text>
-+            </Pressable>
++            <ZoneTactile onPress={toggleAllGroups}>
++              <View className="px-4 py-2 rounded-full border border-hair bg-accent-card">
++                <Text className="text-sm font-medium text-primary-500">
++                  {allExpanded
++                    ? t("collapseAllGroups")
++                    : `${t("expandAllGroups")} (${groupedGuests.byGroup.length})`}
++                </Text>
++              </View>
++            </ZoneTactile>
 +          </>
 +        )}
 +
 +        {canEditGuests && filteredIds.length > 0 && (
 +          <>
 +            <View className="w-px bg-hair my-1" />
-+            <Pressable
-+              onPress={toggleAllFiltered}
-+              className="px-4 py-2 rounded-full border border-hair bg-accent-card"
-+            >
-+              <Text className="text-sm font-medium text-primary-500">
-+                {allFilteredSelected
-+                  ? t("bulkDeselectAllFiltered")
-+                  : t("bulkSelectAllFiltered", {
-+                      count: filteredIds.length - visibleSelectedCount,
-+                    })}
-+              </Text>
-+            </Pressable>
++            <ZoneTactile onPress={toggleAllFiltered}>
++              <View className="px-4 py-2 rounded-full border border-hair bg-accent-card">
++                <Text className="text-sm font-medium text-primary-500">
++                  {allFilteredSelected
++                    ? t("bulkDeselectAllFiltered")
++                    : t("bulkSelectAllFiltered", {
++                        count: filteredIds.length - visibleSelectedCount,
++                      })}
++                </Text>
++              </View>
++            </ZoneTactile>
 +          </>
 +        )}
        </ScrollView>
@@ -2736,7 +3208,7 @@ index 399900f..298126c 100644
          <EmptyState
            icon={Users}
            title={t("noGuests")}
-@@ -374,10 +1133,15 @@ function GuestsView() {
+@@ -374,10 +1156,15 @@ function GuestsView() {
          />
        ) : (
          <LegendList
@@ -2753,17 +3225,16 @@ index 399900f..298126c 100644
            maintainVisibleContentPosition={false}
            style={{ flex: 1 }}
            showsVerticalScrollIndicator={false}
-@@ -388,13 +1152,123 @@ function GuestsView() {
+@@ -388,13 +1175,123 @@ function GuestsView() {
              </View>
            }
            ListFooterComponent={<View className="h-24" />}
 +          // L'ancre mesurée d'un menu serait fausse au pixel suivant.
 +          onScroll={cell ? closeCell : undefined}
 +          extraData={extraData}
-         />
-       )}
- 
--      {isWide && canEditGuests && <FAB onPress={handleAddGuest} locked={!canAddGuest} />}
++        />
++      )}
++
 +      {isWide && canEditGuests && selectedCount === 0 && (
 +        <FAB onPress={handleAddGuest} locked={!canAddGuest} />
 +      )}
@@ -2840,9 +3311,10 @@ index 399900f..298126c 100644
 +          hasPrev={adjacentGuestId(listData, recordId, "prev") !== null}
 +          hasNext={adjacentGuestId(listData, recordId, "next") !== null}
 +          onClose={() => setRecordId(null)}
-+        />
-+      )}
-+
+         />
+       )}
+ 
+-      {isWide && canEditGuests && <FAB onPress={handleAddGuest} locked={!canAddGuest} />}
 +      {pointer && quickAddOpen && quickAddContext && (
 +        <GuestQuickAddModal
 +          context={quickAddContext}
@@ -2880,10 +3352,10 @@ index 399900f..298126c 100644
  // (groups.tsx, table-management.tsx), reached via the header overflow menu.
 diff --git a/apps/mobile/app/(tabs)/guests/recipients.tsx b/apps/mobile/app/(tabs)/guests/recipients.tsx
 new file mode 100644
-index 0000000..51910a8
+index 0000000..dad262d
 --- /dev/null
 +++ b/apps/mobile/app/(tabs)/guests/recipients.tsx
-@@ -0,0 +1,185 @@
+@@ -0,0 +1,190 @@
 +import React, { useMemo, useState, useCallback } from "react";
 +import { View, Text, ScrollView, Pressable } from "react-native-css/components";
 +import { Stack, useRouter } from "expo-router";
@@ -2900,6 +3372,7 @@ index 0000000..51910a8
 +} from "@fiance/sdk";
 +import { useGuestsStore } from "@/store/useGuestsStore";
 +import { SearchBar } from "@/components/SearchBar";
++import { ZoneTactile } from "@/components/ZoneTactile";
 +import type { Guest } from "@/db/schema";
 +
 +const NO_CATEGORY = "__none__";
@@ -3024,22 +3497,26 @@ index 0000000..51910a8
 +          showsHorizontalScrollIndicator={false}
 +          className="mb-3"
 +          style={{ flexGrow: 0 }}
-+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8, gap: 8, alignItems: "center" }}
++          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 2, gap: 8, alignItems: "center" }}
 +        >
 +          {filters.map((f) => {
 +            const active = f.key === category;
 +            return (
-+              <Pressable
++              <ZoneTactile
 +                key={f.key}
 +                onPress={() => setCategory(active ? null : f.key)}
-+                className={`px-4 py-2 rounded-full border ${
-+                  active ? "border-primary-500 bg-primary-50 dark:bg-primary-900/30" : "bg-accent-card border-hair"
-+                }`}
++                accessibilityState={{ selected: active }}
 +              >
-+                <Text className={`text-sm font-medium ${active ? "text-primary-500" : "text-mute"}`}>
-+                  {f.label} ({f.count})
-+                </Text>
-+              </Pressable>
++                <View
++                  className={`px-4 py-2 rounded-full border ${
++                    active ? "border-primary-500 bg-primary-50 dark:bg-primary-900/30" : "bg-accent-card border-hair"
++                  }`}
++                >
++                  <Text className={`text-sm font-medium ${active ? "text-primary-500" : "text-mute"}`}>
++                    {f.label} ({f.count})
++                  </Text>
++                </View>
++              </ZoneTactile>
 +            );
 +          })}
 +        </ScrollView>
@@ -3071,7 +3548,7 @@ index 0000000..51910a8
 +}
 diff --git a/apps/mobile/components/GuestBulkBar.tsx b/apps/mobile/components/GuestBulkBar.tsx
 new file mode 100644
-index 0000000..2aceac7
+index 0000000..30a47ab
 --- /dev/null
 +++ b/apps/mobile/components/GuestBulkBar.tsx
 @@ -0,0 +1,287 @@
@@ -3082,6 +3559,8 @@ index 0000000..2aceac7
 +import { SheetScaffold } from "@fiance/ui/components";
 +import { InlineSelectMenu, type InlineSelectAnchor } from "@/components/InlineSelectMenu";
 +import { theme as GP } from "@/lib/theme";
++import { ZoneTactile } from "@/components/ZoneTactile";
++import { debordement } from "@/lib/cible-tactile";
 +import { RSVP_STATUS_LABELS, RSVP_STATUS_COLORS } from "@/db/types";
 +import type { RsvpStatus } from "@/db/types";
 +
@@ -3280,14 +3759,12 @@ index 0000000..2aceac7
 +              ) : (
 +                <View className="flex-1" />
 +              )}
-+              <Pressable
-+                onPress={onClear}
-+                className="flex-row items-center gap-1 px-2 py-1 rounded-full active:opacity-60"
-+                hitSlop={12}
-+              >
-+                <X size={14} color={GP.mute} />
-+                <Text className="text-xs font-medium text-mute">{t("bulkClearSelection")}</Text>
-+              </Pressable>
++              <ZoneTactile onPress={onClear} style={{ marginVertical: debordement(36) }}>
++                <View className="flex-row items-center gap-1 px-2 py-1 rounded-full">
++                  <X size={14} color={GP.mute} />
++                  <Text className="text-xs font-medium text-mute">{t("bulkClearSelection")}</Text>
++                </View>
++              </ZoneTactile>
 +            </View>
 +
 +            <ScrollView
@@ -3437,10 +3914,10 @@ index 0000000..e76f25d
 +}
 diff --git a/apps/mobile/components/HouseholdMemberPicker.tsx b/apps/mobile/components/HouseholdMemberPicker.tsx
 new file mode 100644
-index 0000000..1974ac4
+index 0000000..a4517ef
 --- /dev/null
 +++ b/apps/mobile/components/HouseholdMemberPicker.tsx
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,89 @@
 +import React, { useMemo, useState, useEffect } from "react";
 +import { View, Text, Pressable, TextInput, ScrollView } from "react-native-css/components";
 +import { Platform, useWindowDimensions } from "react-native";
@@ -3449,6 +3926,7 @@ index 0000000..1974ac4
 +import { Sheet } from "@fiance/ui/components";
 +import { formatGuestName, guestNameMatches } from "@fiance/sdk";
 +import { useGuestsStore } from "@/store/useGuestsStore";
++import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 +
 +export function HouseholdMemberPicker({
 +  visible,
@@ -3486,10 +3964,11 @@ index 0000000..1974ac4
 +        <Text className="text-lg font-bold text-ink mb-1">{t("household.addMember")}</Text>
 +        <Text className="text-sm text-mute mb-3">{t("household.addMemberExplain")}</Text>
 +
-+        <View className="flex-row items-center bg-accent-paper rounded-xl px-3 py-2 mb-3">
++        <View className="flex-row items-center bg-accent-paper rounded-xl px-3 mb-3">
 +          <Search size={16} color="#9CA3AF" />
 +          <TextInput
 +            className="flex-1 ml-2 text-base text-ink"
++            style={{ minHeight: CIBLE_TACTILE }}
 +            placeholder={t("household.searchGuest")}
 +            placeholderTextColor="#9CA3AF"
 +            value={search}
@@ -7248,7 +7727,7 @@ index 957ca64..69da1c4 100644
    });
  });
 diff --git a/apps/mobile/i18n/locales/fr/guests.json b/apps/mobile/i18n/locales/fr/guests.json
-index ae021bc..008ecfe 100644
+index ae021bc..bfa825e 100644
 --- a/apps/mobile/i18n/locales/fr/guests.json
 +++ b/apps/mobile/i18n/locales/fr/guests.json
 @@ -77,12 +77,12 @@
@@ -7266,7 +7745,7 @@ index ae021bc..008ecfe 100644
    "unassigned": "Non assigné",
    "dietLabel": "Régime alimentaire",
 diff --git a/apps/mobile/i18n/locales/fr/guests.json b/apps/mobile/i18n/locales/fr/guests.json
-index ae021bc..008ecfe 100644
+index ae021bc..bfa825e 100644
 --- a/apps/mobile/i18n/locales/fr/guests.json
 +++ b/apps/mobile/i18n/locales/fr/guests.json
 @@ -117,6 +117,7 @@
@@ -7278,10 +7757,10 @@ index ae021bc..008ecfe 100644
    "newTable": "Nouvelle table",
    "tableName": "Nom de la table",
 diff --git a/apps/mobile/i18n/locales/fr/guests.json b/apps/mobile/i18n/locales/fr/guests.json
-index ae021bc..008ecfe 100644
+index ae021bc..bfa825e 100644
 --- a/apps/mobile/i18n/locales/fr/guests.json
 +++ b/apps/mobile/i18n/locales/fr/guests.json
-@@ -264,5 +265,121 @@
+@@ -264,5 +272,122 @@
      "deleteConstraint": "Supprimer cette contrainte ?",
      "deleteConstraintMsg": "Cette action est irréversible."
    },
@@ -7360,6 +7839,7 @@ index ae021bc..008ecfe 100644
 +    "splitSelected_one": "Faire passer {{count}} membre dans un foyer à part",
 +    "splitSelected_other": "Faire passer {{count}} membres dans un foyer à part",
 +    "remove": "Supprimer ce foyer",
++    "detach": "Retirer du foyer",
 +    "removeExplain": "Ses membres restent dans la liste d'invités, sans foyer. L'adresse et l'intitulé du foyer disparaissent.",
 +    "gone": "Ce foyer n'existe plus."
 +  },
@@ -7405,7 +7885,7 @@ index ae021bc..008ecfe 100644
 +  }
  }
 diff --git a/apps/mobile/i18n/locales/en/guests.json b/apps/mobile/i18n/locales/en/guests.json
-index cf84921..ac8a9ed 100644
+index cf84921..e15dd6a 100644
 --- a/apps/mobile/i18n/locales/en/guests.json
 +++ b/apps/mobile/i18n/locales/en/guests.json
 @@ -77,12 +77,12 @@
@@ -7423,7 +7903,7 @@ index cf84921..ac8a9ed 100644
    "unassigned": "Unassigned",
    "dietLabel": "Dietary requirements",
 diff --git a/apps/mobile/i18n/locales/en/guests.json b/apps/mobile/i18n/locales/en/guests.json
-index cf84921..ac8a9ed 100644
+index cf84921..e15dd6a 100644
 --- a/apps/mobile/i18n/locales/en/guests.json
 +++ b/apps/mobile/i18n/locales/en/guests.json
 @@ -117,6 +117,7 @@
@@ -7435,10 +7915,10 @@ index cf84921..ac8a9ed 100644
    "newTable": "New table",
    "tableName": "Table name",
 diff --git a/apps/mobile/i18n/locales/en/guests.json b/apps/mobile/i18n/locales/en/guests.json
-index cf84921..ac8a9ed 100644
+index cf84921..e15dd6a 100644
 --- a/apps/mobile/i18n/locales/en/guests.json
 +++ b/apps/mobile/i18n/locales/en/guests.json
-@@ -264,5 +265,121 @@
+@@ -264,5 +272,122 @@
      "deleteConstraint": "Delete this constraint?",
      "deleteConstraintMsg": "This action cannot be undone."
    },
@@ -7517,6 +7997,7 @@ index cf84921..ac8a9ed 100644
 +    "splitSelected_one": "Move {{count}} member into a separate household",
 +    "splitSelected_other": "Move {{count}} members into a separate household",
 +    "remove": "Delete this household",
++    "detach": "Remove from household",
 +    "removeExplain": "Its members stay in the guest list, without a household. The household's address and label are removed.",
 +    "gone": "This household no longer exists."
 +  },

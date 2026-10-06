@@ -2074,17 +2074,73 @@ index 0000000..14239ae
 +  });
 +});
 diff --git a/apps/mobile/app/settings/_layout.tsx b/apps/mobile/app/settings/_layout.tsx
-index f9758e4..a855a0e 100644
+index f9758e4..2953b9a 100644
 --- a/apps/mobile/app/settings/_layout.tsx
 +++ b/apps/mobile/app/settings/_layout.tsx
-@@ -35,6 +35,7 @@ export default function SettingsLayout() {
-             ),
+@@ -1,14 +1,13 @@
+ import React from "react";
+-import { Pressable, useColorScheme } from "react-native";
+-import { Stack, useRouter } from "expo-router";
++import { useColorScheme } from "react-native";
++import { Stack } from "expo-router";
+ import { useTranslation } from "react-i18next";
+-import { ChevronLeft } from "lucide-react-native";
+ import { useSettingsStore } from "@/store/useSettingsStore";
+ import { DesktopShell } from "@/components/DesktopShell";
++import { BoutonRetour } from "@/components/BoutonRetour";
+ import { useIsWideScreen } from "@/lib/useIsWideScreen";
+ export default function SettingsLayout() {
+   const { t } = useTranslation("settings");
+-  const router = useRouter();
+   const appColorScheme = useSettingsStore((s) => s.colorScheme);
+   const systemScheme = useColorScheme();
+   const isDark = appColorScheme === "dark" || (appColorScheme === "system" && systemScheme === "dark");
+@@ -21,6 +20,7 @@ export default function SettingsLayout() {
+           headerStyle: { backgroundColor: isDark ? "#111827" : "#FFFFFF" },
+           headerTintColor: tintColor,
+           headerTitleStyle: { fontWeight: "600" },
++          headerLeft: () => <BoutonRetour repli="/settings" couleur={tintColor} />,
+         }}
+       >
+         <Stack.Screen
+@@ -28,13 +28,10 @@ export default function SettingsLayout() {
+           options={{
+             title: t("settingsTitle"),
+             headerShown: !isWide,
+-            headerLeft: () => (
+-              <Pressable onPress={() => router.back()} style={{ padding: 4, marginLeft: -4 }}>
+-                <ChevronLeft size={24} color={tintColor} />
+-              </Pressable>
+-            ),
++            headerLeft: () => <BoutonRetour repli="/home" couleur={tintColor} />,
            }}
          />
 +        <Stack.Screen name="compte" options={{ title: t("compte.titre") }} />
          <Stack.Screen name="public-page" options={{ title: t("publicPageTitle") }} />
          <Stack.Screen name="roles" options={{ title: t("rolesTitle") }} />
          <Stack.Screen name="event-photos" options={{ title: t("eventPhotosTitle") }} />
+@@ -42,20 +39,7 @@ export default function SettingsLayout() {
+         <Stack.Screen name="gifts" options={{ title: t("giftRegistry") }} />
+         <Stack.Screen name="documents" options={{ title: t("documentsTitle") }} />
+         <Stack.Screen name="export-import" options={{ title: t("exportImportTitle") }} />
+-        <Stack.Screen
+-          name="import-external"
+-          options={{
+-            title: t("importExternalTitle"),
+-            headerLeft: () => (
+-              <Pressable
+-                onPress={() => (router.canGoBack() ? router.back() : router.replace("/settings"))}
+-                style={{ padding: 4, marginLeft: -4 }}
+-              >
+-                <ChevronLeft size={24} color={tintColor} />
+-              </Pressable>
+-            ),
+-          }}
+-        />
++        <Stack.Screen name="import-external" options={{ title: t("importExternalTitle") }} />
+         <Stack.Screen name="import-file" options={{ title: t("importFileTitle") }} />
+         <Stack.Screen name="premium" options={{ title: t("premiumTitle") }} />
+       </Stack>
 diff --git a/apps/mobile/app/settings/compte.tsx b/apps/mobile/app/settings/compte.tsx
 new file mode 100644
 index 0000000..1b0743c
@@ -4271,15 +4327,26 @@ index f268d6a..74508df 100644
 +  return suite;
  }
 diff --git a/apps/mobile/public/sw.js b/apps/mobile/public/sw.js
-index 6c1704c..8830065 100644
+index 6c1704c..347d3eb 100644
 --- a/apps/mobile/public/sw.js
 +++ b/apps/mobile/public/sw.js
-@@ -1,4 +1,4 @@
+@@ -1,5 +1,5 @@
 -const CACHE_NAME = "fiance-v3";
-+const CACHE_NAME = "fiance-v4";
- const PRECACHE = ["/", "/manifest.json"];
+-const PRECACHE = ["/", "/manifest.json"];
++const CACHE_NAME = "fiance-v5";
++const PRECACHE = ["/home", "/manifest.json"];
  
  self.addEventListener("install", (e) => {
+   e.waitUntil(
+@@ -29,7 +29,7 @@ self.addEventListener("fetch", (e) => {
+   // shell only when offline.
+   if (request.mode === "navigate") {
+     e.respondWith(
+-      fetch(request).catch(async () => (await caches.match("/")) ?? Response.error())
++      fetch(request).catch(async () => (await caches.match("/home")) ?? Response.error())
+     );
+     return;
+   }
 @@ -39,6 +39,9 @@ self.addEventListener("fetch", (e) => {
    // whose response hash must never be served stale (causes CAS 409 loops).
    const url = new URL(request.url);
@@ -4375,10 +4442,10 @@ index 0000000..253d12d
 +  poser: (enCours) => set({ enCours }),
 +}));
 diff --git a/apps/mobile/lib/invite-link.ts b/apps/mobile/lib/invite-link.ts
-index 8c90fdb..86969ce 100644
+index 8c90fdb..25442bb 100644
 --- a/apps/mobile/lib/invite-link.ts
 +++ b/apps/mobile/lib/invite-link.ts
-@@ -71,6 +147,7 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
+@@ -71,6 +165,7 @@ export async function createInviteLink(entry: WeddingRegistryEntry, roleId?: str
    // Publish the snapshot (incl. the new assignment) so the invite never points a
    // member at a contentless space and their role resolves on first hydrate.
    await pushSpaceSnapshot(cfg.session, spaceId, entry.weddingNodeId ?? entry.id);
@@ -4387,7 +4454,7 @@ index 8c90fdb..86969ce 100644
    // Diagnostics for the "member joins but sees no data" (objdoc 403) bug: a link invitee
    // only earns space:member if its ephemeral subUserId is in the server _access roster.
 diff --git a/apps/mobile/components/InviteQRSheet.tsx b/apps/mobile/components/InviteQRSheet.tsx
-index 07ec918..f5ad5cb 100644
+index 07ec918..c386e80 100644
 --- a/apps/mobile/components/InviteQRSheet.tsx
 +++ b/apps/mobile/components/InviteQRSheet.tsx
 @@ -1,10 +1,11 @@

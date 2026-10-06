@@ -62,7 +62,7 @@ index 0000000..b435778
 +  });
 +});
 diff --git a/apps/mobile/app/_layout.tsx b/apps/mobile/app/_layout.tsx
-index 9007e8d..02fa282 100644
+index 9007e8d..e5e5164 100644
 --- a/apps/mobile/app/_layout.tsx
 +++ b/apps/mobile/app/_layout.tsx
 @@ -1,3 +1,7 @@
@@ -73,7 +73,7 @@ index 9007e8d..02fa282 100644
  import "react-native-get-random-values";
  import "../global.css";
  import "@/i18n";
-@@ -51,20 +55,34 @@ import { useSettingsStore } from "@/store/useSettingsStore";
+@@ -51,20 +55,36 @@ import { useSettingsStore } from "@/store/useSettingsStore";
  import { Toaster } from "@/lib/toast/sonner";
  import { TelemetryProvider, useTelemetryScreenTracking } from "@drakkar.software/dk-spaces-analytics-sdk";
  import { analytics, initAnalytics } from "@/lib/analytics";
@@ -99,6 +99,8 @@ index 9007e8d..02fa282 100644
  import { ObserveRoot, useObserve } from "expo-observe";
 +// MODIFICATION LOCALE — l'indicateur de chargement du prérendu.
 +import { masquerIndicateurDeChargement } from "@/lib/indicateur-de-chargement";
++// MODIFICATION LOCALE — le suivi des routes qui décide du retour (`lib/revenir.ts`).
++import { SuiviDeNavigation } from "@/components/SuiviDeNavigation";
  
  // Configure octospaces-sdk at module load so deriveSession/buildSession are
  // available before any screen renders (home, settings, public-page all call
@@ -110,7 +112,7 @@ index 9007e8d..02fa282 100644
  
  
  // Hosts every per-wedding side-effect initializer (sync, notifications, RevenueCat,
-@@ -80,7 +98,29 @@ function ActiveWeddingRuntime({ wedding }: { wedding: WeddingRegistryEntry }) {
+@@ -80,7 +100,29 @@ function ActiveWeddingRuntime({ wedding }: { wedding: WeddingRegistryEntry }) {
      <>
        <SyncInitializer wedding={wedding} />
        <NotificationInitializer />
@@ -141,7 +143,7 @@ index 9007e8d..02fa282 100644
        <WeddingPremiumInitializer wedding={wedding} />
        <WidgetInitializer />
      </>
-@@ -92,12 +132,18 @@ function AppContent() {
+@@ -92,12 +134,18 @@ function AppContent() {
    const isLoaded = useWeddingRegistryStore((s) => s.isLoaded);
    const segments = useSegments();
    const router = useRouter();
@@ -161,7 +163,7 @@ index 9007e8d..02fa282 100644
  
    // Redirect to /onboarding when no wedding — skip on onboarding/join routes.
    useEffect(() => {
-@@ -111,11 +157,11 @@ function AppContent() {
+@@ -111,11 +159,11 @@ function AppContent() {
    // after (tabs)/_layout re-renders and mounts DatabaseProvider, guaranteeing the
    // DB context is available before home.tsx renders.
    useEffect(() => {
@@ -175,7 +177,7 @@ index 9007e8d..02fa282 100644
  
    // Public wedding page — always reachable, no auth required
    if (isPublicPage) {
-@@ -148,7 +194,10 @@ function AppContent() {
+@@ -148,7 +196,10 @@ function AppContent() {
      <DatabaseProvider dbFileName={activeWedding?.dbFileName}>
        {activeWedding && <ActiveWeddingRuntime wedding={activeWedding} />}
        <View style={{ flex: 1 }}>
@@ -186,7 +188,7 @@ index 9007e8d..02fa282 100644
          <View style={{ flex: 1 }}>
            <Stack screenOptions={{ headerShown: false }}>
              <Stack.Screen name="onboarding" />
-@@ -160,7 +209,21 @@ function AppContent() {
+@@ -160,7 +211,21 @@ function AppContent() {
            </Stack>
          </View>
          {activeWedding && <OfflineBanner />}
@@ -209,7 +211,15 @@ index 9007e8d..02fa282 100644
        </View>
      </DatabaseProvider>
    );
-@@ -225,6 +288,7 @@ function RootLayout() {
+@@ -178,6 +243,7 @@ function InnerApp() {
+   }, [markInteractive]);
+   return (
+     <PaywallProvider>
++      <SuiviDeNavigation />
+       <AppContent />
+       <Toaster />
+     </PaywallProvider>
+@@ -225,6 +291,7 @@ function RootLayout() {
  
    useEffect(() => {
      loadRegistry();
@@ -217,7 +227,7 @@ index 9007e8d..02fa282 100644
      initAnalytics().catch(console.error);
      loadFeatureTrials();
      Promise.all([loadLanguage(), loadNotifications(), loadColorScheme(), isLockEnabled()]).then(
-@@ -252,6 +316,14 @@ function RootLayout() {
+@@ -252,6 +319,14 @@ function RootLayout() {
  
    const handleUnlock = useCallback(() => setLocked(false), []);
  
