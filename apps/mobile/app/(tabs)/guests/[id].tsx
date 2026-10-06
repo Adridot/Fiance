@@ -612,12 +612,20 @@ export default function GuestDetailScreen() {
             {householdName(resolved?.household ?? null, members)}
           </Text>
           {members.map((m) => (
-            <View key={m.id} className="flex-row items-center justify-between py-2 border-b border-hair">
+            <View
+              key={m.id}
+              className="flex-row items-center justify-between border-b border-hair"
+              style={{ minHeight: CIBLE_TACTILE }}
+            >
               <Text className="text-sm text-ink">{formatGuestName(m)}</Text>
               {m.id !== id && canEdit && (
-                <Pressable onPress={() => detachFromHousehold([m.id])}>
+                <BoutonIcone
+                  libelle={`${t("household.detach")} ${formatGuestName(m)}`}
+                  onPress={() => detachFromHousehold([m.id])}
+                  empreinte={CIBLE_TACTILE}
+                >
                   <XCircle size={16} color="#9CA3AF" />
-                </Pressable>
+                </BoutonIcone>
               )}
             </View>
           ))}
