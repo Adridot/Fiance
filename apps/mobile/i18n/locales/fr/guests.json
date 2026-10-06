@@ -251,7 +251,8 @@
     "deleteRole": "Supprimer ce rôle ?",
     "deleteRoleMsg": "Cette action est irréversible. Les invités portant ce rôle ne le porteront plus.",
     "noRolesYet": "Aucun rôle n'a encore été créé.",
-    "manageRoles": "Gérer les rôles"
+    "manageRoles": "Gérer les rôles",
+    "unassignRole": "Retirer le rôle"
   },
   "seatingConstraints": {
     "title": "Contraintes de placement",

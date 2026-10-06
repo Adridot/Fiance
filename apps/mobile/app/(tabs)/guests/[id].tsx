@@ -87,6 +87,9 @@ import { HorizontalChipSelect } from "@/components/HorizontalChipSelect";
 import { StatusSelector } from "@/components/StatusSelector";
 import { PageHeader } from "@/components/PageHeader";
 import { Seal } from "@/components/Seal";
+import { BoutonIcone } from "@/components/BoutonIcone";
+import { ZoneTactile } from "@/components/ZoneTactile";
+import { CIBLE_TACTILE } from "@/lib/cible-tactile";
 import type { Guest } from "@/db/schema";
 
 const RSVP_STATUSES: RsvpStatus[] = ["PENDING", "ACCEPTED", "DECLINED", "MAYBE"];
@@ -412,7 +415,8 @@ export default function GuestDetailScreen() {
         {guestRoles.length > 0 && (
           <Pressable
             onPress={() => setActiveSheet("role")}
-            className="flex-row flex-wrap gap-1.5 mb-4"
+            className="flex-row flex-wrap gap-1.5"
+            style={{ paddingVertical: 10, marginTop: -10, marginBottom: 6 }}
           >
             {guestRoles.map((r) => (
               <View key={r.id} className="px-2.5 py-1 rounded-full bg-accent-clay-soft dark:bg-primary-900">
@@ -679,26 +683,33 @@ export default function GuestDetailScreen() {
           {guestRoles.length > 0 && (
             <View className="mb-3">
               {guestRoles.map((r) => (
-                <View key={r.id} className="flex-row items-center justify-between py-2 border-b border-hair">
+                <View
+                  key={r.id}
+                  className="flex-row items-center justify-between border-b border-hair"
+                  style={{ minHeight: CIBLE_TACTILE }}
+                >
                   <Text className="text-sm text-ink">{roleName(r)}</Text>
-                  <Pressable onPress={() => removeRoleAssignment(r.id)}>
+                  <BoutonIcone
+                    libelle={`${t("weddingParty.unassignRole")} ${roleName(r)}`}
+                    onPress={() => removeRoleAssignment(r.id)}
+                    empreinte={CIBLE_TACTILE}
+                  >
                     <XCircle size={16} color="#9CA3AF" />
-                  </Pressable>
+                  </BoutonIcone>
                 </View>
               ))}
             </View>
           )}
           {weddingRoles.length === 0 ? (
-            <Pressable
+            <ZoneTactile
               onPress={() => {
                 setActiveSheet(null);
                 router.push("/(tabs)/guests/wedding-party");
               }}
-              className="active:opacity-60"
             >
               <Text className="text-xs text-mute mb-1">{t("weddingParty.noRolesYet")}</Text>
               <Text className="text-xs text-primary-500 font-medium">{t("weddingParty.manageRoles")}</Text>
-            </Pressable>
+            </ZoneTactile>
           ) : (
             <>
               <Text className="text-xs text-mute mb-2 font-medium">{t("weddingParty.addRole")}</Text>
@@ -721,15 +732,14 @@ export default function GuestDetailScreen() {
                   analytics.capture("wedding_role_assigned");
                 }}
               />
-              <Pressable
+              <ZoneTactile
                 onPress={() => {
                   setActiveSheet(null);
                   router.push("/(tabs)/guests/wedding-party");
                 }}
-                className="mt-3 active:opacity-60"
               >
                 <Text className="text-xs text-primary-500 font-medium">{t("weddingParty.manageRoles")}</Text>
-              </Pressable>
+              </ZoneTactile>
             </>
           )}
         </GuestSheet>
