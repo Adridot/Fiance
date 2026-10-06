@@ -12,7 +12,7 @@ const manifest = {
   name: seo.manifestName,
   short_name: "Fiancé",
   description: seo.manifestDescription,
-  start_url: "/",
+  start_url: "/home",
   scope: "/",
   display: "standalone",
   orientation: "portrait",
