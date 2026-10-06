@@ -919,15 +919,14 @@ export default function GuestDetailScreen() {
             ) : (
               <Text className="text-xs text-mute mb-2">{t("sections.constraintsEmpty")}</Text>
             )}
-            <Pressable
+            <ZoneTactile
               onPress={() => {
                 setActiveSheet(null);
                 router.push("/(tabs)/guests/seating-constraints");
               }}
-              className="mt-2 active:opacity-60"
             >
               <Text className="text-xs text-primary-500 font-medium">{t("sections.manageConstraints")}</Text>
-            </Pressable>
+            </ZoneTactile>
           </>
         )}
       </GuestSheet>
@@ -1003,6 +1002,7 @@ export default function GuestDetailScreen() {
           <Pressable
             onPress={() => { setActiveSheet(null); router.push("/(tabs)/guests/accommodations"); }}
             className="flex-row items-center gap-1.5 active:opacity-60"
+            style={{ minHeight: CIBLE_TACTILE }}
           >
             <BedDouble size={14} color="#9CA3AF" />
             <Text className="text-xs text-mute dark:text-mute">
