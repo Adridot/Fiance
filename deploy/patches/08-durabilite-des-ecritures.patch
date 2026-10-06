@@ -42,7 +42,7 @@ index 0000000..aa55ed7
 +  },
 +});
 diff --git a/apps/mobile/lib/providers.tsx b/apps/mobile/lib/providers.tsx
-index c407a2d..fc247b7 100644
+index c407a2d..32a3322 100644
 --- a/apps/mobile/lib/providers.tsx
 +++ b/apps/mobile/lib/providers.tsx
 @@ -14,6 +14,7 @@ import { configureStarfishPlatform, kvGet, kvSet, kvRemove } from "@drakkar.soft
@@ -192,7 +192,23 @@ index c407a2d..fc247b7 100644
        // Real-time push: subscribe to server-sent events for this space so a peer's
        // change triggers a pull without waiting for foreground/backgrounding. Opened
        // before the hydrate/push awaits below (it needs only session/spaceId, already
-@@ -204,7 +282,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+@@ -194,8 +272,13 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+           },
+           {
+             spaces: [spaceId],
+-            authHeaders: (method, pathAndQuery) =>
+-              buildAuthHeaders(session.contentCap, session.keys.edPriv, method, pathAndQuery),
++            // Mêmes cap et clé que les lectures (resolveEntryClient) : seul le sujet inscrit dans `_access` est abonné.
++            authHeaders: (method, pathAndQuery) => {
++              const accès = getSpaceAccessEntry(spaceId);
++              if (accès?.kind === "link") return buildAuthHeaders(accès.cap, accès.key, method, pathAndQuery);
++              const cap = accès?.kind === "member" ? JSON.parse(accès.cap) : session.contentCap;
++              return buildAuthHeaders(cap, session.keys.edPriv, method, pathAndQuery);
++            },
+           },
+         );
+       }
+@@ -204,7 +287,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
        // recoverSpaceAccess + discoverOwnerWeddingRoot run inside activateSync (above),
        // so the adopted weddingNodeId is already in effect via getActiveWeddingNodeId().
        if (!cancelled) {
@@ -201,7 +217,7 @@ index c407a2d..fc247b7 100644
            console.warn("[providers] hydrateFromSpace failed:", err);
            return -1;
          });
-@@ -219,6 +297,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+@@ -219,6 +302,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
          if (
            !cancelled &&
            wedding.role !== "member" &&
@@ -209,7 +225,7 @@ index c407a2d..fc247b7 100644
            useWeddingStore.getState().wedding &&
            (nodeCount === 0 || hydrateSawLegacyNodes())
          ) {
-@@ -226,10 +305,20 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+@@ -226,10 +310,20 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
              console.warn("[providers] migration push failed:", err);
            });
          }
@@ -232,7 +248,7 @@ index c407a2d..fc247b7 100644
  
        // B5: ensure the publicPage node exists in the space.
        // Retried with backoff: pull errors and transient 409s are common on first
-@@ -256,7 +345,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+@@ -256,7 +350,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
        // live immediately after creation. Owner-only: a member's first sync must never
        // push its local (possibly stale/empty) snapshot over the owner's real content
        // (mirrors the wedding.role !== "member" guard on pushSpaceSnapshot above).
@@ -241,7 +257,7 @@ index c407a2d..fc247b7 100644
          await pushPublicPageContent(session, spaceId, publicPageNodeId(weddingNodeId)).catch(
            (err) => console.warn("[providers] initial public page push failed:", err),
          );
-@@ -272,8 +361,40 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+@@ -272,8 +366,40 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
      })().catch((err) => console.warn("[providers] sync init failed:", err));
  
      // Re-pull entitlements on foreground.
@@ -282,7 +298,7 @@ index c407a2d..fc247b7 100644
        pullEntitlements(null, resolvedUserId)
          .then((features) => {
            if (features.length > 0) useEntitlementsStore.getState().setFeatures(features);
-@@ -310,10 +431,11 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+@@ -310,10 +436,11 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
      return () => {
        cancelled = true;
        foregroundSub.remove();
@@ -295,7 +311,7 @@ index c407a2d..fc247b7 100644
  
    // Re-push public page when day-of items or wedding info change (B5).
    // Debounced: collapses rapid per-keystroke changes into one network push.
-@@ -321,7 +443,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
+@@ -321,7 +448,7 @@ export function SyncInitializer({ wedding }: { wedding: WeddingRegistryEntry })
      function pushPublicPageContentIfActive() {
        // The bootstrap push above guards itself to the owner; this re-push had none,
        // so a member tab overwrote the owner's public page on every hydration.

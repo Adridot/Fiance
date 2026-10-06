@@ -1,8 +1,8 @@
 diff --git a/.gitignore b/.gitignore
-index 2c56282..c02cce1 100644
+index 2c56282..63c4c40 100644
 --- a/.gitignore
 +++ b/.gitignore
-@@ -33,3 +33,13 @@ ios/
+@@ -33,3 +33,15 @@ ios/
  
  *.xlsx
  *.crash
@@ -16,3 +16,5 @@ index 2c56282..c02cce1 100644
 +apps/mobile/dist.new/
 +apps/mobile/dist.e2e/
 +.smoke.mjs
++# Added by code-review-graph
++.code-review-graph/
